@@ -23170,8 +23170,6 @@ struct TosStorageConfig {
     public_base_url: Option<String>,
     is_custom_domain: bool,
     restrict_to_key_prefix: bool,
-    proxy_host: Option<String>,
-    proxy_port: Option<isize>,
 }
 
 fn tos_config_string(config: &Value, key: &str) -> String {
@@ -23282,7 +23280,6 @@ fn load_tos_config() -> TosStorageConfig {
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let (endpoint, endpoint_protocol) = normalize_endpoint(&tos_config_string(&config, "endpoint"));
-    let proxy = resolve_tos_proxy_config();
     let enabled_flag = config
         .get("enabled")
         .and_then(Value::as_bool)
@@ -23306,8 +23303,6 @@ fn load_tos_config() -> TosStorageConfig {
         public_base_url,
         is_custom_domain,
         restrict_to_key_prefix,
-        proxy_host: proxy.as_ref().map(|value| value.host.clone()),
-        proxy_port: proxy.as_ref().map(|value| value.port),
     }
 }
 
@@ -23436,11 +23431,6 @@ pub(super) async fn api_tos_files(
             .is_custom_domain(query_config.is_custom_domain);
         if let Some(token) = &query_config.security_token {
             builder = builder.security_token(token.clone());
-        }
-        if let (Some(proxy_host), Some(proxy_port)) =
-            (&query_config.proxy_host, query_config.proxy_port)
-        {
-            builder = builder.proxy_host(proxy_host.clone()).proxy_port(proxy_port);
         }
         let client = builder.build().map_err(|error| error.to_string())?;
 

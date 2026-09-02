@@ -157,6 +157,7 @@ pub(super) async fn api_tools_douyin_preview(
     }
 
     let client = Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(120))
         .build()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -315,6 +316,7 @@ async fn fetch_douyin_profile(input: &str) -> Result<DouyinProfile, ApiError> {
     let api_url = format!("{}?{}&a_bogus={}", DOUYIN_DETAIL_URL, query_params, a_bogus);
     let referer = real_url.clone();
     let client = Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -395,6 +397,7 @@ async fn fetch_douyin_share_detail(aweme_id: &str) -> Result<Value, ApiError> {
     let url =
         format!("https://www.iesdouyin.com/share/video/{aweme_id}/?region=CN&from=web_code_link");
     let client = Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -444,6 +447,7 @@ fn parse_douyin_share_detail(html: &str) -> Option<Value> {
 
 async fn fetch_douyin_redirect_url(url: &str) -> Result<String, ApiError> {
     let client = Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(20))
         .redirect(Policy::none())
         .build()
@@ -493,6 +497,7 @@ async fn fetch_douyin_redirect_url(url: &str) -> Result<String, ApiError> {
 
 async fn download_douyin_video(video_url: &str, target_path: &FsPath) -> Result<(), ApiError> {
     let client = Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(180))
         .build()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -530,6 +535,7 @@ async fn download_douyin_images(
     target_path: &FsPath,
 ) -> Result<(), ApiError> {
     let client = Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(180))
         .build()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -592,6 +598,7 @@ async fn download_douyin_image(
     image_index: usize,
 ) -> Result<(), ApiError> {
     let client = Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(180))
         .build()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;

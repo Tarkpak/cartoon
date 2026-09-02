@@ -265,6 +265,7 @@ async fn fetch_wx_channels_profile(
 
 async fn parse_share_url(share_url: &str, cookie: &str) -> Result<Value, ApiError> {
     let client = Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -316,6 +317,7 @@ async fn parse_share_url(share_url: &str, cookie: &str) -> Result<Value, ApiErro
 
 async fn get_feed_info(export_id: &str, general_token: &str) -> Result<Value, ApiError> {
     let client = Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -372,6 +374,7 @@ async fn get_feed_info(export_id: &str, general_token: &str) -> Result<Value, Ap
 
 async fn download_video(video_url: &str, target_path: &FsPath) -> Result<(), ApiError> {
     let client = Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(180))
         .build()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;

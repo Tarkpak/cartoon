@@ -361,7 +361,12 @@ pub async fn install_ffmpeg(app: AppHandle) -> Result<FfmpegStatus, String> {
             .map_err(|error| format!("清理旧临时目录失败: {}", error))?;
     }
 
-    let response = reqwest::get(download_url)
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .map_err(|error| format!("创建下载客户端失败: {error}"))?
+        .get(download_url)
+        .send()
         .await
         .map_err(|error| format!("下载 FFmpeg 失败: {}", error))?;
     let response = response

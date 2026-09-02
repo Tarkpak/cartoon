@@ -758,6 +758,7 @@ fn http_client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         Client::builder()
+            .no_proxy()
             .timeout(Duration::from_secs(20))
             .redirect(reqwest::redirect::Policy::limited(5))
             // Bun's HTTP server may close a keep-alive connection after the
@@ -772,6 +773,7 @@ fn cloud_data_http_client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         Client::builder()
+            .no_proxy()
             .timeout(Duration::from_secs(120))
             .http1_only()
             .redirect(reqwest::redirect::Policy::limited(5))
@@ -793,6 +795,7 @@ fn llm_http_client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         Client::builder()
+            .no_proxy()
             .default_headers(llm_default_headers())
             .redirect(reqwest::redirect::Policy::limited(5))
             .build()
@@ -1120,7 +1123,8 @@ fn claim_legacy_projects(
 
     conn.execute(
         "UPDATE projects
-         SET owner_user_id = ?1, owner_account = ?2, owner_display_name = ?3
+         SET owner_user_id = ?1, owner_account = ?2, owner_display_name = ?3,
+             cloud_sync_status = 'pending', cloud_sync_error = NULL
          WHERE owner_user_id IS NULL OR trim(owner_user_id) = ''",
         params![
             owner.user_id.as_str(),
@@ -2392,14 +2396,6 @@ struct BackendTosStorageConfig {
     upload_key_prefix: Option<String>,
     public_base_url: Option<String>,
     is_custom_domain: bool,
-    proxy_host: Option<String>,
-    proxy_port: Option<isize>,
-}
-
-#[derive(Clone, Debug)]
-struct TosProxyConfig {
-    host: String,
-    port: isize,
 }
 
 fn tos_config_text(config: &Value, key: &str) -> String {
@@ -2539,113 +2535,6 @@ fn normalize_tos_endpoint(raw: &str) -> (String, String) {
     (trim_tos_slashes(trimmed), "https".to_string())
 }
 
-fn normalize_tos_proxy(raw: &str) -> Option<TosProxyConfig> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let without_scheme = trimmed
-        .strip_prefix("http://")
-        .or_else(|| trimmed.strip_prefix("https://"))
-        .unwrap_or(trimmed);
-    let host_port = without_scheme
-        .split(';')
-        .find(|part| {
-            let normalized = part.trim().to_ascii_lowercase();
-            !normalized.starts_with("socks=")
-                && !normalized.starts_with("ftp=")
-                && !normalized.starts_with("https=")
-        })
-        .or_else(|| {
-            without_scheme.split(';').find_map(|part| {
-                part.trim()
-                    .strip_prefix("http=")
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-            })
-        })
-        .unwrap_or(without_scheme)
-        .trim()
-        .strip_prefix("http=")
-        .unwrap_or(without_scheme.trim())
-        .trim();
-    let (host, port_raw) = host_port.rsplit_once(':')?;
-    let port = port_raw.trim().parse::<isize>().ok()?;
-    let host = host.trim().trim_matches('/').to_string();
-    if host.is_empty() || port <= 0 || port > 65535 {
-        return None;
-    }
-    Some(TosProxyConfig { host, port })
-}
-
-#[cfg(any(target_os = "windows", test))]
-fn windows_registry_value(output: &[u8], value_name: &str) -> Option<String> {
-    let text = String::from_utf8_lossy(output);
-    text.lines().find_map(|line| {
-        let mut parts = line.split_whitespace();
-        let name = parts.next()?;
-        if !name.eq_ignore_ascii_case(value_name) {
-            return None;
-        }
-        parts.next()?;
-        parts.next().map(str::to_string)
-    })
-}
-
-#[cfg(any(target_os = "windows", test))]
-fn windows_proxy_is_enabled(output: &[u8]) -> bool {
-    let Some(raw) = windows_registry_value(output, "ProxyEnable") else {
-        return false;
-    };
-    raw.strip_prefix("0x")
-        .and_then(|value| u32::from_str_radix(value, 16).ok())
-        .or_else(|| raw.parse::<u32>().ok())
-        == Some(1)
-}
-
-fn resolve_tos_proxy_config() -> Option<TosProxyConfig> {
-    for key in ["TOS_PROXY", "tos_proxy"] {
-        if let Ok(value) = std::env::var(key) {
-            if let Some(proxy) = normalize_tos_proxy(&value) {
-                return Some(proxy);
-            }
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let enabled = hidden_command("reg")
-            .args([
-                "query",
-                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings",
-                "/v",
-                "ProxyEnable",
-            ])
-            .output()
-            .ok()?;
-        if !enabled.status.success() || !windows_proxy_is_enabled(&enabled.stdout) {
-            return None;
-        }
-
-        let output = hidden_command("reg")
-            .args([
-                "query",
-                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings",
-                "/v",
-                "ProxyServer",
-            ])
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        return windows_registry_value(&output.stdout, "ProxyServer")
-            .and_then(|value| normalize_tos_proxy(&value));
-    }
-
-    None
-}
-
 fn load_backend_tos_config() -> BackendTosStorageConfig {
     let cloud_config = get_cloud_runtime_tos_config();
     let use_cloud_scope = cloud_config.is_some();
@@ -2691,7 +2580,6 @@ fn load_backend_tos_config() -> BackendTosStorageConfig {
         .unwrap_or(false);
     let (endpoint, endpoint_protocol) =
         normalize_tos_endpoint(&tos_config_text(&config, "endpoint"));
-    let proxy = resolve_tos_proxy_config();
     let enabled_flag = config
         .get("enabled")
         .and_then(Value::as_bool)
@@ -2717,8 +2605,6 @@ fn load_backend_tos_config() -> BackendTosStorageConfig {
         upload_key_prefix,
         public_base_url,
         is_custom_domain,
-        proxy_host: proxy.as_ref().map(|value| value.host.clone()),
-        proxy_port: proxy.as_ref().map(|value| value.port),
     }
 }
 
@@ -2809,11 +2695,6 @@ fn upload_media_bytes_to_tos(
     if let Some(token) = &config.security_token {
         builder = builder.security_token(token.clone());
     }
-    if let (Some(proxy_host), Some(proxy_port)) = (&config.proxy_host, config.proxy_port) {
-        builder = builder
-            .proxy_host(proxy_host.clone())
-            .proxy_port(proxy_port);
-    }
     let client = builder.build().map_err(|error| {
         ApiError::new(
             StatusCode::BAD_GATEWAY,
@@ -2872,11 +2753,6 @@ fn delete_backend_tos_object(object_key: &str) -> Result<(), ApiError> {
         .is_custom_domain(config.is_custom_domain);
     if let Some(token) = &config.security_token {
         builder = builder.security_token(token.clone());
-    }
-    if let (Some(proxy_host), Some(proxy_port)) = (&config.proxy_host, config.proxy_port) {
-        builder = builder
-            .proxy_host(proxy_host.clone())
-            .proxy_port(proxy_port);
     }
     let client = builder.build().map_err(|error| {
         ApiError::new(
@@ -4337,6 +4213,7 @@ fn ensure_column(
 }
 
 fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
+    let had_project_cloud_sync_status = table_has_column(conn, "projects", "cloud_sync_status")?;
     for (column, definition) in [
         ("project_type", "TEXT NOT NULL DEFAULT 'video'"),
         ("script_parse_mode", "TEXT NOT NULL DEFAULT 'premium_drama'"),
@@ -4345,9 +4222,30 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("owner_user_id", "TEXT"),
         ("owner_account", "TEXT"),
         ("owner_display_name", "TEXT"),
+        ("cloud_sync_status", "TEXT NOT NULL DEFAULT 'pending'"),
+        ("cloud_sync_attempts", "INTEGER NOT NULL DEFAULT 0"),
+        ("cloud_sync_error", "TEXT"),
+        ("cloud_synced_at", "TEXT"),
     ] {
         ensure_column(conn, "projects", column, definition)?;
     }
+    if !had_project_cloud_sync_status {
+        conn.execute(
+            "UPDATE projects
+             SET cloud_sync_status = CASE
+               WHEN owner_user_id IS NOT NULL AND trim(owner_user_id) <> '' THEN 'pending'
+               ELSE 'legacy'
+             END",
+            [],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_projects_cloud_sync
+         ON projects(cloud_sync_status, owner_user_id, updated_at)",
+        [],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     for (column, definition) in [
         ("episode_id", "TEXT"),
@@ -4468,7 +4366,11 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         aspect_ratio TEXT NOT NULL DEFAULT '16:9',
         status TEXT DEFAULT 'draft',
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        cloud_sync_status TEXT NOT NULL DEFAULT 'pending',
+        cloud_sync_attempts INTEGER NOT NULL DEFAULT 0,
+        cloud_sync_error TEXT,
+        cloud_synced_at TEXT
       );
 
       CREATE TABLE IF NOT EXISTS project_members (
@@ -5173,6 +5075,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
     spawn_video_enhance_task_poller(state.clone());
     spawn_image_enhance_task_poller(state.clone());
     spawn_model_call_log_sync_poller();
+    spawn_project_sync_poller(state.clone());
 
     let observability_state = state.clone();
     let router = Router::new()
@@ -6151,8 +6054,8 @@ async fn api_project_create(
     }
     let description = body.description.unwrap_or_default();
     conn.execute(
-        "INSERT INTO projects (id, name, description, project_type, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'draft', ?8, ?9, ?10, ?11, ?12)",
+        "INSERT INTO projects (id, name, description, project_type, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, owner_account, owner_display_name, cloud_sync_status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'draft', ?8, ?9, ?10, ?11, ?12, 'pending')",
         params![
             id,
             title,
@@ -6171,9 +6074,7 @@ async fn api_project_create(
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     drop(conn);
-    if let Err(error) = cloud_sync_project_by_id(&state, &id).await {
-        eprintln!("[CloudSync] project create sync failed: {}", error.message);
-    }
+    let cloud_sync = project_cloud_sync_payload(cloud_sync_project_by_id(&state, &id).await);
 
     Ok(Json(json!({
       "success": true,
@@ -6191,7 +6092,8 @@ async fn api_project_create(
         "totalDuration": 0,
         "createdAt": now,
         "updatedAt": now
-      }
+      },
+      "cloudSync": cloud_sync
     })))
 }
 
@@ -6309,15 +6211,14 @@ async fn api_project_member_put(
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     conn.execute(
-        "UPDATE projects SET updated_at = ?1 WHERE id = ?2",
+        "UPDATE projects
+         SET updated_at = ?1, cloud_sync_status = 'pending', cloud_sync_error = NULL
+         WHERE id = ?2",
         params![now_iso(), id],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     drop(conn);
-    let cloud_sync = match cloud_sync_project_by_id(&state, &id).await {
-        Ok(()) => json!({ "status": "synced" }),
-        Err(error) => json!({ "status": "error", "message": error.message }),
-    };
+    let cloud_sync = project_cloud_sync_payload(cloud_sync_project_by_id(&state, &id).await);
     Ok(Json(json!({ "success": true, "cloudSync": cloud_sync })))
 }
 
@@ -6334,15 +6235,14 @@ async fn api_project_member_delete(
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     conn.execute(
-        "UPDATE projects SET updated_at = ?1 WHERE id = ?2",
+        "UPDATE projects
+         SET updated_at = ?1, cloud_sync_status = 'pending', cloud_sync_error = NULL
+         WHERE id = ?2",
         params![now_iso(), id],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     drop(conn);
-    let cloud_sync = match cloud_sync_project_by_id(&state, &id).await {
-        Ok(()) => json!({ "status": "synced" }),
-        Err(error) => json!({ "status": "error", "message": error.message }),
-    };
+    let cloud_sync = project_cloud_sync_payload(cloud_sync_project_by_id(&state, &id).await);
     Ok(Json(json!({ "success": true, "cloudSync": cloud_sync })))
 }
 
@@ -8032,23 +7932,22 @@ async fn api_project_put_inner(
         }
     }
 
+    if !options.skip_cloud_sync {
+        conn.execute(
+            "UPDATE projects
+             SET cloud_sync_status = 'pending', cloud_sync_error = NULL
+             WHERE id = ?1",
+            params![id],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
+
     drop(conn);
     let mut cloud_sync = json!({
       "status": if options.skip_cloud_sync { "skipped" } else { "disabled" }
     });
     if !options.skip_cloud_sync {
-        match cloud_sync_project_by_id(&state, &id).await {
-            Ok(()) => {
-                cloud_sync = json!({ "status": "synced" });
-            }
-            Err(error) => {
-                eprintln!("[CloudSync] project sync failed: {}", error.message);
-                cloud_sync = json!({
-                  "status": "error",
-                  "message": error.message
-                });
-            }
-        }
+        cloud_sync = project_cloud_sync_payload(cloud_sync_project_by_id(&state, &id).await);
     }
 
     Ok(Json(json!({
@@ -11516,11 +11415,16 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
             })
         }
     };
+    let pending_projects_synced = retry_pending_cloud_projects_locked(state, 100).await?;
     let conn = db_connection(state)?;
     let mut session = cloud_session(&conn).unwrap_or_else(|| json!({}));
     if let Some(obj) = session.as_object_mut() {
         obj.insert("lastDataSyncAt".to_string(), json!(now_iso()));
         obj.insert("dataSync".to_string(), data_sync_result);
+        obj.insert(
+            "pendingProjectsSynced".to_string(),
+            json!(pending_projects_synced),
+        );
     }
     set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &session)?;
     cloud_status_payload(&conn)
@@ -11744,7 +11648,100 @@ fn spawn_model_call_log_sync_poller() {
     });
 }
 
+fn project_cloud_sync_payload(result: Result<(), ApiError>) -> Value {
+    match result {
+        Ok(()) => json!({ "status": "synced" }),
+        Err(error) => {
+            eprintln!("[CloudSync] project sync failed: {}", error.message);
+            json!({ "status": "error", "message": error.message })
+        }
+    }
+}
+
+fn pending_cloud_project_ids(state: &BackendState, limit: i64) -> Result<Vec<String>, ApiError> {
+    let conn = db_connection(state)?;
+    let owner = match current_project_owner_context(&conn) {
+        Ok(value) => value,
+        Err(error) if error.status == StatusCode::UNAUTHORIZED => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut statement = conn
+        .prepare(
+            "SELECT p.id FROM projects p
+             LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?1
+             WHERE p.cloud_sync_status = 'pending'
+               AND (?2 = 1 OR p.owner_user_id = ?1 OR pm.role IN ('manager', 'editor')
+                    OR instr(COALESCE(pm.permissions_json, '[]'), '\"edit\"') > 0)
+             ORDER BY p.updated_at ASC LIMIT ?3",
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let rows = statement
+        .query_map(params![owner.user_id, owner.is_admin, limit], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+async fn retry_pending_cloud_projects_locked(
+    state: &BackendState,
+    limit: i64,
+) -> Result<usize, ApiError> {
+    let project_ids = pending_cloud_project_ids(state, limit)?;
+    let mut synced = 0usize;
+    for project_id in project_ids {
+        match cloud_sync_project_by_id_locked(state, &project_id).await {
+            Ok(()) => synced += 1,
+            Err(error) => {
+                eprintln!(
+                    "[CloudSync] pending project retry failed: projectId={}, error={}",
+                    project_id, error.message
+                );
+                if error.status == StatusCode::UNAUTHORIZED {
+                    break;
+                }
+            }
+        }
+    }
+    Ok(synced)
+}
+
+fn spawn_project_sync_poller(state: BackendState) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            let _session_guard = cloud_session_operation_lock().lock().await;
+            if let Err(error) = retry_pending_cloud_projects_locked(&state, 20).await {
+                eprintln!("[CloudSync] project retry poll failed: {}", error.message);
+            }
+        }
+    });
+}
+
 async fn cloud_sync_project_by_id(state: &BackendState, project_id: &str) -> Result<(), ApiError> {
+    let _session_guard = cloud_session_operation_lock().lock().await;
+    cloud_sync_project_by_id_locked(state, project_id).await
+}
+
+async fn cloud_sync_project_by_id_locked(
+    state: &BackendState,
+    project_id: &str,
+) -> Result<(), ApiError> {
+    let (owner_user_id, project_updated_at) = db_connection(state)?
+        .query_row(
+            "SELECT owner_user_id, updated_at FROM projects WHERE id = ?1",
+            params![project_id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "项目不存在"))?;
+    let owner_user_id = owner_user_id
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::CONFLICT, "项目缺少所属账号"))?;
+    ensure_project_permission(&db_connection(state)?, project_id, ProjectPermission::Edit)?;
     let Json(project_response) =
         api_project_get(Path(project_id.to_string()), State(state.clone())).await?;
     let data = project_response
@@ -11752,15 +11749,12 @@ async fn cloud_sync_project_by_id(state: &BackendState, project_id: &str) -> Res
         .cloned()
         .unwrap_or_else(|| json!({}));
     let project = data.get("project").cloned().unwrap_or_else(|| json!({}));
-    let owner_user_id = db_connection(state)?
-        .query_row(
-            "SELECT owner_user_id FROM projects WHERE id = ?1",
-            params![project_id],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .optional()
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-        .flatten();
+    if project.get("updatedAt").and_then(Value::as_str) != Some(project_updated_at.as_str()) {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "项目在同步准备期间再次更新，等待上传最新版本",
+        ));
+    }
     let body = json!({
       "force": true,
       "localProjectId": project_id,
@@ -11782,8 +11776,41 @@ async fn cloud_sync_project_by_id(state: &BackendState, project_id: &str) -> Res
       "members": data.get("members").cloned().unwrap_or_else(|| json!([])),
       "snapshot": data
     });
-    let response = cloud_post_client_json(state, "/api/client/projects/sync", body).await?;
-    ensure_cloud_project_sync_accepted(&response, project_id)
+    let result = async {
+        let response = cloud_post_client_json(state, "/api/client/projects/sync", body).await?;
+        ensure_cloud_project_sync_accepted(&response, project_id)
+    }
+    .await;
+    let conn = db_connection(state)?;
+    match &result {
+        Ok(()) => {
+            conn.execute(
+                "UPDATE projects
+                 SET cloud_sync_status = 'synced', cloud_sync_error = NULL,
+                     cloud_synced_at = ?1, cloud_sync_attempts = cloud_sync_attempts + 1
+                 WHERE id = ?2 AND updated_at = ?3",
+                params![now_iso(), project_id, project_updated_at],
+            )
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        }
+        Err(error) => {
+            conn.execute(
+                "UPDATE projects
+                 SET cloud_sync_status = 'pending', cloud_sync_error = ?1,
+                     cloud_sync_attempts = cloud_sync_attempts + 1
+                 WHERE id = ?2 AND updated_at = ?3",
+                params![
+                    truncate_log_text(&error.message, 1000),
+                    project_id,
+                    project_updated_at
+                ],
+            )
+            .map_err(|db_error| {
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, db_error.to_string())
+            })?;
+        }
+    }
+    result
 }
 
 fn ensure_cloud_project_sync_accepted(response: &Value, project_id: &str) -> Result<(), ApiError> {
@@ -11794,7 +11821,10 @@ fn ensure_cloud_project_sync_accepted(response: &Value, project_id: &str) -> Res
             reason == "cloud_not_configured" || reason == "cloud_not_authenticated"
         })
     {
-        return Ok(());
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "云端未配置或未登录，项目已加入待同步队列",
+        ));
     }
 
     if response.get("success").and_then(Value::as_bool) == Some(false) {
@@ -11806,7 +11836,10 @@ fn ensure_cloud_project_sync_accepted(response: &Value, project_id: &str) -> Res
         .and_then(|data| data.get("synced"))
         .and_then(Value::as_array)
     else {
-        return Ok(());
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "云端项目同步响应缺少确认结果",
+        ));
     };
 
     for item in items {
@@ -11836,7 +11869,10 @@ fn ensure_cloud_project_sync_accepted(response: &Value, project_id: &str) -> Res
         ));
     }
 
-    Ok(())
+    Err(ApiError::new(
+        StatusCode::BAD_GATEWAY,
+        "云端项目同步响应未确认当前项目",
+    ))
 }
 
 async fn cloud_sync_prompt_state(state: &BackendState) -> Result<(), ApiError> {
@@ -11975,7 +12011,7 @@ async fn apply_cloud_project_snapshot(
     apply_cloud_project_members(state, &local_project_id, snapshot)?;
     let body = build_cloud_project_put_body(snapshot, project);
     let _ = api_project_put_inner(
-        Path(local_project_id),
+        Path(local_project_id.clone()),
         State(state.clone()),
         Json(body),
         ProjectPutOptions {
@@ -11986,6 +12022,14 @@ async fn apply_cloud_project_snapshot(
         },
     )
     .await?;
+    let conn = db_connection(state)?;
+    conn.execute(
+        "UPDATE projects
+         SET cloud_sync_status = 'synced', cloud_sync_error = NULL, cloud_synced_at = ?1
+         WHERE id = ?2 AND owner_user_id = ?3",
+        params![now_iso(), local_project_id, owner_user_id],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(true)
 }
 
@@ -13940,16 +13984,16 @@ mod tests {
         cloud_project_summary_updated_at, cloud_provider_credentials_to_local,
         custom_openai_entry_for_model, custom_openai_entry_has_model,
         default_prompt_director_preferences, ensure_cloud_project_owner_available,
-        ensure_project_access, ensure_project_permission, filter_cloud_model_log_page,
+        ensure_cloud_project_sync_accepted, ensure_project_access, ensure_project_permission,
+        ensure_runtime_schema, filter_cloud_model_log_page,
         is_prompt_director_preferences_customized, llm_default_headers,
         merge_prompt_templates_with_defaults, merge_style_presets_with_catalog,
         normalize_character_gender_value, normalize_character_role_value,
         normalize_scene_camera_angle_value, normalize_scene_camera_movement_value,
         normalize_scene_shot_type_value, normalize_scene_speed_effect_value,
         normalize_time_of_day_value, remove_revoked_shared_library_assets,
-        reset_account_scoped_config, should_use_default_cloud_admin_base_url,
-        upgrade_style_config_for_catalog, validate_project_member_removal,
-        windows_proxy_is_enabled, windows_registry_value, ProjectPermission,
+        reset_account_scoped_config, should_use_default_cloud_admin_base_url, table_has_column,
+        upgrade_style_config_for_catalog, validate_project_member_removal, ProjectPermission,
         CLOUD_ADMIN_SESSION_KEY, LLM_USER_AGENT,
     };
     use axum::http::StatusCode;
@@ -14191,7 +14235,9 @@ mod tests {
                id TEXT PRIMARY KEY,
                owner_user_id TEXT,
                owner_account TEXT,
-               owner_display_name TEXT
+               owner_display_name TEXT,
+               cloud_sync_status TEXT NOT NULL DEFAULT 'legacy',
+               cloud_sync_error TEXT
              );
              CREATE TABLE project_members (
                project_id TEXT NOT NULL,
@@ -14235,6 +14281,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(legacy_owner, ("user-1".to_string(), "member".to_string()));
+        let legacy_sync_status: String = member_conn
+            .query_row(
+                "SELECT cloud_sync_status FROM projects WHERE id = 'legacy'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_sync_status, "pending");
 
         let admin_conn = project_access_test_connection(json!({
           "id": "admin-1",
@@ -14308,6 +14362,76 @@ mod tests {
         let error = ensure_cloud_project_owner_available(&conn, "shared-id", "user-b")
             .expect_err("another account must not reuse the local project row");
         assert_eq!(error.status, StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn cloud_project_sync_requires_explicit_confirmation_for_current_project() {
+        let missing_items = ensure_cloud_project_sync_accepted(&json!({ "success": true }), "p1")
+            .expect_err("a response without synced items must not clear the retry queue");
+        assert_eq!(missing_items.status, StatusCode::BAD_GATEWAY);
+
+        let wrong_project = ensure_cloud_project_sync_accepted(
+            &json!({
+              "success": true,
+              "data": { "synced": [{ "localProjectId": "p2", "status": "synced" }] }
+            }),
+            "p1",
+        )
+        .expect_err("another project's acknowledgement must not clear the retry queue");
+        assert_eq!(wrong_project.status, StatusCode::BAD_GATEWAY);
+
+        assert!(ensure_cloud_project_sync_accepted(
+            &json!({
+              "success": true,
+              "data": { "synced": [{ "localProjectId": "p1", "status": "synced" }] }
+            }),
+            "p1",
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn project_cloud_sync_schema_migrates_existing_owned_projects_to_pending() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE projects (
+               id TEXT PRIMARY KEY,
+               script_parse_mode TEXT,
+               owner_user_id TEXT,
+               updated_at TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE scenes (id TEXT PRIMARY KEY);
+             CREATE TABLE characters (id TEXT PRIMARY KEY);
+             CREATE TABLE video_tasks (id TEXT PRIMARY KEY);
+             CREATE TABLE generated_videos (id TEXT PRIMARY KEY);
+             CREATE TABLE video_import_tasks (id TEXT PRIMARY KEY);
+             CREATE TABLE model_debug_logs (id TEXT PRIMARY KEY);
+             CREATE TABLE douyin_history (id TEXT PRIMARY KEY);
+             INSERT INTO projects (id, owner_user_id) VALUES
+               ('owned', 'user-1'),
+               ('legacy', NULL);",
+        )
+        .unwrap();
+
+        ensure_runtime_schema(&conn).unwrap();
+
+        let owned_status: String = conn
+            .query_row(
+                "SELECT cloud_sync_status FROM projects WHERE id = 'owned'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(owned_status, "pending");
+        let legacy_status: String = conn
+            .query_row(
+                "SELECT cloud_sync_status FROM projects WHERE id = 'legacy'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_status, "legacy");
+        assert!(table_has_column(&conn, "projects", "cloud_sync_error").unwrap());
     }
 
     #[test]
@@ -14522,27 +14646,6 @@ mod tests {
             build_scoped_tos_key_prefix_for_user("manju-assets", true, true, None),
             (Some("manju-assets".to_string()), true)
         );
-    }
-
-    #[test]
-    fn windows_tos_proxy_requires_enabled_registry_flag() {
-        assert!(windows_proxy_is_enabled(
-            b"ProxyEnable    REG_DWORD    0x1\r\n"
-        ));
-        assert!(!windows_proxy_is_enabled(
-            b"ProxyEnable    REG_DWORD    0x0\r\n"
-        ));
-        assert!(!windows_proxy_is_enabled(b""));
-    }
-
-    #[test]
-    fn windows_tos_proxy_reads_exact_registry_value() {
-        let output = b"HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\r\n    ProxyServer    REG_SZ    127.0.0.1:7890\r\n";
-        assert_eq!(
-            windows_registry_value(output, "ProxyServer").as_deref(),
-            Some("127.0.0.1:7890")
-        );
-        assert_eq!(windows_registry_value(output, "ProxyEnable"), None);
     }
 
     #[test]

@@ -157,7 +157,7 @@ describe('useAssetWorkbenchProjectIO', () => {
   it('skips duplicate PUT when project payload is unchanged after load', async () => {
     fetchMock.mockImplementation(async (url: string, options?: FetchOptions) => {
       if (url === projectRoute && options?.method === 'PUT') {
-        return { success: true }
+        return { success: true, cloudSync: { status: 'synced' } }
       }
       if (url === projectRoute) {
         return createLoadResponse()
@@ -178,7 +178,7 @@ describe('useAssetWorkbenchProjectIO', () => {
   it('sends PUT when user edits project content', async () => {
     fetchMock.mockImplementation(async (url: string, options?: FetchOptions) => {
       if (url === projectRoute && options?.method === 'PUT') {
-        return { success: true }
+        return { success: true, cloudSync: { status: 'synced' } }
       }
       if (url === projectRoute) {
         return createLoadResponse()
@@ -221,13 +221,14 @@ describe('useAssetWorkbenchProjectIO', () => {
   })
 
   it('serializes overlapping saves so an older snapshot cannot overwrite a generated video', async () => {
-    let resolveFirstSave: ((value: { success: boolean }) => void) | undefined
-    const firstSave = new Promise<{ success: boolean }>((resolve) => {
+    type SaveResponse = { success: boolean, cloudSync?: { status: string } }
+    let resolveFirstSave: ((value: SaveResponse) => void) | undefined
+    const firstSave = new Promise<SaveResponse>((resolve) => {
       resolveFirstSave = resolve
     })
     fetchMock
       .mockImplementationOnce(async () => await firstSave)
-      .mockImplementationOnce(async () => ({ success: true }))
+      .mockImplementationOnce(async () => ({ success: true, cloudSync: { status: 'synced' } }))
 
     const { io, state } = createProjectIO()
     const olderSave = io.saveProject()
@@ -238,7 +239,7 @@ describe('useAssetWorkbenchProjectIO', () => {
     const videoSave = io.saveProject()
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    resolveFirstSave?.({ success: true })
+    resolveFirstSave?.({ success: true, cloudSync: { status: 'synced' } })
     await olderSave
     await videoSave
 
@@ -284,13 +285,19 @@ describe('useAssetWorkbenchProjectIO', () => {
         message: '云端项目同步被跳过: unknown'
       }
     )
+
+    await io.saveProject()
+    const putCalls = fetchMock.mock.calls.filter(([url, options]) => {
+      return url === projectRoute && (options as FetchOptions | undefined)?.method === 'PUT'
+    })
+    expect(putCalls).toHaveLength(2)
     warnSpy.mockRestore()
   })
 
   it('keeps saving the loaded project after route project query disappears', async () => {
     fetchMock.mockImplementation(async (url: string, options?: FetchOptions) => {
       if (url === projectRoute && options?.method === 'PUT') {
-        return { success: true }
+        return { success: true, cloudSync: { status: 'synced' } }
       }
       if (url === projectRoute) {
         return createLoadResponse()

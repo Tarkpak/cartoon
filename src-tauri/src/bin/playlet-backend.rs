@@ -37,6 +37,7 @@ fn read_env_u16(key: &str, fallback: u16) -> u16 {
 #[tokio::main]
 async fn main() {
     let _ = dotenvy::dotenv();
+    process_util::disable_process_proxies();
 
     let host = env::var("PLAYLET_BACKEND_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = read_env_u16("PLAYLET_BACKEND_PORT", 43127);

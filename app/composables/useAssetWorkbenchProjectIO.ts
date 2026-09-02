@@ -466,7 +466,8 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         saveWarning.value = cloudSyncWarning
         console.warn('[useAssetWorkbenchProjectIO] 云端项目同步未完成:', saveResponse.cloudSync)
       }
-      if ((activeProjectId.value || options.projectId.value) === id) {
+      if (saveResponse.cloudSync?.status === 'synced'
+        && (activeProjectId.value || options.projectId.value) === id) {
         lastSavedProjectSnapshot = nextSnapshot
       }
       return true

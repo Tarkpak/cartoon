@@ -547,6 +547,7 @@ async fn fetch_xiaohongshu_image(
 
 fn xiaohongshu_client(timeout: Duration) -> Result<Client, ApiError> {
     Client::builder()
+        .no_proxy()
         .timeout(timeout)
         .build()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))

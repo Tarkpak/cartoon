@@ -48,7 +48,7 @@ base64 = "0.22.1"
 hmac = "0.12.1"
 sha2 = "0.10.8"
 ring = "0.17.14"
-reqwest = { version = "0.12.24", default-features = false, features = ["rustls-tls", "json", "multipart", "system-proxy", "macos-system-configuration"] }
+reqwest = { version = "0.12.24", default-features = false, features = ["rustls-tls", "json", "multipart"] }
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 dotenvy = "0.15.7"
 ve-tos-rust-sdk = "2.9.16"

@@ -2789,7 +2789,10 @@ async fn transcribe_bcut_inner(
         .unwrap_or("audio.wav")
         .to_string();
     let sound_fmt = file_extension(&sound_name).unwrap_or_else(|| "wav".to_string());
-    let client = Client::new();
+    let client = Client::builder()
+        .no_proxy()
+        .build()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     let create_payload = bcut_api::<Value>(
         &client,

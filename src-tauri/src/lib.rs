@@ -20,6 +20,9 @@ const FRONTEND_DEV_HOST: &str = "localhost";
 const FRONTEND_DEV_PORT: u16 = 3000;
 const STARTUP_TIMEOUT_SECS: u64 = 90;
 const XIAOHONGSHU_SESSION_REQUIRED: &str = "__PLAYLET_XHS_SESSION_REQUIRED__";
+#[cfg(target_os = "windows")]
+const WEBVIEW_DIRECT_NETWORK_ARGS: &str =
+    "--no-proxy-server --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
 const XIAOHONGSHU_CAPTURE_SCRIPT: &str = r#"
 (() => {
   if (!location.hostname.endsWith('xiaohongshu.com') || window.__PLAYLET_XHS_CAPTURE_READY__) return;
@@ -240,7 +243,10 @@ async fn fetch_xiaohongshu_dynamic(
         .map_err(|error| format!("获取小红书解析数据目录失败: {error}"))?
         .join("xiaohongshu-webview");
     let label = format!("xiaohongshu-parser-{}", Uuid::new_v4().simple());
-    let window = WebviewWindowBuilder::new(app, label, WebviewUrl::External(external_url))
+    let window_builder = WebviewWindowBuilder::new(app, label, WebviewUrl::External(external_url));
+    #[cfg(target_os = "windows")]
+    let window_builder = window_builder.additional_browser_args(WEBVIEW_DIRECT_NETWORK_ARGS);
+    let window = window_builder
         .title("小红书解析")
         .inner_size(900.0, 720.0)
         .visible(false)
@@ -399,7 +405,10 @@ fn create_main_window(app: &tauri::App) -> Result<(), String> {
         .parse()
         .map_err(|error| format!("解析服务地址失败: {}", error))?;
 
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+    let window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url));
+    #[cfg(target_os = "windows")]
+    let window_builder = window_builder.additional_browser_args(WEBVIEW_DIRECT_NETWORK_ARGS);
+    window_builder
         .title("Playlet")
         .inner_size(1280.0, 860.0)
         .min_inner_size(1024.0, 720.0)
@@ -499,6 +508,7 @@ fn normalize_open_target(path: &str, directory: bool) -> Result<PathBuf, String>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = dotenvy::dotenv();
+    process_util::disable_process_proxies();
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
