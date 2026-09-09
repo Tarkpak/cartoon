@@ -69,6 +69,8 @@ interface LoadedProjectCharacter {
   speakingStyle?: string | null
   catchphrase?: string | null
   voiceTone?: string | null
+  language?: string | null
+  languageNote?: string | null
   voiceAsset?: CharacterVoiceAsset | null
   arkAsset?: ArkVirtualAssetBinding | null
   age?: number | null
@@ -134,6 +136,8 @@ export function buildLoadedCharacters(characters: LoadedProjectCharacter[]): Cha
     speakingStyle: toOptionalString(character.speakingStyle),
     catchphrase: toOptionalString(character.catchphrase),
     voiceTone: toOptionalString(character.voiceTone),
+    language: (character.language as CharacterData['language']) || 'mandarin',
+    languageNote: toOptionalString(character.languageNote),
     voiceAsset: character.voiceAsset || undefined,
     arkAsset: character.arkAsset || undefined,
     age: toOptionalNumber(character.age),
@@ -245,6 +249,8 @@ export function buildSaveCharactersPayload(characters: CharacterData[]) {
     speakingStyle: character.speakingStyle,
     catchphrase: character.catchphrase,
     voiceTone: character.voiceTone,
+    language: character.language || 'mandarin',
+    languageNote: character.languageNote,
     voiceAsset: character.voiceAsset,
     arkAsset: character.arkAsset,
     age: character.age,

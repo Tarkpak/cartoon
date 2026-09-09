@@ -297,7 +297,13 @@ export function useAssetWorkbenchSceneGeneration(
       sceneConfig: options.ensureSceneConfig(scene.id),
       resolveAssetName: options.resolveAssetName,
       referenceAssetNames: payloadOptions.referenceAssetNames,
-      resolveSceneDescriptionWithoutAssetMentions: options.resolveSceneDescriptionWithoutAssetMentions
+      resolveSceneDescriptionWithoutAssetMentions: options.resolveSceneDescriptionWithoutAssetMentions,
+      characterLanguages: scene.characters.map((sceneCharacter) => {
+        const character = options.characters.value.find(item => item.id === sceneCharacter.assetId?.replace(/^char:/, '') || item.name === sceneCharacter.name)
+        if (!character) return null
+        const labels: Record<string, string> = { mandarin: '普通话', chongqing: '重庆方言', dongbei: '东北话', cantonese: '粤语', sichuan: '四川话', wu: '吴语', english: '英语', japanese: '日语', custom: character.languageNote || '自定义语言' }
+        return { name: character.name, language: labels[character.language || 'mandarin'] || '普通话', note: character.languageNote }
+      }).filter((item): item is { name: string, language: string, note: string | undefined } => !!item)
     })
   }
 

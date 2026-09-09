@@ -194,6 +194,8 @@ export const CharacterSchema = z.object({
   speakingStyle: z.preprocess(nullToUndefined, SpeakingStyleSchema.optional()).describe('说话风格'),
   catchphrase: z.preprocess(nullToUndefined, z.string().optional()).describe('口头禅'),
   voiceTone: z.preprocess(nullToUndefined, z.string().optional()).describe('声音特点描述'),
+  language: z.preprocess(nullToUndefined, z.enum(['mandarin', 'chongqing', 'dongbei', 'cantonese', 'sichuan', 'wu', 'english', 'japanese', 'custom']).optional()).describe('对白语言'),
+  languageNote: z.preprocess(nullToUndefined, z.string().optional()).describe('对白语言补充要求'),
   voiceAsset: z.preprocess(nullToUndefined, CharacterVoiceAssetSchema.optional()).describe('角色声音资产')
 })
 export type Character = z.infer<typeof CharacterSchema>

@@ -36,7 +36,9 @@ export function useAssetWorkbenchCharacterActions(options: {
     id: '',
     name: '',
     appearance: '',
-    role: '配角'
+    role: '配角',
+    language: 'mandarin',
+    languageNote: ''
   })
 
   watch(characterVariantDialogOpen, (open) => {
@@ -108,12 +110,16 @@ export function useAssetWorkbenchCharacterActions(options: {
     characterEditDraft.name = char.name
     characterEditDraft.appearance = char.appearance || ''
     characterEditDraft.role = char.role || '配角'
+    characterEditDraft.language = char.language || 'mandarin'
+    characterEditDraft.languageNote = char.languageNote || ''
   }
 
-  function updateCharacterEditDraft(draft: { name: string, role: string, appearance: string }) {
+  function updateCharacterEditDraft(draft: { name: string, role: string, appearance: string, language?: string, languageNote?: string }) {
     characterEditDraft.name = draft.name
     characterEditDraft.role = draft.role
     characterEditDraft.appearance = draft.appearance
+    characterEditDraft.language = draft.language || 'mandarin'
+    characterEditDraft.languageNote = draft.languageNote || ''
   }
 
   function cancelEditCharacter() {
@@ -122,6 +128,8 @@ export function useAssetWorkbenchCharacterActions(options: {
     characterEditDraft.name = ''
     characterEditDraft.appearance = ''
     characterEditDraft.role = '配角'
+    characterEditDraft.language = 'mandarin'
+    characterEditDraft.languageNote = ''
   }
 
   function synchronizeCharacterNameInScenes(oldName: string, nextName: string) {
@@ -310,6 +318,8 @@ export function useAssetWorkbenchCharacterActions(options: {
     target.name = nextName
     target.appearance = characterEditDraft.appearance.trim()
     target.role = characterEditDraft.role || '配角'
+    target.language = characterEditDraft.language as CharacterData['language']
+    target.languageNote = characterEditDraft.languageNote.trim() || undefined
 
     synchronizeCharacterNameInScenes(oldName, target.name)
 

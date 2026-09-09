@@ -83,8 +83,17 @@ export interface CharacterData {
   speakingStyle?: string
   catchphrase?: string
   voiceTone?: string
+  language?: CharacterLanguage
+  languageNote?: string
   voiceAsset?: CharacterVoiceAsset
   arkAsset?: ArkVirtualAssetBinding
   age?: number
   gender?: string
+}
+
+export type CharacterLanguage = 'mandarin' | 'chongqing' | 'dongbei' | 'cantonese' | 'sichuan' | 'wu' | 'english' | 'japanese' | 'custom'
+
+export const CHARACTER_LANGUAGE_LABELS: Record<CharacterLanguage, string> = {
+  mandarin: '普通话', chongqing: '重庆方言', dongbei: '东北话', cantonese: '粤语',
+  sichuan: '四川话', wu: '吴语', english: '英语', japanese: '日语', custom: '自定义'
 }

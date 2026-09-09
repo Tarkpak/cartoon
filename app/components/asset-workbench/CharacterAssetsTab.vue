@@ -13,12 +13,14 @@ const props = defineProps<{
     name: string
     appearance: string
     role: string
+    language?: string
+    languageNote?: string
   }
   uploadingCharacterId: string | null
   uploadingArkCharacterId: string | null
   uploadingCharacterVoiceId: string | null
   getCharacterSceneCount: (character: CharacterData) => number
-  setCharacterEditDraft: (draft: { name: string, role: string, appearance: string }) => void
+  setCharacterEditDraft: (draft: { name: string, role: string, appearance: string, language?: string, languageNote?: string }) => void
 }>()
 
 const emit = defineEmits<{
@@ -54,7 +56,9 @@ function triggerVoiceUploadInput(characterId: string) {
 const localDraft = reactive({
   name: '',
   role: '配角',
-  appearance: ''
+  appearance: '',
+  language: 'mandarin',
+  languageNote: ''
 })
 const expandedVariantCharacterIds = ref<Set<string>>(new Set())
 
@@ -64,11 +68,14 @@ watch(
     props.characterEditDraft.name,
     props.characterEditDraft.role,
     props.characterEditDraft.appearance
+    , props.characterEditDraft.language, props.characterEditDraft.languageNote
   ],
   () => {
     localDraft.name = props.characterEditDraft.name
     localDraft.role = props.characterEditDraft.role
     localDraft.appearance = props.characterEditDraft.appearance
+    localDraft.language = props.characterEditDraft.language || 'mandarin'
+    localDraft.languageNote = props.characterEditDraft.languageNote || ''
   },
   { immediate: true }
 )
@@ -78,6 +85,8 @@ watch(localDraft, (draft) => {
     draft.name === props.characterEditDraft.name
     && draft.role === props.characterEditDraft.role
     && draft.appearance === props.characterEditDraft.appearance
+    && draft.language === (props.characterEditDraft.language || 'mandarin')
+    && draft.languageNote === (props.characterEditDraft.languageNote || '')
   ) {
     return
   }
@@ -85,7 +94,7 @@ watch(localDraft, (draft) => {
   props.setCharacterEditDraft({
     name: draft.name,
     role: draft.role,
-    appearance: draft.appearance
+    appearance: draft.appearance, language: draft.language, languageNote: draft.languageNote
   })
 }, { deep: true })
 
@@ -298,6 +307,10 @@ watch(
                 class="h-8 text-xs"
                 placeholder="角色定位，如关键证人"
               />
+              <select v-model="localDraft.language" class="h-8 w-full rounded-md border bg-background px-2 text-xs">
+                <option value="mandarin">普通话</option><option value="chongqing">重庆方言</option><option value="dongbei">东北话</option><option value="cantonese">粤语</option><option value="sichuan">四川话</option><option value="wu">吴语</option><option value="english">英语</option><option value="japanese">日语</option><option value="custom">自定义</option>
+              </select>
+              <Input v-if="localDraft.language === 'custom' || localDraft.languageNote" v-model="localDraft.languageNote" class="h-8 text-xs" placeholder="语言补充要求" />
               <Textarea
                 v-model="localDraft.appearance"
                 class="min-h-[72px] text-xs"

@@ -51,6 +51,7 @@ interface BuildSceneGenerationCameraNoteOptions {
 interface BuildAssetWorkflowScenePayloadOptions extends BuildSceneGenerationCameraNoteOptions {
   scenes: SceneData[]
   resolveSceneDescriptionWithoutAssetMentions: (raw?: string) => string
+  characterLanguages?: Array<{ name: string, language: string, note?: string }>
 }
 
 interface RequestSceneBaselineGenerationOptions {
@@ -180,7 +181,8 @@ export function buildAssetWorkflowScenePayload(
     cameraMovement: options.scene.cameraMovement,
     speedEffect: options.scene.speedEffect,
     transitionIn: options.scene.transitionIn,
-    cameraNote: buildSceneGenerationCameraNote(options),
+    cameraNote: [buildSceneGenerationCameraNote(options), options.characterLanguages?.length
+      ? `对白语言要求：\n${options.characterLanguages.map(item => `- ${item.name}：${item.language}${item.note ? `，${item.note}` : ''}`).join('\n')}` : ''].filter(Boolean).join('\n') || undefined,
     duration: options.scene.duration,
     setting: options.scene.setting,
     narration: options.scene.narration,
