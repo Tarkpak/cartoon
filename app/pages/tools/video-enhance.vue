@@ -124,6 +124,8 @@ const sceneOptions = [
 ]
 
 const resolutionOptions = [
+  { value: '480p', label: '480p' },
+  { value: '720p', label: '720p' },
   { value: '1080p', label: '1080p' },
   { value: '2k', label: '2K' },
   { value: '4k', label: '4K' }
@@ -162,7 +164,7 @@ watch(kind, (value) => {
   if (value !== 'standard') scene.value = 'common'
   if (value === 'generative') {
     resolutionMode.value = 'preset'
-    if (resolution.value === '4k') resolution.value = '1080p'
+    if (resolution.value === '480p' || resolution.value === '4k') resolution.value = '1080p'
   }
 })
 
@@ -647,7 +649,7 @@ async function submitTask() {
                     v-for="option in resolutionOptions"
                     :key="option.value"
                     :value="option.value"
-                    :disabled="kind === 'generative' && option.value === '4k'"
+                    :disabled="kind === 'generative' && ['480p', '4k'].includes(option.value)"
                   >
                     {{ option.label }}
                   </SelectItem>
