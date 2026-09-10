@@ -1434,6 +1434,28 @@ fn build_mediakit_video_enhance_request(body: &Value) -> Result<(String, Value),
     Ok((endpoint, request_body))
 }
 
+pub(super) async fn api_tools_subtitle_erasure_submit(State(state): State<BackendState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let key = provider_sync_mediakit_api_key(&load_provider_creds(&conn)).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "未配置火山引擎 AI MediaKit API Key，请在设置中配置"))?;
+    let video_url = body.get("video_url").or_else(|| body.get("videoUrl")).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请填写待处理视频 URL"))?;
+    let endpoint = format!("{}/api/v1/tools/erase-video-subtitle-pro", MEDIAKIT_BASE_URL);
+    let request_body = json!({"video_url": video_url, "mode": body.get("mode").and_then(Value::as_str).unwrap_or("Subtitle")});
+    let response = llm_http_client().post(&endpoint).bearer_auth(key).json(&request_body).send().await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY,e.to_string()))?;
+    let status = response.status(); let text = response.text().await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY,e.to_string()))?;
+    if !status.is_success() { return Err(ApiError::new(StatusCode::BAD_GATEWAY, build_sync_error_message(status,&text))); }
+    let payload: Value = serde_json::from_str(&text).map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY,e.to_string()))?;
+    let task_id = payload.get("task_id").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY,"MediaKit 未返回 task_id"))?;
+    let now = now_iso();
+    conn.execute("INSERT OR REPLACE INTO subtitle_erasure_tasks (id,task_id,file_name,source_video_url,status,raw_status,request_json,response_json,created_at,updated_at) VALUES (COALESCE((SELECT id FROM subtitle_erasure_tasks WHERE task_id=?1),?2),?1,?3,?4,'processing','submitted',?5,?6,?7,?7)", params![task_id, format!("ser_{}",Uuid::new_v4().simple()), body.get("fileName").and_then(Value::as_str).unwrap_or("视频"), video_url, request_body.to_string(), payload.to_string(), now]).map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR,e.to_string()))?;
+    Ok(Json(json!({"success":true,"taskId":task_id,"raw":payload})))
+}
+
+pub(super) async fn api_tools_subtitle_erasure_status(State(state): State<BackendState>, Path(task_id): Path<String>) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?; let key = provider_sync_mediakit_api_key(&load_provider_creds(&conn)).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST,"未配置火山引擎 AI MediaKit API Key，请在设置中配置"))?;
+    let endpoint = format!("{}/api/v1/tasks/{}", MEDIAKIT_BASE_URL, task_id); let r=llm_http_client().get(endpoint).bearer_auth(key).send().await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY,e.to_string()))?; let p:Value=r.json().await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY,e.to_string()))?;
+    let raw=p.get("status").and_then(Value::as_str).unwrap_or("processing"); let status=mediakit_task_status_label(raw); let url=mediakit_result_video_url(&p); conn.execute("UPDATE subtitle_erasure_tasks SET status=?1,raw_status=?2,result_video_url=?3,response_json=?4,updated_at=?5 WHERE task_id=?6",params![status,raw,url,p.to_string(),now_iso(),task_id]).ok(); Ok(Json(json!({"success":true,"taskId":task_id,"status":status,"videoUrl":url,"raw":p})))
+}
+
 fn uploaded_video_extension(filename: Option<&str>, content_type: Option<&str>) -> String {
     let from_filename = filename
         .and_then(|value| value.rsplit('.').next())

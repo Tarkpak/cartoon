@@ -4632,6 +4632,14 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         completed_at TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS subtitle_erasure_tasks (
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL UNIQUE, file_name TEXT NOT NULL,
+        source_video_url TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing',
+        raw_status TEXT, result_video_url TEXT, request_json TEXT NOT NULL DEFAULT '{}',
+        response_json TEXT NOT NULL DEFAULT '{}', error_message TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT
+      );
+
       CREATE TABLE IF NOT EXISTS uploaded_media_cache (
         id TEXT PRIMARY KEY,
         category TEXT NOT NULL,
@@ -5419,6 +5427,11 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/tools/video-enhance",
             post(api_tools_video_enhance_submit),
         )
+        .route("/api/tools/subtitle-erasure", post(api_tools_subtitle_erasure_submit))
+        .route("/api/tools/subtitle-erasure/status/{id}", get(api_tools_subtitle_erasure_status))
+        .route("/api/tools/subtitle-erasure/upload-source", post(api_tools_video_enhance_upload_source))
+        .route("/api/tools/subtitle-erasure/tasks", get(api_tools_video_enhance_tasks))
+        .route("/api/tools/subtitle-erasure/save", post(api_tools_video_enhance_save))
         .route(
             "/api/tools/video-enhance/tasks",
             get(api_tools_video_enhance_tasks),
