@@ -5508,6 +5508,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             post(api_tools_video_enhance_save),
         )
         .route(
+            "/api/tools/video-enhance/download/{id}",
+            get(api_tools_video_enhance_download),
+        )
+        .route(
             "/api/tools/video-enhance/tasks/{id}/{asset}",
             delete(api_tools_video_enhance_delete_asset),
         )

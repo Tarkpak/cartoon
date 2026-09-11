@@ -2777,6 +2777,126 @@ pub(super) async fn api_tools_video_enhance_save(
     })))
 }
 
+fn video_enhance_download_name(source_file_name: &str) -> String {
+    let original_name = source_file_name
+        .rsplit(['/', '\\'])
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("video.mp4");
+    let stem = FsPath::new(original_name)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("video");
+    format!("{}-enhanced.mp4", stem)
+}
+
+pub(super) async fn api_tools_video_enhance_download(
+    State(state): State<BackendState>,
+    Path(task_id): Path<String>,
+) -> Result<Response, ApiError> {
+    let task_id = task_id.trim();
+    if task_id.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "任务 ID 不能为空"));
+    }
+
+    let (file_name, source) = {
+        let conn = db_connection(&state)?;
+        conn.query_row(
+            "SELECT file_name, COALESCE(saved_video_url, result_video_url)
+             FROM video_enhance_tasks
+             WHERE task_id = ?1 AND status = 'completed' AND result_deleted = 0",
+            params![task_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .and_then(|(file_name, source)| source.map(|source| (file_name, source)))
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "任务结果不存在或尚未完成"))?
+    };
+
+    let download_name = video_enhance_download_name(&file_name);
+    let fallback_name = download_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let content_disposition = HeaderValue::from_str(&format!(
+        "attachment; filename=\"{}\"; filename*=UTF-8''{}",
+        fallback_name,
+        tos_percent_encode(&download_name)
+    ))
+    .unwrap_or_else(|_| HeaderValue::from_static("attachment"));
+
+    if is_http_url(&source) {
+        let upstream = http_client()
+            .get(&source)
+            .send()
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        if !upstream.status().is_success() {
+            return Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("下载结果视频失败: {}", upstream.status()),
+            ));
+        }
+        let content_type = upstream
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| HeaderValue::from_str(value).ok())
+            .unwrap_or_else(|| HeaderValue::from_static("video/mp4"));
+        let content_length = upstream.content_length();
+        let body_stream = stream::unfold(Some(upstream), |state| async move {
+            let mut response = state?;
+            match response.chunk().await {
+                Ok(Some(chunk)) => Some((Ok::<Bytes, reqwest::Error>(chunk), Some(response))),
+                Ok(None) => None,
+                Err(error) => Some((Err(error), None)),
+            }
+        });
+        let mut response = Response::new(Body::from_stream(body_stream));
+        response
+            .headers_mut()
+            .insert(header::CONTENT_TYPE, content_type);
+        response
+            .headers_mut()
+            .insert(header::CONTENT_DISPOSITION, content_disposition);
+        if let Some(length) = content_length {
+            if let Ok(value) = HeaderValue::from_str(&length.to_string()) {
+                response.headers_mut().insert(header::CONTENT_LENGTH, value);
+            }
+        }
+        return Ok(response);
+    }
+
+    let path = resolve_api_file_path(
+        &source,
+        "/api/video/file/",
+        &state.public_dir.join("videos"),
+    )
+    .or_else(|| resolve_api_file_path(&source, "/videos/", &state.public_dir.join("videos")))
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "结果视频文件不存在"))?;
+    let data = tokio::fs::read(&path)
+        .await
+        .map_err(|_| ApiError::new(StatusCode::NOT_FOUND, "结果视频文件不存在"))?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static("video/mp4")),
+            (header::CONTENT_DISPOSITION, content_disposition),
+        ],
+        data,
+    )
+        .into_response())
+}
+
 pub(super) async fn api_tools_video_enhance_tasks(
     State(state): State<BackendState>,
     Query(query): Query<HashMap<String, String>>,
@@ -15017,6 +15137,22 @@ fn models_test_selected_model_key(model_type: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn video_enhance_download_uses_original_file_name() {
+        assert_eq!(
+            video_enhance_download_name("animation-big-buck-bunny-360p.mp4"),
+            "animation-big-buck-bunny-360p-enhanced.mp4"
+        );
+        assert_eq!(
+            video_enhance_download_name("C:\\素材\\第01集.MOV"),
+            "第01集-enhanced.mp4"
+        );
+        assert_eq!(
+            video_enhance_download_name("无扩展名"),
+            "无扩展名-enhanced.mp4"
+        );
+    }
 
     #[test]
     fn project_permission_requests_require_project_id() {
