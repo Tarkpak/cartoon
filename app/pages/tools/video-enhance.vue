@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ExternalLink, FileVideo, ListChecks, Loader2, Settings, Trash2, Upload } from 'lucide-vue-next'
+import { ChevronDown, ExternalLink, FileVideo, FolderOpen, ListChecks, Loader2, Settings, Trash2, Upload } from 'lucide-vue-next'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
@@ -19,6 +19,15 @@ interface EnhanceUploadResponse {
   videoUrl: string
   sourceObjectKey?: string
   reused?: boolean
+}
+
+interface VideoEnhanceBatchSettings {
+  kind: EnhanceKind
+  scene: string
+  resolution: string
+  resolutionLimit: number
+  fps?: number
+  resolutionMode: 'preset' | 'limit'
 }
 
 type QueueStatus = 'pending' | 'uploading' | 'uploaded' | 'submitting' | 'submitted' | 'failed'
@@ -50,10 +59,11 @@ type FetchErrorWithData = Error & {
 
 const router = useRouter()
 const { toast } = useToast()
+const { confirm } = useConfirm()
 
 const kind = ref<EnhanceKind>('standard')
 const queue = ref<VideoEnhanceQueueItem[]>([])
-const scene = ref('common')
+const scene = ref('short_series')
 const resolution = ref('1080p')
 const resolutionLimit = ref(1080)
 const fps = ref<number | undefined>(undefined)
@@ -63,7 +73,15 @@ const uploadingSource = ref(false)
 const errorMessage = ref('')
 const showAdvancedOptions = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const folderInputRef = ref<HTMLInputElement | null>(null)
 const draggingFiles = ref(false)
+const batchId = ref('')
+const lockedBatchSettings = ref<VideoEnhanceBatchSettings | null>(null)
+
+const fileNameCollator = new Intl.Collator('zh-CN', {
+  numeric: true,
+  sensitivity: 'base'
+})
 
 const route = useRoute()
 const embeddedInUnifiedEnhance = computed(() => route.path === '/tools/enhance')
@@ -138,8 +156,26 @@ const normalizedFps = computed(() => {
 })
 const fpsValid = computed(() => normalizedFps.value === undefined || (normalizedFps.value >= 15 && normalizedFps.value <= 120))
 const activeQueue = computed(() => uploadingSource.value || submitting.value)
+const parametersLocked = computed(() => activeQueue.value || lockedBatchSettings.value !== null)
 const pendingQueue = computed(() => queue.value.filter(item => item.status !== 'submitted'))
+const submittedQueue = computed(() => queue.value.filter(item => item.status === 'submitted'))
+const failedQueue = computed(() => queue.value.filter(item => item.status === 'failed'))
+const processedQueueCount = computed(() => submittedQueue.value.length + failedQueue.value.length)
+const totalQueueBytes = computed(() => queue.value.reduce((total, item) => total + item.fileSize, 0))
+const batchProgress = computed(() => {
+  if (queue.value.length === 0) return 0
+  const activeItem = queue.value.find(item => item.status === 'uploading' || item.status === 'submitting')
+  const activeProgress = activeItem?.status === 'uploading' ? activeItem.uploadProgress / 100 : activeItem ? 1 : 0
+  return Math.round(((processedQueueCount.value + activeProgress) / queue.value.length) * 100)
+})
 const canSubmit = computed(() => queue.value.length > 0 && pendingQueue.value.length > 0 && !activeQueue.value && fpsValid.value)
+const submitButtonLabel = computed(() => {
+  if (activeQueue.value) return `批量处理中 ${processedQueueCount.value}/${queue.value.length}`
+  if (failedQueue.value.length > 0 && pendingQueue.value.length === failedQueue.value.length) {
+    return `重试 ${failedQueue.value.length} 个失败任务`
+  }
+  return `提交 ${pendingQueue.value.length} 个增强任务`
+})
 const submitHint = computed(() => {
   if (submitting.value) return '正在提交任务，请稍候。'
   if (uploadingSource.value) return '源视频正在上传，请稍候。'
@@ -148,6 +184,8 @@ const submitHint = computed(() => {
   return ''
 })
 const selectedKindOption = computed(() => kindOptions.find(option => option.value === kind.value))
+const selectedSceneLabel = computed(() => sceneOptions.find(option => option.value === scene.value)?.label || scene.value)
+const resolutionSummary = computed(() => resolutionMode.value === 'limit' ? `短边 ${resolutionLimit.value}px` : resolution.value.toUpperCase())
 const selectedDocsUrl = computed(() => {
   switch (kind.value) {
     case 'fast':
@@ -161,7 +199,6 @@ const selectedDocsUrl = computed(() => {
 const supportsResolutionLimit = computed(() => kind.value !== 'generative')
 
 watch(kind, (value) => {
-  if (value !== 'standard') scene.value = 'common'
   if (value === 'generative') {
     resolutionMode.value = 'preset'
     if (resolution.value === '480p' || resolution.value === '4k') resolution.value = '1080p'
@@ -172,29 +209,45 @@ function createQueueId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function buildRequestBody(item: VideoEnhanceQueueItem) {
-  const body: Record<string, unknown> = {
+function createBatchSettings(): VideoEnhanceBatchSettings {
+  return {
     kind: kind.value,
+    scene: scene.value,
+    resolution: resolution.value,
+    resolutionLimit: resolutionLimit.value,
+    fps: normalizedFps.value,
+    resolutionMode: resolutionMode.value
+  }
+}
+
+function buildRequestBody(item: VideoEnhanceQueueItem, settings: VideoEnhanceBatchSettings, currentBatchId: string) {
+  const body: Record<string, unknown> = {
+    batchId: currentBatchId,
+    kind: settings.kind,
     videoUrl: item.sourceVideoUrl.trim(),
     sourceFileName: item.fileName || '本地视频',
     sourceObjectKey: item.sourceObjectKey || undefined
   }
-  if (kind.value === 'standard') {
-    body.scene = scene.value
+  if (settings.kind === 'standard') {
+    body.scene = settings.scene
   }
-  if (kind.value !== 'generative' && resolutionMode.value === 'limit') {
-    body.resolutionLimit = resolutionLimit.value
+  if (settings.kind !== 'generative' && settings.resolutionMode === 'limit') {
+    body.resolutionLimit = settings.resolutionLimit
   } else {
-    body.resolution = resolution.value
+    body.resolution = settings.resolution
   }
-  if (normalizedFps.value !== undefined) {
-    body.fps = normalizedFps.value
+  if (settings.fps !== undefined) {
+    body.fps = settings.fps
   }
   return body
 }
 
 function triggerFileUpload() {
   fileInputRef.value?.click()
+}
+
+function triggerFolderUpload() {
+  folderInputRef.value?.click()
 }
 
 function isVideoFile(file: File) {
@@ -207,9 +260,21 @@ function addFilesToQueue(files: File[]) {
     errorMessage.value = '请拖入视频文件。'
     return
   }
+  const existingFiles = new Set(queue.value.map(item => `${item.fileName}:${item.fileSize}:${item.file.lastModified}`))
+  const uniqueVideoFiles = videoFiles.filter((file) => {
+    const signature = `${file.name}:${file.size}:${file.lastModified}`
+    if (existingFiles.has(signature)) return false
+    existingFiles.add(signature)
+    return true
+  })
+
+  if (uniqueVideoFiles.length === 0) {
+    toast.warning('所选视频已在当前批次中')
+    return
+  }
 
   errorMessage.value = ''
-  queue.value.push(...videoFiles.map(file => ({
+  queue.value.push(...uniqueVideoFiles.map(file => ({
     id: createQueueId(),
     file,
     fileName: file.name,
@@ -223,9 +288,14 @@ function addFilesToQueue(files: File[]) {
     errorMessage: '',
     reused: false
   })))
+  queue.value.sort((left, right) => fileNameCollator.compare(left.fileName, right.fileName))
 
   if (videoFiles.length < files.length) {
     toast.warning(`已忽略 ${files.length - videoFiles.length} 个非视频文件`)
+  }
+  const duplicateCount = videoFiles.length - uniqueVideoFiles.length
+  if (duplicateCount > 0) {
+    toast.warning(`已忽略 ${duplicateCount} 个重复视频`)
   }
 }
 
@@ -279,8 +349,12 @@ async function handleSourceFileChange(event: Event) {
   if (input) input.value = ''
 }
 
+async function handleSourceFolderChange(event: Event) {
+  await handleSourceFileChange(event)
+}
+
 function handleDragEnter(event: DragEvent) {
-  if (activeQueue.value || !event.dataTransfer?.types.includes('Files')) return
+  if (parametersLocked.value || !event.dataTransfer?.types.includes('Files')) return
   draggingFiles.value = true
 }
 
@@ -293,7 +367,7 @@ function handleDragLeave(event: DragEvent) {
 
 function handleDrop(event: DragEvent) {
   draggingFiles.value = false
-  if (activeQueue.value) return
+  if (parametersLocked.value) return
   const files = Array.from(event.dataTransfer?.files || [])
   if (files.length > 0) addFilesToQueue(files)
 }
@@ -303,7 +377,15 @@ function removeQueueItem(id: string) {
   queue.value = queue.value.filter(item => item.id !== id)
 }
 
-async function submitQueueItem(item: VideoEnhanceQueueItem) {
+function clearQueue() {
+  if (activeQueue.value) return
+  queue.value = []
+  batchId.value = ''
+  lockedBatchSettings.value = null
+  errorMessage.value = ''
+}
+
+async function submitQueueItem(item: VideoEnhanceQueueItem, settings: VideoEnhanceBatchSettings, currentBatchId: string) {
   item.errorMessage = ''
   if (!item.sourceVideoUrl) {
     item.status = 'uploading'
@@ -323,7 +405,7 @@ async function submitQueueItem(item: VideoEnhanceQueueItem) {
   item.status = 'submitting'
   const response = await $fetch<EnhanceSubmitResponse>('/api/tools/video-enhance', {
     method: 'POST',
-    body: buildRequestBody(item)
+    body: buildRequestBody(item, settings, currentBatchId)
   })
   item.taskId = response.taskId
   item.status = 'submitted'
@@ -331,6 +413,26 @@ async function submitQueueItem(item: VideoEnhanceQueueItem) {
 
 async function submitTask() {
   errorMessage.value = ''
+  const settings = lockedBatchSettings.value || createBatchSettings()
+  const kindLabel = kindOptions.find(option => option.value === settings.kind)?.label || settings.kind
+  const sceneLabel = settings.kind === 'standard' ? selectedSceneLabel.value : '默认'
+  const fpsLabel = settings.fps === undefined ? '保持原帧率' : `${settings.fps} fps`
+  const confirmed = await confirm({
+    title: `提交 ${pendingQueue.value.length} 个视频增强任务？`,
+    description: `${kindLabel} · ${sceneLabel} · ${resolutionSummary.value} · ${fpsLabel}。确认后整批任务将锁定使用这套参数。`,
+    confirmText: '确认批量提交',
+    cancelText: '返回检查'
+  })
+  if (!confirmed) return
+  lockedBatchSettings.value = settings
+
+  for (const item of queue.value) {
+    if (item.status !== 'failed') continue
+    item.status = item.sourceVideoUrl ? 'uploaded' : 'pending'
+    item.errorMessage = ''
+  }
+  if (!batchId.value) batchId.value = `venh_batch_${crypto.randomUUID()}`
+  const currentBatchId = batchId.value
   submitting.value = true
   let successCount = 0
   let failedCount = 0
@@ -338,7 +440,7 @@ async function submitTask() {
     for (const item of queue.value) {
       if (item.status === 'submitted') continue
       try {
-        await submitQueueItem(item)
+        await submitQueueItem(item, settings, currentBatchId)
         successCount += 1
       } catch (error) {
         item.status = 'failed'
@@ -367,6 +469,32 @@ async function submitTask() {
     submitting.value = false
   }
 }
+
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!pendingQueue.value.length) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+async function confirmDiscardQueue() {
+  if (!pendingQueue.value.length) return true
+  if (activeQueue.value) {
+    toast.warning('批量任务正在上传或提交，请等待完成后再离开')
+    return false
+  }
+  return await confirm({
+    title: '离开并清空当前批次？',
+    description: `当前还有 ${pendingQueue.value.length} 个视频尚未提交，离开页面后需要重新选择文件。`,
+    confirmText: '离开页面',
+    cancelText: '继续处理',
+    variant: 'destructive'
+  })
+}
+
+onMounted(() => window.addEventListener('beforeunload', handleBeforeUnload))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnload))
+onBeforeRouteUpdate(confirmDiscardQueue)
+onBeforeRouteLeave(confirmDiscardQueue)
 </script>
 
 <template>
@@ -414,8 +542,9 @@ async function submitTask() {
               v-for="option in kindOptions"
               :key="option.value"
               type="button"
-              class="rounded-xl bg-muted/20 p-3 text-left transition-colors hover:bg-muted/35"
+              class="rounded-xl bg-muted/20 p-3 text-left transition-colors hover:bg-muted/35 disabled:cursor-not-allowed disabled:opacity-60"
               :class="kind === option.value ? 'border-primary bg-primary/5' : 'border-border'"
+              :disabled="parametersLocked"
               @click="kind = option.value"
             >
               <div class="flex items-center justify-between gap-2">
@@ -470,84 +599,136 @@ async function submitTask() {
                 class="hidden"
                 @change="handleSourceFileChange"
               >
-              <Button
-                type="button"
-                variant="outline"
-                :disabled="activeQueue"
-                @click="triggerFileUpload"
+              <input
+                ref="folderInputRef"
+                type="file"
+                multiple
+                webkitdirectory
+                accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi"
+                class="hidden"
+                @change="handleSourceFolderChange"
               >
-                <Upload class="mr-2 h-4 w-4" />
-                选择视频
-              </Button>
+              <div class="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  :disabled="parametersLocked"
+                  @click="triggerFileUpload"
+                >
+                  <Upload class="mr-2 h-4 w-4" />
+                  选择多个视频
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  :disabled="parametersLocked"
+                  @click="triggerFolderUpload"
+                >
+                  <FolderOpen class="mr-2 h-4 w-4" />
+                  选择文件夹
+                </Button>
+              </div>
             </div>
             <div
               v-if="queue.length > 0"
               class="mt-3 space-y-2"
             >
+              <div class="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-primary/5 px-3 py-2 text-sm">
+                <span class="font-medium text-foreground">
+                  本批次 {{ queue.length }} 集 · {{ formatBytes(totalQueueBytes) }}
+                </span>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-muted-foreground">
+                    已提交 {{ submittedQueue.length }} · 失败 {{ failedQueue.length }} · 待处理 {{ pendingQueue.length - failedQueue.length }}
+                  </span>
+                  <Button
+                    v-if="!activeQueue && submittedQueue.length === 0"
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    class="h-7 text-muted-foreground hover:text-destructive"
+                    @click="clearQueue"
+                  >
+                    清空
+                  </Button>
+                </div>
+              </div>
               <div
-                v-for="item in queue"
-                :key="item.id"
-                class="rounded-xl bg-muted/25 px-3 py-3"
+                v-if="activeQueue || processedQueueCount > 0"
+                class="space-y-1 px-1 py-1"
               >
-                <div class="flex items-start gap-3">
-                  <FileVideo class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="truncate text-sm font-medium text-foreground">
-                        {{ item.fileName }}
+                <Progress :model-value="batchProgress" />
+                <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                  <span>批次进度</span>
+                  <span class="tabular-nums">{{ processedQueueCount }}/{{ queue.length }}（{{ batchProgress }}%）</span>
+                </div>
+              </div>
+              <div class="max-h-96 space-y-2 overflow-y-auto pr-1">
+                <div
+                  v-for="item in queue"
+                  :key="item.id"
+                  class="rounded-xl bg-muted/25 px-3 py-3"
+                >
+                  <div class="flex items-start gap-3">
+                    <FileVideo class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="truncate text-sm font-medium text-foreground">
+                          {{ item.fileName }}
+                        </div>
+                        <div class="flex shrink-0 items-center gap-2">
+                          <Badge :variant="item.status === 'failed' ? 'destructive' : item.status === 'submitted' ? 'success' : item.status === 'pending' ? 'secondary' : 'default'">
+                            {{
+                              item.status === 'pending'
+                                ? '待提交'
+                                : item.status === 'uploading'
+                                  ? '上传中'
+                                  : item.status === 'uploaded'
+                                    ? '已上传'
+                                    : item.status === 'submitting'
+                                      ? '提交中'
+                                      : item.status === 'submitted'
+                                        ? '已提交'
+                                        : '失败'
+                            }}
+                          </Badge>
+                          <Button
+                            v-if="!activeQueue && item.status !== 'submitted'"
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            class="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            title="移除"
+                            @click="removeQueueItem(item.id)"
+                          >
+                            <Trash2 class="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <div class="flex shrink-0 items-center gap-2">
-                        <Badge :variant="item.status === 'failed' ? 'destructive' : item.status === 'submitted' ? 'success' : item.status === 'pending' ? 'secondary' : 'default'">
-                          {{
-                            item.status === 'pending'
-                              ? '待提交'
-                              : item.status === 'uploading'
-                                ? '上传中'
-                                : item.status === 'uploaded'
-                                  ? '已上传'
-                                  : item.status === 'submitting'
-                                    ? '提交中'
-                                    : item.status === 'submitted'
-                                      ? '已提交'
-                                      : '失败'
-                          }}
-                        </Badge>
-                        <Button
-                          v-if="!activeQueue && item.status !== 'submitted'"
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          class="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          title="移除"
-                          @click="removeQueueItem(item.id)"
-                        >
-                          <Trash2 class="h-4 w-4" />
-                        </Button>
+                      <div class="mt-1 text-xs text-muted-foreground">
+                        {{ formatBytes(item.fileSize) }} · {{ item.fileType }}
                       </div>
-                    </div>
-                    <div class="mt-1 text-xs text-muted-foreground">
-                      {{ formatBytes(item.fileSize) }} · {{ item.fileType }}
-                    </div>
-                    <div
-                      v-if="item.status === 'uploading' || item.uploadProgress > 0 && item.status !== 'submitted'"
-                      class="mt-3 space-y-1"
-                    >
-                      <Progress :model-value="item.uploadProgress" />
-                      <div class="text-xs text-muted-foreground">
-                        正在上传到 TOS：{{ item.uploadProgress }}%
+                      <div
+                        v-if="item.status === 'uploading' || item.uploadProgress > 0 && item.status !== 'submitted'"
+                        class="mt-3 space-y-1"
+                      >
+                        <Progress :model-value="item.uploadProgress" />
+                        <div class="text-xs text-muted-foreground">
+                          正在上传到 TOS：{{ item.uploadProgress }}%
+                        </div>
                       </div>
-                    </div>
-                    <div
-                      v-if="item.taskId"
-                      class="mt-2 truncate font-mono text-xs text-muted-foreground"
-                    >
-                      {{ item.taskId }}
-                    </div>
-                    <div
-                      v-if="item.errorMessage"
-                      class="mt-2 text-xs leading-5 text-destructive"
-                    >
-                      {{ item.errorMessage }}
+                      <div
+                        v-if="item.taskId"
+                        class="mt-2 truncate font-mono text-xs text-muted-foreground"
+                      >
+                        {{ item.taskId }}
+                      </div>
+                      <div
+                        v-if="item.errorMessage"
+                        class="mt-2 text-xs leading-5 text-destructive"
+                      >
+                        {{ item.errorMessage }}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -557,7 +738,7 @@ async function submitTask() {
               v-else
               class="mt-3 rounded-xl bg-muted/15 bg-background/60 p-6 text-center text-sm text-muted-foreground"
             >
-              拖拽视频到这里，或点击“选择视频”
+              拖拽视频到这里，或选择多个视频/整个剧集文件夹
             </div>
           </div>
 
@@ -572,6 +753,10 @@ async function submitTask() {
                 </div>
                 <div class="mt-1 text-xs text-muted-foreground">
                   速度 {{ selectedKindOption.speed }} · 成本 {{ selectedKindOption.cost }} · {{ selectedKindOption.limit }}
+                  <template v-if="kind === 'standard'">
+                    · 场景 {{ selectedSceneLabel }}
+                  </template>
+                  · 输出 {{ resolutionSummary }}
                 </div>
               </div>
               <Button
@@ -599,7 +784,7 @@ async function submitTask() {
               class="space-y-2"
             >
               <label class="text-sm font-medium text-foreground">业务场景</label>
-              <Select v-model="scene">
+              <Select v-model="scene" :disabled="parametersLocked">
                 <SelectTrigger>
                   <SelectValue placeholder="选择场景" />
                 </SelectTrigger>
@@ -620,7 +805,7 @@ async function submitTask() {
               class="space-y-2"
             >
               <label class="text-sm font-medium text-foreground">分辨率方式</label>
-              <Select v-model="resolutionMode">
+              <Select v-model="resolutionMode" :disabled="parametersLocked">
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -640,7 +825,7 @@ async function submitTask() {
               class="space-y-2"
             >
               <label class="text-sm font-medium text-foreground">输出分辨率</label>
-              <Select v-model="resolution">
+              <Select v-model="resolution" :disabled="parametersLocked">
                 <SelectTrigger>
                   <SelectValue placeholder="选择分辨率" />
                 </SelectTrigger>
@@ -667,6 +852,7 @@ async function submitTask() {
                 type="number"
                 min="128"
                 max="2160"
+                :disabled="parametersLocked"
               />
             </div>
 
@@ -678,6 +864,7 @@ async function submitTask() {
                 min="15"
                 max="120"
                 placeholder="保持原帧率"
+                :disabled="parametersLocked"
               />
             </div>
           </div>
@@ -696,21 +883,23 @@ async function submitTask() {
             {{ errorMessage }}
           </div>
 
-          <Button
-            :disabled="!canSubmit"
-            @click="submitTask"
-          >
-            <Loader2
-              v-if="activeQueue"
-              class="mr-2 h-4 w-4 animate-spin"
-            />
-            提交 {{ pendingQueue.length }} 个增强任务
-          </Button>
-          <div
-            v-if="submitHint"
-            class="text-xs text-muted-foreground"
-          >
-            {{ submitHint }}
+          <div class="sticky bottom-0 z-10 -mx-6 flex flex-col gap-2 border-t bg-background/95 px-6 py-4 backdrop-blur-sm sm:flex-row sm:items-center">
+            <Button
+              :disabled="!canSubmit"
+              @click="submitTask"
+            >
+              <Loader2
+                v-if="activeQueue"
+                class="mr-2 h-4 w-4 animate-spin"
+              />
+              {{ submitButtonLabel }}
+            </Button>
+            <div
+              v-if="submitHint"
+              class="text-xs text-muted-foreground"
+            >
+              {{ submitHint }}
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -39,6 +39,14 @@ const MEDIAKIT_BASE_URL: &str = "https://mediakit.cn-beijing.volces.com";
 pub(super) const VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES: usize = 2 * 1024 * 1024 * 1024;
 pub(super) const IMAGE_ENHANCE_UPLOAD_LIMIT_BYTES: usize = 50 * 1024 * 1024;
 
+struct TempUploadFileGuard(PathBuf);
+
+impl Drop for TempUploadFileGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
 fn render_runtime_prompt(template: &str, variables: &[(&str, &str)]) -> String {
     let mut output = template.to_string();
     for (key, value) in variables {
@@ -887,6 +895,17 @@ async fn upload_media_bytes_to_tos_async(
     .await
 }
 
+async fn upload_media_file_to_tos_async(
+    category: &'static str,
+    filename: String,
+    file_path: PathBuf,
+) -> Result<Option<String>, ApiError> {
+    run_tos_sdk_on_dedicated_thread_async("upload-file", move || {
+        upload_media_file_to_tos(category, &filename, &file_path)
+    })
+    .await
+}
+
 async fn delete_backend_tos_object_async(object_key: String) -> Result<(), ApiError> {
     run_tos_sdk_on_dedicated_thread_async("delete", move || delete_backend_tos_object(&object_key))
         .await
@@ -1314,7 +1333,8 @@ fn video_enhance_task_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value
       "errorMessage": row.get::<_, Option<String>>(14)?,
       "createdAt": row.get::<_, String>(15)?,
       "updatedAt": row.get::<_, String>(16)?,
-      "completedAt": row.get::<_, Option<String>>(17)?
+      "completedAt": row.get::<_, Option<String>>(17)?,
+      "batchId": row.get::<_, Option<String>>(18)?
     }))
 }
 
@@ -2359,31 +2379,82 @@ pub(super) async fn api_tools_video_enhance_upload_source(
 
         let filename = field.file_name().map(str::to_string);
         let content_type = field.content_type().map(str::to_string);
-        let mut bytes = Vec::new();
-        while let Some(chunk) = field
-            .chunk()
-            .await
-            .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
-        {
-            if bytes.len().saturating_add(chunk.len()) > VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES {
+        let temp_path = std::env::temp_dir().join(format!(
+            "playlet_video_enhance_upload_{}",
+            Uuid::new_v4().simple()
+        ));
+        let _temp_file_guard = TempUploadFileGuard(temp_path.clone());
+        let mut temp_file = tokio::fs::File::create(&temp_path).await.map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("创建视频上传临时文件失败: {}", error),
+            )
+        })?;
+        let mut hasher = Sha256::new();
+        let mut size_bytes = 0usize;
+        loop {
+            let chunk = match field.chunk().await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => break,
+                Err(error) => {
+                    drop(temp_file);
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    return Err(ApiError::new(StatusCode::BAD_REQUEST, error.to_string()));
+                }
+            };
+            if size_bytes.saturating_add(chunk.len()) > VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES {
+                drop(temp_file);
+                let _ = tokio::fs::remove_file(&temp_path).await;
                 return Err(ApiError::new(
                     StatusCode::PAYLOAD_TOO_LARGE,
                     "视频文件超过 2GB 上传上限",
                 ));
             }
-            bytes.extend_from_slice(&chunk);
+            if let Err(error) = temp_file.write_all(&chunk).await {
+                drop(temp_file);
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Err(ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("写入视频上传临时文件失败: {}", error),
+                ));
+            }
+            hasher.update(&chunk);
+            size_bytes += chunk.len();
         }
 
-        if bytes.is_empty() {
+        if size_bytes == 0 {
+            drop(temp_file);
+            let _ = tokio::fs::remove_file(&temp_path).await;
             return Err(ApiError::new(StatusCode::BAD_REQUEST, "视频文件为空"));
         }
+        if let Err(error) = temp_file.flush().await {
+            drop(temp_file);
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("保存视频上传临时文件失败: {}", error),
+            ));
+        }
+        drop(temp_file);
 
         let ext = uploaded_video_extension(filename.as_deref(), content_type.as_deref());
-        let sha256 = media_bytes_sha256_hex(&bytes);
-        let size_bytes = bytes.len();
-        let conn = db_connection(&state)?;
-        if let Some(cached) = load_uploaded_media_cache(&conn, "videos", &sha256)? {
-            touch_uploaded_media_cache(&conn, "videos", &sha256)?;
+        let sha256 = format!("{:x}", hasher.finalize());
+        let cached = match (|| -> Result<_, ApiError> {
+            let conn = db_connection(&state)?;
+            let cached = load_uploaded_media_cache(&conn, "videos", &sha256)?;
+            if cached.is_some() {
+                touch_uploaded_media_cache(&conn, "videos", &sha256)?;
+            }
+            Ok(cached)
+        })() {
+            Ok(cached) => cached,
+            Err(error) => {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Err(error);
+            }
+        };
+        if let Some(cached) = cached {
+            let _ = tokio::fs::remove_file(&temp_path).await;
             uploaded_url = Some(cached.url);
             uploaded_object_key = Some(cached.object_key);
             reused_upload = true;
@@ -2393,9 +2464,13 @@ pub(super) async fn api_tools_video_enhance_upload_source(
         let object_filename = build_unique_filename("video-enhance-source", &ext);
         let object_key =
             build_backend_tos_object_key(&load_backend_tos_config(), "videos", &object_filename);
-        uploaded_url = upload_media_bytes_to_tos_async("videos", object_filename, bytes).await?;
+        let upload_result =
+            upload_media_file_to_tos_async("videos", object_filename, temp_path.clone()).await;
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        uploaded_url = upload_result?;
         uploaded_object_key = Some(object_key);
         if let Some(url) = uploaded_url.as_deref() {
+            let conn = db_connection(&state)?;
             save_uploaded_media_cache(
                 &conn,
                 "videos",
@@ -2592,16 +2667,21 @@ pub(super) async fn api_tools_video_enhance_submit(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    let batch_id = body
+        .get("batchId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let now = now_iso();
     conn.execute(
         "INSERT OR REPLACE INTO video_enhance_tasks (
           id, task_id, kind, kind_label, file_name, source_video_url, source_object_key,
-          status, raw_status, request_json, response_json, created_at, updated_at
+          status, raw_status, request_json, response_json, created_at, updated_at, batch_id
         ) VALUES (
           COALESCE((SELECT id FROM video_enhance_tasks WHERE task_id = ?1), ?2),
           ?1, ?3, ?4, ?5, ?6, ?7, 'processing', 'submitted', ?8, ?9,
           COALESCE((SELECT created_at FROM video_enhance_tasks WHERE task_id = ?1), ?10),
-          ?10
+          ?10, ?11
         )",
         params![
             task_id,
@@ -2613,7 +2693,8 @@ pub(super) async fn api_tools_video_enhance_submit(
             source_object_key,
             request_body.to_string(),
             payload.to_string(),
-            now
+            now,
+            batch_id
         ],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -2714,7 +2795,7 @@ pub(super) async fn api_tools_video_enhance_tasks(
     let select_sql = "SELECT id, task_id, kind, kind_label, file_name, source_video_url,
              source_object_key, source_deleted, status, raw_status, result_video_url,
              saved_video_url, result_object_key, result_deleted, error_message,
-             created_at, updated_at, completed_at
+             created_at, updated_at, completed_at, batch_id
        FROM video_enhance_tasks";
     let rows = if let Some(status) = status {
         let mut stmt = conn
@@ -2961,7 +3042,7 @@ pub(super) fn spawn_video_enhance_task_poller(state: BackendState) {
                     .prepare(
                         "SELECT task_id FROM video_enhance_tasks
                          WHERE status IN ('processing', 'idle')
-                         ORDER BY created_at ASC
+                         ORDER BY updated_at ASC
                          LIMIT 20",
                     )
                     .map_err(|error| {
@@ -3001,6 +3082,12 @@ pub(super) fn spawn_video_enhance_task_poller(state: BackendState) {
                         }
                     }
                     Err(error) => {
+                        if let Ok(conn) = db_connection(&state) {
+                            let _ = conn.execute(
+                                "UPDATE video_enhance_tasks SET updated_at = ?1 WHERE task_id = ?2",
+                                params![now_iso(), task_id],
+                            );
+                        }
                         eprintln!(
                             "[VideoEnhancePoller] 查询任务 {} 失败: {}",
                             task_id, error.message

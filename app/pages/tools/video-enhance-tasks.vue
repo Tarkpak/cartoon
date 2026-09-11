@@ -27,6 +27,7 @@ interface EnhanceSaveResponse {
 interface VideoEnhanceTaskRecord {
   id: string
   taskId: string
+  batchId?: string | null
   kind: EnhanceKind
   kindLabel: string
   fileName: string
@@ -70,6 +71,7 @@ const saving = ref(false)
 const loadingTasks = ref(false)
 const deletingAsset = ref('')
 const recentTasks = ref<VideoEnhanceTaskRecord[]>([])
+const batchFilter = ref('all')
 let pollingTimer: number | null = null
 
 const embeddedInUnifiedTasks = computed(() => ['/tools/enhance', '/tools/enhance-tasks'].includes(route.path))
@@ -78,6 +80,25 @@ const pollingActive = computed(() => status.value === 'processing' && pollingTim
 const displayResultVideoUrl = computed(() => localVideoUrl.value || resultVideoUrl.value)
 const compareSourceVideoUrl = computed(() => sourceDeleted.value ? '' : sourceVideoUrl.value)
 const compareResultVideoUrl = computed(() => resultDeleted.value ? '' : displayResultVideoUrl.value)
+const batchOptions = computed(() => {
+  const batches = new Map<string, { createdAt: string, count: number }>()
+  for (const task of recentTasks.value) {
+    if (!task.batchId) continue
+    const current = batches.get(task.batchId)
+    if (current) {
+      current.count += 1
+    } else {
+      batches.set(task.batchId, { createdAt: task.createdAt, count: 1 })
+    }
+  }
+  return Array.from(batches, ([value, details]) => ({
+    value,
+    label: `${formatDate(details.createdAt)} · ${details.count} 集`
+  }))
+})
+const filteredTasks = computed(() => batchFilter.value === 'all'
+  ? recentTasks.value
+  : recentTasks.value.filter(task => task.batchId === batchFilter.value))
 
 onMounted(() => {
   void loadRecentTasks()
@@ -104,9 +125,12 @@ async function loadRecentTasks() {
   loadingTasks.value = true
   try {
     const response = await $fetch<VideoEnhanceTasksResponse>('/api/tools/video-enhance/tasks', {
-      query: { limit: 100 }
+      query: { limit: 200 }
     })
     recentTasks.value = response.data.tasks
+    if (batchFilter.value !== 'all' && !recentTasks.value.some(task => task.batchId === batchFilter.value)) {
+      batchFilter.value = 'all'
+    }
     syncSelectedTaskFromRecords()
   } catch (error) {
     recentTasks.value = []
@@ -423,23 +447,42 @@ function taskStatusVariant(value: TaskStatus | string) {
               任务列表
             </h2>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            class="shrink-0"
-            :disabled="loadingTasks"
-            @click="loadRecentTasks"
-          >
-            <Loader2
-              v-if="loadingTasks"
-              class="mr-2 h-4 w-4 animate-spin"
-            />
-            <RefreshCw
-              v-else
-              class="mr-2 h-4 w-4"
-            />
-            {{ loadingTasks ? '正在刷新' : '刷新列表' }}
-          </Button>
+          <div class="flex flex-wrap items-center justify-end gap-2">
+            <Select v-if="batchOptions.length" v-model="batchFilter">
+              <SelectTrigger class="w-64 bg-background">
+                <SelectValue placeholder="筛选提交批次" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">
+                  全部批次
+                </SelectItem>
+                <SelectItem
+                  v-for="option in batchOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              class="shrink-0"
+              :disabled="loadingTasks"
+              @click="loadRecentTasks"
+            >
+              <Loader2
+                v-if="loadingTasks"
+                class="mr-2 h-4 w-4 animate-spin"
+              />
+              <RefreshCw
+                v-else
+                class="mr-2 h-4 w-4"
+              />
+              {{ loadingTasks ? '正在刷新' : '刷新列表' }}
+            </Button>
+          </div>
         </div>
 
         <div
@@ -477,7 +520,7 @@ function taskStatusVariant(value: TaskStatus | string) {
             <div class="text-right">操作</div>
           </div>
           <div
-            v-for="record in recentTasks"
+            v-for="record in filteredTasks"
             :key="record.taskId"
             class="grid gap-3 border-b p-4 transition-colors last:border-b-0 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_120px_120px_160px] lg:items-center"
             :class="taskId === record.taskId ? 'bg-primary/5' : 'hover:bg-muted/30'"
@@ -492,6 +535,12 @@ function taskStatusVariant(value: TaskStatus | string) {
               </div>
               <div class="mt-1 text-xs text-muted-foreground">
                 {{ formatDate(record.createdAt) }}
+              </div>
+              <div
+                v-if="record.batchId"
+                class="mt-1 truncate font-mono text-[11px] text-muted-foreground/75"
+              >
+                批次 {{ record.batchId.slice(-8) }}
               </div>
             </button>
             <button

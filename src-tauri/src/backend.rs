@@ -25,10 +25,12 @@ use std::path::{Path as FsPath, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
-use ve_tos_rust_sdk::object::{DeleteObjectInput, ObjectAPI, PutObjectFromBufferInput};
+use ve_tos_rust_sdk::object::{
+    DeleteObjectInput, ObjectAPI, PutObjectFromBufferInput, PutObjectFromFileInput,
+};
 use ve_tos_rust_sdk::tos;
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
@@ -2716,6 +2718,58 @@ fn upload_media_bytes_to_tos(
     Ok(Some(build_backend_tos_public_url(&config, &object_key)))
 }
 
+fn upload_media_file_to_tos(
+    category: &str,
+    filename: &str,
+    file_path: &FsPath,
+) -> Result<Option<String>, ApiError> {
+    let config = load_backend_tos_config();
+    if !config.enabled {
+        return Ok(None);
+    }
+
+    let object_key = build_backend_tos_object_key(&config, category, filename);
+    if object_key.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "TOS 对象路径为空，无法上传媒体文件",
+        ));
+    }
+
+    let endpoint = format!("{}://{}", config.endpoint_protocol, config.endpoint);
+    let mut builder = tos::builder()
+        .connection_timeout(15000)
+        .request_timeout(300000)
+        .max_retry_count(1)
+        .ak(config.access_key_id.clone())
+        .sk(config.access_key_secret.clone())
+        .region(config.region.clone())
+        .endpoint(endpoint)
+        .is_custom_domain(config.is_custom_domain);
+    if let Some(token) = &config.security_token {
+        builder = builder.security_token(token.clone());
+    }
+    let client = builder.build().map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("初始化 TOS 客户端失败: {}", error),
+        )
+    })?;
+    let input = PutObjectFromFileInput::new_with_file_path(
+        config.bucket.clone(),
+        object_key.clone(),
+        file_path.to_string_lossy().to_string(),
+    );
+    client.put_object_from_file(&input).map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("上传到 TOS 失败: {}", error),
+        )
+    })?;
+
+    Ok(Some(build_backend_tos_public_url(&config, &object_key)))
+}
+
 fn delete_backend_tos_object(object_key: &str) -> Result<(), ApiError> {
     let config = load_backend_tos_config();
     if !config.enabled {
@@ -4313,6 +4367,8 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ensure_column(conn, "video_import_tasks", column, definition)?;
     }
 
+    ensure_column(conn, "video_enhance_tasks", "batch_id", "TEXT")?;
+
     for (column, definition) in [
         ("request_json", "TEXT"),
         ("request_raw_json", "TEXT"),
@@ -4589,6 +4645,7 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
       CREATE TABLE IF NOT EXISTS video_enhance_tasks (
         id TEXT PRIMARY KEY,
         task_id TEXT NOT NULL UNIQUE,
+        batch_id TEXT,
         kind TEXT NOT NULL,
         kind_label TEXT NOT NULL,
         file_name TEXT NOT NULL,
@@ -4836,6 +4893,7 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
       CREATE INDEX IF NOT EXISTS idx_video_import_step_runs_step ON video_import_step_runs(step);
       CREATE INDEX IF NOT EXISTS idx_video_enhance_tasks_status ON video_enhance_tasks(status);
       CREATE INDEX IF NOT EXISTS idx_video_enhance_tasks_created ON video_enhance_tasks(created_at);
+      CREATE INDEX IF NOT EXISTS idx_video_enhance_tasks_batch ON video_enhance_tasks(batch_id);
       CREATE INDEX IF NOT EXISTS idx_image_enhance_tasks_status ON image_enhance_tasks(status);
       CREATE INDEX IF NOT EXISTS idx_image_enhance_tasks_created ON image_enhance_tasks(created_at);
       CREATE INDEX IF NOT EXISTS idx_uploaded_media_cache_category_sha256
