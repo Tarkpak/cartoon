@@ -172,8 +172,7 @@ function run(cmd: string, options: { cwd?: string, stdio?: 'inherit' | 'pipe' } 
       ...options
     })
   } catch {
-    console.error(`命令执行失败: ${cmd}`)
-    process.exit(1)
+    throw new Error(`命令执行失败: ${cmd}`)
   }
 }
 
@@ -256,12 +255,10 @@ async function setRepoVisibility(repo: GitHubRepo, isPrivate: boolean): Promise<
 /**
  * 获取最新的 workflow run
  */
-async function getLatestWorkflowRun(repo: GitHubRepo, tagName: string): Promise<WorkflowRun | null> {
-  // 等待几秒让 GitHub 处理 push 事件
-  await sleep(5000)
-
+async function getReleaseWorkflowRuns(repo: GitHubRepo, tagName: string, headSha: string): Promise<WorkflowRun[]> {
+  const query = new URLSearchParams({ per_page: '100', event: 'push', branch: tagName, head_sha: headSha })
   const response = await fetch(
-    `https://api.github.com/repos/${repo.owner}/${repo.repo}/actions/runs?per_page=5`,
+    `https://api.github.com/repos/${repo.owner}/${repo.repo}/actions/workflows/desktop-release.yml/runs?${query}`,
     {
       headers: {
         'Accept': 'application/vnd.github.v3+json',
@@ -277,12 +274,7 @@ async function getLatestWorkflowRun(repo: GitHubRepo, tagName: string): Promise<
 
   const data: WorkflowRunsResponse = await response.json()
 
-  // 查找与当前 tag 相关的 run
-  const run
-    = data.workflow_runs.find(r => r.head_branch === tagName || r.head_sha === tagName)
-      || data.workflow_runs[0]
-
-  return run || null
+  return data.workflow_runs.filter(r => r.head_branch === tagName && r.head_sha === headSha)
 }
 
 /**
@@ -312,15 +304,22 @@ async function getWorkflowRunStatus(repo: GitHubRepo, runId: number): Promise<Wo
  */
 async function waitForWorkflowCompletion(
   repo: GitHubRepo,
-  tagName: string
-): Promise<{ success: boolean, run?: WorkflowRun, timeout?: boolean } | null> {
+  tagName: string,
+  headSha: string,
+  previousRunIds: Set<number>
+): Promise<void> {
   console.log('\n⏳ 等待 GitHub Actions 开始...')
 
-  const run = await getLatestWorkflowRun(repo, tagName)
-
-  if (!run) {
-    console.log('⚠️  未找到 workflow run，跳过等待')
-    return null
+  const discoveryStarted = Date.now()
+  let run: WorkflowRun | undefined
+  while (!run) {
+    const runs = await getReleaseWorkflowRuns(repo, tagName, headSha)
+    run = runs.find(candidate => !previousRunIds.has(candidate.id))
+    if (run) break
+    if (Date.now() - discoveryStarted >= 5 * 60 * 1000) {
+      throw new Error(`等待 ${tagName} 的 Desktop Release 启动超时`)
+    }
+    await sleep(5000)
   }
 
   console.log(`📋 Workflow: ${run.name}`)
@@ -337,10 +336,10 @@ async function waitForWorkflowCompletion(
     if (status.status === 'completed') {
       if (status.conclusion === 'success') {
         console.log(`\n✅ Workflow 完成！耗时 ${elapsed} 分钟`)
-        return { success: true, run: status }
+        return
       } else {
         console.log(`\n❌ Workflow 失败: ${status.conclusion}`)
-        return { success: false, run: status }
+        throw new Error(`Desktop Release 构建失败: ${status.conclusion} (${status.html_url})`)
       }
     }
 
@@ -348,8 +347,7 @@ async function waitForWorkflowCompletion(
     process.stdout.write(`\r⏳ 状态: ${status.status} | 已等待: ${elapsed} 分钟`)
 
     if (Date.now() - startTime > maxWaitTime) {
-      console.log('\n⚠️  等待超时，将继续设为私有')
-      return { success: false, timeout: true }
+      throw new Error(`等待 Desktop Release 完成超时 (${run.html_url})`)
     }
 
     await sleep(pollInterval)
@@ -454,48 +452,28 @@ async function askConfirmation(question: string): Promise<boolean> {
 /**
  * 处理仓库可见性切换的完整流程
  */
-async function handleVisibilityToggle(repo: GitHubRepo, tagName: string): Promise<void> {
-  let wasPrivate = false
-
+export async function handleVisibilityToggle(
+  repo: GitHubRepo,
+  tagName: string,
+  headSha: string,
+  publish: () => void
+): Promise<void> {
+  const repoInfo = await getRepoInfo(repo)
   try {
-    // 检查当前状态
-    const repoInfo = await getRepoInfo(repo)
-    wasPrivate = repoInfo.private
-
-    if (wasPrivate) {
+    if (repoInfo.private) {
       console.log('\n📦 仓库当前是私有的，临时设为公开以使用免费 Actions...')
       await setRepoVisibility(repo, false)
-
-      // 等待 Actions 完成
-      const result = await waitForWorkflowCompletion(repo, tagName)
-
-      // 设回私有
-      console.log('\n🔒 正在将仓库设回私有...')
-      await setRepoVisibility(repo, true)
-
-      if (result?.success) {
-        console.log('\n🎊 构建成功完成，仓库已设回私有！')
-      } else if (result?.timeout) {
-        console.log('\n⚠️  构建超时，但仓库已设回私有。请手动检查 Actions 状态。')
-      } else {
-        console.log('\n⚠️  构建可能失败，请检查 Actions 日志。仓库已设回私有。')
-      }
-    } else {
-      console.log('\n📦 仓库已经是公开的，无需切换可见性')
     }
-  } catch (error) {
-    console.error(`\n❌ 可见性切换出错: ${(error as Error).message}`)
-
-    // 确保在出错时也尝试设回私有
-    if (wasPrivate) {
-      console.log('🔒 尝试将仓库设回私有...')
-      try {
-        await setRepoVisibility(repo, true)
-        console.log('✅ 仓库已设回私有')
-      } catch (e) {
-        console.error(`❌ 无法设回私有: ${(e as Error).message}`)
-        console.log('⚠️  请手动将仓库设为私有！')
-      }
+    // Exclude old runs when force-publishing the same tag and commit.
+    const previousRuns = await getReleaseWorkflowRuns(repo, tagName, headSha)
+    publish()
+    await waitForWorkflowCompletion(repo, tagName, headSha, new Set(previousRuns.map(run => run.id)))
+  } finally {
+    try {
+      await setRepoVisibility(repo, true)
+    } catch (error) {
+      console.error('无法将仓库设为私有，请手动检查仓库可见性。')
+      throw error
     }
   }
 }
@@ -511,6 +489,10 @@ async function main(): Promise<void> {
 
   // 获取仓库信息
   const repo = getRepoFromRemote()
+  if (!GITHUB_TOKEN || !repo) {
+    throw new Error('发布需要 GITHUB_TOKEN 和有效的 GitHub origin，无法跳过构建等待与私有化')
+  }
+  await getRepoInfo(repo)
   const releaseBranch = getCurrentBranch()
   console.log(`📍 发版分支: ${releaseBranch}\n`)
 
@@ -548,13 +530,9 @@ async function main(): Promise<void> {
     run(`git tag v${currentVersion}`)
     console.log(`✅ 创建 tag: v${currentVersion}`)
 
-    // 推送
-    pushRelease(releaseBranch, currentVersion)
-
-    // 如果有 Token，等待 Actions 完成后设回私有
-    if (GITHUB_TOKEN && repo) {
-      await handleVisibilityToggle(repo, `v${currentVersion}`)
-    }
+    await handleVisibilityToggle(repo, `v${currentVersion}`, getOutput('git rev-parse HEAD'), () => {
+      pushRelease(releaseBranch, currentVersion)
+    })
 
     console.log(`
 🎉 强制发版成功！版本: v${currentVersion}
@@ -601,13 +579,9 @@ async function main(): Promise<void> {
   run(`git tag v${newVersion}`)
   console.log(`✅ 创建 tag: v${newVersion}`)
 
-  // 推送
-  pushRelease(releaseBranch, newVersion)
-
-  // 如果有 Token，等待 Actions 完成后设回私有
-  if (GITHUB_TOKEN && repo) {
-    await handleVisibilityToggle(repo, `v${newVersion}`)
-  }
+  await handleVisibilityToggle(repo, `v${newVersion}`, getOutput('git rev-parse HEAD'), () => {
+    pushRelease(releaseBranch, newVersion)
+  })
 
   console.log(`
 🎉 发版成功！版本: v${newVersion}
@@ -616,4 +590,9 @@ async function main(): Promise<void> {
   playSound()
 }
 
-main().catch(console.error)
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(error)
+    process.exitCode = 1
+  })
+}

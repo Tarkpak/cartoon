@@ -15,7 +15,7 @@
     "lint": "eslint app shared backend --max-warnings=0",
     "lint:fix": "eslint app shared backend --fix --max-warnings=0",
     "typecheck": "vue-tsc --noEmit",
-    "test": "vitest --run app shared && bun test backend",
+    "test": "vitest --run app shared scripts/release.test.ts && bun test backend",
     "test:watch": "vitest app shared",
     "test:coverage": "vitest --run --coverage app shared && bun test backend",
     "voice-presets:sync": "bun scripts/sync-volcengine-voice-presets.ts",
