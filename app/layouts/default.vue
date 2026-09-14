@@ -47,7 +47,7 @@ const navigation = computed(() => {
   const toolChildren = [
     { name: 'AI 剧本创作', path: '/tools/script-writing', icon: PenLine },
     { name: '视频转项目', path: '/import/video', icon: FileVideo },
-    { name: '画质增强', path: '/tools/enhance', icon: WandSparkles },
+    { name: '媒体处理', path: '/tools/enhance', icon: WandSparkles },
     { name: '语音识别', path: '/tools/asr', icon: AudioLines },
     { name: '声音工作台', path: '/tools/voice', icon: MicVocal },
     { name: '视频图文下载', path: '/tools/short-video-download', icon: Download }

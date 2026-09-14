@@ -131,6 +131,20 @@ const routes: RouteRecordRaw[] = [
     meta: { layout: 'default' }
   },
   {
+    path: '/tools/subtitle-erasure',
+    redirect: to => ({
+      path: '/tools/enhance',
+      query: { ...to.query, type: 'subtitle-erasure', view: 'create' }
+    })
+  },
+  {
+    path: '/tools/subtitle-erasure-tasks',
+    redirect: to => ({
+      path: '/tools/enhance',
+      query: { ...to.query, type: 'subtitle-erasure', view: 'tasks' }
+    })
+  },
+  {
     path: '/tools/local-video-enhance',
     redirect: to => ({
       path: '/tools/enhance',

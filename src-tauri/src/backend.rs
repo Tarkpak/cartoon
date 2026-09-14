@@ -4370,6 +4370,17 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
     ensure_column(conn, "video_enhance_tasks", "batch_id", "TEXT")?;
 
     for (column, definition) in [
+        ("batch_id", "TEXT"),
+        ("source_object_key", "TEXT"),
+        ("source_deleted", "INTEGER NOT NULL DEFAULT 0"),
+        ("saved_video_url", "TEXT"),
+        ("result_object_key", "TEXT"),
+        ("result_deleted", "INTEGER NOT NULL DEFAULT 0"),
+    ] {
+        ensure_column(conn, "subtitle_erasure_tasks", column, definition)?;
+    }
+
+    for (column, definition) in [
         ("request_json", "TEXT"),
         ("request_raw_json", "TEXT"),
         ("response_json", "TEXT"),
@@ -4663,7 +4674,8 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         error_message TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        completed_at TEXT
+        completed_at TEXT,
+        batch_id TEXT
       );
 
       CREATE TABLE IF NOT EXISTS image_enhance_tasks (
@@ -4690,11 +4702,24 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
       );
 
       CREATE TABLE IF NOT EXISTS subtitle_erasure_tasks (
-        id TEXT PRIMARY KEY, task_id TEXT NOT NULL UNIQUE, file_name TEXT NOT NULL,
-        source_video_url TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing',
-        raw_status TEXT, result_video_url TEXT, request_json TEXT NOT NULL DEFAULT '{}',
-        response_json TEXT NOT NULL DEFAULT '{}', error_message TEXT,
-        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL UNIQUE,
+        file_name TEXT NOT NULL,
+        source_video_url TEXT NOT NULL,
+        source_object_key TEXT,
+        source_deleted INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'processing',
+        raw_status TEXT,
+        result_video_url TEXT,
+        saved_video_url TEXT,
+        result_object_key TEXT,
+        result_deleted INTEGER NOT NULL DEFAULT 0,
+        request_json TEXT NOT NULL DEFAULT '{}',
+        response_json TEXT NOT NULL DEFAULT '{}',
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
       );
 
       CREATE TABLE IF NOT EXISTS uploaded_media_cache (
@@ -5485,11 +5510,31 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/tools/video-enhance",
             post(api_tools_video_enhance_submit),
         )
-        .route("/api/tools/subtitle-erasure", post(api_tools_subtitle_erasure_submit))
-        .route("/api/tools/subtitle-erasure/status/{id}", get(api_tools_subtitle_erasure_status))
-        .route("/api/tools/subtitle-erasure/upload-source", post(api_tools_video_enhance_upload_source))
-        .route("/api/tools/subtitle-erasure/tasks", get(api_tools_video_enhance_tasks))
-        .route("/api/tools/subtitle-erasure/save", post(api_tools_video_enhance_save))
+        .route(
+            "/api/tools/subtitle-erasure",
+            post(api_tools_subtitle_erasure_submit),
+        )
+        .route(
+            "/api/tools/subtitle-erasure/status/{id}",
+            get(api_tools_subtitle_erasure_status),
+        )
+        .route(
+            "/api/tools/subtitle-erasure/upload-source",
+            post(api_tools_video_enhance_upload_source)
+                .layer(DefaultBodyLimit::max(VIDEO_ENHANCE_UPLOAD_LIMIT_BYTES)),
+        )
+        .route(
+            "/api/tools/subtitle-erasure/tasks",
+            get(api_tools_subtitle_erasure_tasks),
+        )
+        .route(
+            "/api/tools/subtitle-erasure/save",
+            post(api_tools_subtitle_erasure_save),
+        )
+        .route(
+            "/api/tools/subtitle-erasure/download/{id}",
+            get(api_tools_subtitle_erasure_download),
+        )
         .route(
             "/api/tools/video-enhance/tasks",
             get(api_tools_video_enhance_tasks),

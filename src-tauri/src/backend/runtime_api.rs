@@ -1454,26 +1454,424 @@ fn build_mediakit_video_enhance_request(body: &Value) -> Result<(String, Value),
     Ok((endpoint, request_body))
 }
 
-pub(super) async fn api_tools_subtitle_erasure_submit(State(state): State<BackendState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
-    let conn = db_connection(&state)?;
-    let key = provider_sync_mediakit_api_key(&load_provider_creds(&conn)).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "未配置火山引擎 AI MediaKit API Key，请在设置中配置"))?;
-    let video_url = body.get("video_url").or_else(|| body.get("videoUrl")).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请填写待处理视频 URL"))?;
-    let endpoint = format!("{}/api/v1/tools/erase-video-subtitle-pro", MEDIAKIT_BASE_URL);
-    let request_body = json!({"video_url": video_url, "mode": body.get("mode").and_then(Value::as_str).unwrap_or("Subtitle")});
-    let response = llm_http_client().post(&endpoint).bearer_auth(key).json(&request_body).send().await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY,e.to_string()))?;
-    let status = response.status(); let text = response.text().await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY,e.to_string()))?;
-    if !status.is_success() { return Err(ApiError::new(StatusCode::BAD_GATEWAY, build_sync_error_message(status,&text))); }
-    let payload: Value = serde_json::from_str(&text).map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY,e.to_string()))?;
-    let task_id = payload.get("task_id").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY,"MediaKit 未返回 task_id"))?;
-    let now = now_iso();
-    conn.execute("INSERT OR REPLACE INTO subtitle_erasure_tasks (id,task_id,file_name,source_video_url,status,raw_status,request_json,response_json,created_at,updated_at) VALUES (COALESCE((SELECT id FROM subtitle_erasure_tasks WHERE task_id=?1),?2),?1,?3,?4,'processing','submitted',?5,?6,?7,?7)", params![task_id, format!("ser_{}",Uuid::new_v4().simple()), body.get("fileName").and_then(Value::as_str).unwrap_or("视频"), video_url, request_body.to_string(), payload.to_string(), now]).map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR,e.to_string()))?;
-    Ok(Json(json!({"success":true,"taskId":task_id,"raw":payload})))
+fn subtitle_erasure_task_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
+    let source_deleted: i64 = row.get(5)?;
+    let result_deleted: i64 = row.get(11)?;
+    Ok(json!({
+      "id": row.get::<_, String>(0)?,
+      "taskId": row.get::<_, String>(1)?,
+      "fileName": row.get::<_, String>(2)?,
+      "sourceVideoUrl": row.get::<_, String>(3)?,
+      "sourceObjectKey": row.get::<_, Option<String>>(4)?,
+      "sourceDeleted": source_deleted != 0,
+      "status": row.get::<_, String>(6)?,
+      "rawStatus": row.get::<_, Option<String>>(7)?,
+      "resultVideoUrl": row.get::<_, Option<String>>(8)?,
+      "savedVideoUrl": row.get::<_, Option<String>>(9)?,
+      "resultObjectKey": row.get::<_, Option<String>>(10)?,
+      "resultDeleted": result_deleted != 0,
+      "errorMessage": row.get::<_, Option<String>>(12)?,
+      "createdAt": row.get::<_, String>(13)?,
+      "updatedAt": row.get::<_, String>(14)?,
+      "completedAt": row.get::<_, Option<String>>(15)?,
+      "batchId": row.get::<_, Option<String>>(16)?
+    }))
 }
 
-pub(super) async fn api_tools_subtitle_erasure_status(State(state): State<BackendState>, Path(task_id): Path<String>) -> Result<Json<Value>, ApiError> {
-    let conn = db_connection(&state)?; let key = provider_sync_mediakit_api_key(&load_provider_creds(&conn)).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST,"未配置火山引擎 AI MediaKit API Key，请在设置中配置"))?;
-    let endpoint = format!("{}/api/v1/tasks/{}", MEDIAKIT_BASE_URL, task_id); let r=llm_http_client().get(endpoint).bearer_auth(key).send().await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY,e.to_string()))?; let p:Value=r.json().await.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY,e.to_string()))?;
-    let raw=p.get("status").and_then(Value::as_str).unwrap_or("processing"); let status=mediakit_task_status_label(raw); let url=mediakit_result_video_url(&p); conn.execute("UPDATE subtitle_erasure_tasks SET status=?1,raw_status=?2,result_video_url=?3,response_json=?4,updated_at=?5 WHERE task_id=?6",params![status,raw,url,p.to_string(),now_iso(),task_id]).ok(); Ok(Json(json!({"success":true,"taskId":task_id,"status":status,"videoUrl":url,"raw":p})))
+fn update_subtitle_erasure_task_status(
+    state: &BackendState,
+    task_id: &str,
+    status: &str,
+    raw_status: &str,
+    result_video_url: Option<&str>,
+    response_json: &Value,
+    error_message: Option<&str>,
+) -> Result<(), ApiError> {
+    let conn = db_connection(state)?;
+    let now = now_iso();
+    let completed_at = if matches!(status, "completed" | "failed") {
+        Some(now.as_str())
+    } else {
+        None
+    };
+    conn.execute(
+        "UPDATE subtitle_erasure_tasks
+         SET status = ?1,
+             raw_status = ?2,
+             result_video_url = COALESCE(?3, result_video_url),
+             response_json = ?4,
+             error_message = ?5,
+             updated_at = ?6,
+             completed_at = COALESCE(completed_at, ?7)
+         WHERE task_id = ?8",
+        params![
+            status,
+            raw_status,
+            result_video_url,
+            response_json.to_string(),
+            error_message,
+            now,
+            completed_at,
+            task_id
+        ],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(())
+}
+
+pub(super) async fn api_tools_subtitle_erasure_submit(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let api_key = provider_sync_mediakit_api_key(&load_provider_creds(&conn)).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "未配置火山引擎 AI MediaKit API Key，请在设置中配置",
+        )
+    })?;
+    let video_url = body
+        .get("videoUrl")
+        .or_else(|| body.get("video_url"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请提供待处理视频地址"))?;
+    let file_name = body
+        .get("sourceFileName")
+        .or_else(|| body.get("fileName"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("本地视频");
+    let source_object_key = body
+        .get("sourceObjectKey")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let batch_id = body
+        .get("batchId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let endpoint = format!(
+        "{}/api/v1/tools/erase-video-subtitle-pro",
+        MEDIAKIT_BASE_URL
+    );
+    let request_body = json!({
+      "video_url": video_url,
+      "mode": body
+        .get("mode")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Subtitle")
+    });
+    let response = llm_http_client()
+        .post(&endpoint)
+        .bearer_auth(api_key)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    let status = response.status();
+    let body_text = response
+        .text()
+        .await
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    if !status.is_success() {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            build_sync_error_message(status, &body_text),
+        ));
+    }
+    let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("解析 MediaKit 字幕擦除响应失败: {}", error),
+        )
+    })?;
+    ensure_mediakit_api_success(&payload)?;
+    let task_id = payload
+        .get("task_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "MediaKit 未返回 task_id"))?;
+    let now = now_iso();
+    conn.execute(
+        "INSERT OR REPLACE INTO subtitle_erasure_tasks (
+          id, task_id, file_name, source_video_url, source_object_key,
+          status, raw_status, request_json, response_json, created_at, updated_at, batch_id
+        ) VALUES (
+          COALESCE((SELECT id FROM subtitle_erasure_tasks WHERE task_id = ?1), ?2),
+          ?1, ?3, ?4, ?5, 'processing', 'submitted', ?6, ?7,
+          COALESCE((SELECT created_at FROM subtitle_erasure_tasks WHERE task_id = ?1), ?8), ?8, ?9
+        )",
+        params![
+            task_id,
+            format!("ser_{}", Uuid::new_v4().simple()),
+            file_name,
+            video_url,
+            source_object_key,
+            request_body.to_string(),
+            payload.to_string(),
+            now,
+            batch_id
+        ],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    Ok(Json(json!({
+      "success": true,
+      "taskId": task_id,
+      "raw": payload
+    })))
+}
+
+pub(super) async fn api_tools_subtitle_erasure_status(
+    State(state): State<BackendState>,
+    Path(task_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let task_id = task_id.trim();
+    if task_id.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "任务 ID 不能为空"));
+    }
+    let (payload, raw_status, normalized_status, video_url, error_message) =
+        query_mediakit_video_enhance_task(&state, task_id).await?;
+    update_subtitle_erasure_task_status(
+        &state,
+        task_id,
+        &normalized_status,
+        &raw_status,
+        video_url.as_deref(),
+        &payload,
+        error_message.as_deref(),
+    )?;
+
+    Ok(Json(json!({
+      "success": true,
+      "taskId": task_id,
+      "status": normalized_status,
+      "rawStatus": raw_status,
+      "videoUrl": video_url,
+      "errorMessage": error_message,
+      "raw": payload
+    })))
+}
+
+pub(super) async fn api_tools_subtitle_erasure_tasks(
+    State(state): State<BackendState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let status = query
+        .get("status")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "all");
+    let limit = query
+        .get("limit")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(100)
+        .clamp(1, 200);
+    let conn = db_connection(&state)?;
+    let select_sql = "SELECT id, task_id, file_name, source_video_url,
+             source_object_key, source_deleted, status, raw_status, result_video_url,
+             saved_video_url, result_object_key, result_deleted, error_message,
+             created_at, updated_at, completed_at, batch_id
+       FROM subtitle_erasure_tasks";
+    let rows = if let Some(status) = status {
+        let mut stmt = conn
+            .prepare(&format!(
+                "{select_sql} WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2"
+            ))
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let rows = stmt
+            .query_map(params![status, limit as i64], subtitle_erasure_task_to_json)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        rows
+    } else {
+        let mut stmt = conn
+            .prepare(&format!("{select_sql} ORDER BY created_at DESC LIMIT ?1"))
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let rows = stmt
+            .query_map(params![limit as i64], subtitle_erasure_task_to_json)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        rows
+    };
+
+    Ok(Json(json!({
+      "success": true,
+      "data": { "tasks": rows }
+    })))
+}
+
+pub(super) async fn api_tools_subtitle_erasure_save(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let task_id = body
+        .get("taskId")
+        .or_else(|| body.get("task_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "任务 ID 不能为空"))?;
+    let video_url = {
+        let conn = db_connection(&state)?;
+        conn.query_row(
+            "SELECT result_video_url FROM subtitle_erasure_tasks
+             WHERE task_id = ?1 AND status = 'completed' AND result_deleted = 0",
+            params![task_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .flatten()
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "任务结果不存在或尚未完成"))?
+    };
+    let (local_url, object_key) =
+        persist_video_source_with_object_key(&state, &video_url, "subtitle-erasure").await?;
+    let conn = db_connection(&state)?;
+    conn.execute(
+        "UPDATE subtitle_erasure_tasks
+         SET saved_video_url = ?1,
+             result_object_key = COALESCE(?2, result_object_key),
+             result_deleted = 0,
+             updated_at = ?3
+         WHERE task_id = ?4",
+        params![local_url, object_key, now_iso(), task_id],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    Ok(Json(json!({
+      "success": true,
+      "videoUrl": local_url,
+      "resultObjectKey": object_key
+    })))
+}
+
+fn subtitle_erasure_download_name(source_file_name: &str) -> String {
+    let original_name = source_file_name
+        .rsplit(['/', '\\'])
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("video.mp4");
+    let stem = FsPath::new(original_name)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("video");
+    format!("{}-subtitle-erased.mp4", stem)
+}
+
+pub(super) async fn api_tools_subtitle_erasure_download(
+    State(state): State<BackendState>,
+    Path(task_id): Path<String>,
+) -> Result<Response, ApiError> {
+    let task_id = task_id.trim();
+    if task_id.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "任务 ID 不能为空"));
+    }
+    let (file_name, source) = {
+        let conn = db_connection(&state)?;
+        conn.query_row(
+            "SELECT file_name, COALESCE(saved_video_url, result_video_url)
+             FROM subtitle_erasure_tasks
+             WHERE task_id = ?1 AND status = 'completed' AND result_deleted = 0",
+            params![task_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .and_then(|(file_name, source)| source.map(|source| (file_name, source)))
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "任务结果不存在或尚未完成"))?
+    };
+    let download_name = subtitle_erasure_download_name(&file_name);
+    let fallback_name = download_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let content_disposition = HeaderValue::from_str(&format!(
+        "attachment; filename=\"{}\"; filename*=UTF-8''{}",
+        fallback_name,
+        tos_percent_encode(&download_name)
+    ))
+    .unwrap_or_else(|_| HeaderValue::from_static("attachment"));
+
+    if is_http_url(&source) {
+        let upstream = http_client()
+            .get(&source)
+            .send()
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        if !upstream.status().is_success() {
+            return Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("下载字幕擦除结果失败: {}", upstream.status()),
+            ));
+        }
+        let content_type = upstream
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| HeaderValue::from_str(value).ok())
+            .unwrap_or_else(|| HeaderValue::from_static("video/mp4"));
+        let content_length = upstream.content_length();
+        let body_stream = stream::unfold(Some(upstream), |state| async move {
+            let mut response = state?;
+            match response.chunk().await {
+                Ok(Some(chunk)) => Some((Ok::<Bytes, reqwest::Error>(chunk), Some(response))),
+                Ok(None) => None,
+                Err(error) => Some((Err(error), None)),
+            }
+        });
+        let mut response = Response::new(Body::from_stream(body_stream));
+        response
+            .headers_mut()
+            .insert(header::CONTENT_TYPE, content_type);
+        response
+            .headers_mut()
+            .insert(header::CONTENT_DISPOSITION, content_disposition);
+        if let Some(length) = content_length {
+            if let Ok(value) = HeaderValue::from_str(&length.to_string()) {
+                response.headers_mut().insert(header::CONTENT_LENGTH, value);
+            }
+        }
+        return Ok(response);
+    }
+
+    let path = resolve_api_file_path(
+        &source,
+        "/api/video/file/",
+        &state.public_dir.join("videos"),
+    )
+    .or_else(|| resolve_api_file_path(&source, "/videos/", &state.public_dir.join("videos")))
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "结果视频文件不存在"))?;
+    let data = tokio::fs::read(&path)
+        .await
+        .map_err(|_| ApiError::new(StatusCode::NOT_FOUND, "结果视频文件不存在"))?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static("video/mp4")),
+            (header::CONTENT_DISPOSITION, content_disposition),
+        ],
+        data,
+    )
+        .into_response())
 }
 
 fn uploaded_video_extension(filename: Option<&str>, content_type: Option<&str>) -> String {
@@ -15151,6 +15549,22 @@ mod tests {
         assert_eq!(
             video_enhance_download_name("无扩展名"),
             "无扩展名-enhanced.mp4"
+        );
+    }
+
+    #[test]
+    fn subtitle_erasure_download_uses_original_file_name() {
+        assert_eq!(
+            subtitle_erasure_download_name("episode-01.mp4"),
+            "episode-01-subtitle-erased.mp4"
+        );
+        assert_eq!(
+            subtitle_erasure_download_name("C:\\素材\\第一集.MOV"),
+            "第一集-subtitle-erased.mp4"
+        );
+        assert_eq!(
+            subtitle_erasure_download_name("无扩展名"),
+            "无扩展名-subtitle-erased.mp4"
         );
     }
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   Cloud,
+  Eraser,
   FileImage,
   FileVideo,
   ListChecks,
@@ -13,6 +14,8 @@ import ImageEnhancePage from './image-enhance.vue'
 import ImageEnhanceTasksPage from './image-enhance-tasks.vue'
 import LocalImageEnhancePage from './local-image-enhance.vue'
 import LocalVideoEnhancePage from './local-video-enhance.vue'
+import SubtitleErasurePage from './subtitle-erasure.vue'
+import SubtitleErasureTasksPage from './subtitle-erasure-tasks.vue'
 import VideoEnhancePage from './video-enhance.vue'
 import VideoEnhanceTasksPage from './video-enhance-tasks.vue'
 
@@ -21,7 +24,7 @@ definePageMeta({
 })
 
 type EnhanceView = 'create' | 'tasks'
-type EnhanceType = 'video' | 'image'
+type EnhanceType = 'video' | 'image' | 'subtitle-erasure'
 type EnhanceMode = 'cloud' | 'local'
 
 const route = useRoute()
@@ -36,7 +39,11 @@ const activeView = computed<EnhanceView>(() => (
 ))
 
 const activeType = computed<EnhanceType>(() => (
-  getQueryValue(route.query.type as string | string[] | undefined) === 'image' ? 'image' : 'video'
+  getQueryValue(route.query.type as string | string[] | undefined) === 'image'
+    ? 'image'
+    : getQueryValue(route.query.type as string | string[] | undefined) === 'subtitle-erasure'
+      ? 'subtitle-erasure'
+      : 'video'
 ))
 
 const activeMode = computed<EnhanceMode>(() => (
@@ -44,6 +51,11 @@ const activeMode = computed<EnhanceMode>(() => (
 ))
 
 const pageDescription = computed(() => {
+  if (activeType.value === 'subtitle-erasure') {
+    return activeView.value === 'tasks'
+      ? '查看字幕擦除任务进度、预览并下载处理结果。'
+      : '批量上传本地视频，移除画面内已合成的硬字幕。'
+  }
   if (activeView.value === 'tasks') return '查看云端视频和图片增强任务的进度与结果。'
   return activeMode.value === 'local'
     ? '使用本机算力处理视频和图片，无需上传素材。'
@@ -81,7 +93,7 @@ function switchMode(mode: EnhanceMode) {
 <template>
   <AppPage>
     <AppPageHeader
-      title="画质增强"
+      title="媒体处理"
       :description="pageDescription"
       class="min-h-16"
     >
@@ -89,7 +101,7 @@ function switchMode(mode: EnhanceMode) {
         <div
           class="flex rounded-xl bg-muted/25 p-1"
           role="tablist"
-          aria-label="画质增强页面"
+          aria-label="媒体处理页面"
         >
           <button
             type="button"
@@ -100,7 +112,7 @@ function switchMode(mode: EnhanceMode) {
             @click="switchView('create')"
           >
             <WandSparkles class="mr-2 h-4 w-4" />
-            新建增强
+            新建处理
           </button>
           <button
             type="button"
@@ -119,11 +131,11 @@ function switchMode(mode: EnhanceMode) {
 
     <div class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-muted/10 px-4 py-3 sm:px-6">
       <div class="flex items-center gap-3">
-        <span class="hidden text-xs font-medium text-muted-foreground sm:inline">素材类型</span>
+        <span class="hidden text-xs font-medium text-muted-foreground sm:inline">处理类型</span>
         <div
           class="flex rounded-xl bg-muted/25 p-0.5"
           role="tablist"
-          aria-label="素材类型"
+          aria-label="处理类型"
         >
           <button
             type="button"
@@ -134,7 +146,7 @@ function switchMode(mode: EnhanceMode) {
             @click="switchType('video')"
           >
             <FileVideo class="mr-2 h-4 w-4" />
-            {{ activeView === 'tasks' ? '视频任务' : '视频' }}
+            {{ activeView === 'tasks' ? '视频增强任务' : '视频增强' }}
           </button>
           <button
             type="button"
@@ -145,13 +157,24 @@ function switchMode(mode: EnhanceMode) {
             @click="switchType('image')"
           >
             <FileImage class="mr-2 h-4 w-4" />
-            {{ activeView === 'tasks' ? '图片任务' : '图片' }}
+            {{ activeView === 'tasks' ? '图片增强任务' : '图片增强' }}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeType === 'subtitle-erasure'"
+            class="inline-flex h-8 items-center rounded-sm px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px"
+            :class="activeType === 'subtitle-erasure' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'"
+            @click="switchType('subtitle-erasure')"
+          >
+            <Eraser class="mr-2 h-4 w-4" />
+            {{ activeView === 'tasks' ? '字幕擦除任务' : '字幕擦除' }}
           </button>
         </div>
       </div>
 
       <div
-        v-if="activeView === 'create'"
+        v-if="activeView === 'create' && activeType !== 'subtitle-erasure'"
         class="flex items-center gap-3"
       >
         <span class="hidden text-xs text-muted-foreground lg:inline">
@@ -190,9 +213,11 @@ function switchMode(mode: EnhanceMode) {
     </div>
 
     <template v-if="activeView === 'tasks'">
-      <ImageEnhanceTasksPage v-if="activeType === 'image'" />
+      <SubtitleErasureTasksPage v-if="activeType === 'subtitle-erasure'" />
+      <ImageEnhanceTasksPage v-else-if="activeType === 'image'" />
       <VideoEnhanceTasksPage v-else />
     </template>
+    <SubtitleErasurePage v-else-if="activeType === 'subtitle-erasure'" />
     <template v-else-if="activeMode === 'local'">
       <LocalImageEnhancePage v-if="activeType === 'image'" />
       <LocalVideoEnhancePage v-else />
