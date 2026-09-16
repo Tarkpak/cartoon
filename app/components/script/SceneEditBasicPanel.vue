@@ -51,6 +51,7 @@ const transitionOptions = [
 const editForm = defineModel<SceneEditData>('editForm', { required: true })
 
 defineProps<{
+  maxDuration?: number
   sceneDescriptionSupportsMention: boolean
   sceneDescriptionMentionOpen: boolean
   sceneDescriptionMentionActiveIndex: number
@@ -311,7 +312,7 @@ defineProps<{
         <Slider
           :model-value="[editForm.duration]"
           :min="4"
-          :max="15"
+          :max="Math.max(maxDuration ?? 15, editForm.duration)"
           :step="1"
           class="flex-1"
           @update:model-value="editForm.duration = Number($event?.[0] ?? editForm.duration)"
@@ -319,7 +320,7 @@ defineProps<{
         <span class="w-16 text-center font-medium">{{ editForm.duration }}秒</span>
       </div>
       <p class="text-xs text-muted-foreground">
-        支持 4-15 秒整数时长，具体范围由当前视频模型决定
+        当前视频模型支持 4-{{ maxDuration ?? 15 }} 秒整数时长
       </p>
     </div>
   </div>

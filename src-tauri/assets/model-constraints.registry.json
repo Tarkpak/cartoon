@@ -285,6 +285,26 @@
 
     {
       "provider": "volcengine",
+      "match": { "type": "contains", "value": "seedance-2-5" },
+      "modelKind": "video",
+      "displayName": "Doubao Seedance 2.5",
+      "description": "Seedance 2.5，4-30 秒，最高 1080p",
+      "docUrl": "https://www.volcengine.com/docs/82379/2607688",
+      "video": {
+        "maxDuration": 30,
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 30,
+        "supportVideoReference": true,
+        "maxReferenceVideos": 10,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 10
+      }
+    },
+    {
+      "provider": "volcengine",
       "match": { "type": "exact", "value": "doubao-seedance-2-0-260128" },
       "modelKind": "video",
       "displayName": "Doubao Seedance 2.0",

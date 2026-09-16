@@ -1,6 +1,7 @@
 import type { ImageModelConfig, VideoModelConfig } from '#shared/types/provider'
 import { resolveApiErrorMessage } from '@/lib/api-error'
 import { pollModelTestVideoTask } from '@/lib/model-test-video'
+import { videoTestOptions } from '@/lib/model-test-video-options'
 import {
   buildTestSelectedModels,
   getModelDocUrl,
@@ -45,6 +46,9 @@ export function useSettingsModelTest() {
   const videoAudioReferences = ref<string[]>([])
   const videoAudioReferenceNames = ref<string[]>([])
   const videoImageInputMode = ref<'firstLastFrame' | 'referenceImages'>('firstLastFrame')
+  const videoDuration = ref(5)
+  const videoResolution = ref('720p')
+  const videoAspectRatio = ref('16:9')
   const testResults = ref<Record<ModelTestTab, TestResult>>({
     text: { status: 'idle' },
     image: { status: 'idle' },
@@ -108,6 +112,12 @@ export function useSettingsModelTest() {
     return model.supportImageToVideo === true || model.supportReferenceImages === true
   })
 
+  const currentVideoTestOptions = computed(() => videoTestOptions(currentVideoModel.value))
+  watch(currentVideoTestOptions, (options) => {
+    videoDuration.value = Math.min(options.maxDuration, Math.max(4, videoDuration.value))
+    if (!options.resolutions.includes(videoResolution.value)) videoResolution.value = '720p'
+  })
+
   const currentVideoModelSupportsVideoReference = computed(() => {
     return currentVideoModel.value?.supportVideoReference === true
   })
@@ -139,19 +149,19 @@ export function useSettingsModelTest() {
   const currentVideoModelMaxReferenceImages = computed(() => {
     const raw = currentVideoModel.value?.maxReferenceImages
     if (typeof raw !== 'number' || !Number.isFinite(raw)) return 1
-    return Math.min(12, Math.max(1, Math.floor(raw)))
+    return Math.min(30, Math.max(1, Math.floor(raw)))
   })
 
   const currentVideoModelMaxReferenceVideos = computed(() => {
     const raw = currentVideoModel.value?.maxReferenceVideos
     if (typeof raw !== 'number' || !Number.isFinite(raw)) return 1
-    return Math.min(4, Math.max(1, Math.floor(raw)))
+    return Math.min(10, Math.max(1, Math.floor(raw)))
   })
 
   const currentVideoModelMaxReferenceAudios = computed(() => {
     const raw = currentVideoModel.value?.maxReferenceAudios
     if (typeof raw !== 'number' || !Number.isFinite(raw)) return 1
-    return Math.min(8, Math.max(1, Math.floor(raw)))
+    return Math.min(10, Math.max(1, Math.floor(raw)))
   })
 
   const currentVideoModelSupportsBothImageModes = computed(() => {
@@ -296,8 +306,10 @@ export function useSettingsModelTest() {
 
   const canRunVideoTest = computed(() => {
     if (activeTab.value !== 'video') return true
+    if (!Number.isInteger(videoDuration.value) || videoDuration.value < 4
+      || videoDuration.value > currentVideoTestOptions.value.maxDuration) return false
     if (!currentVideoModelRequiresReference.value) return true
-    const hasImageReference = currentVideoModelSupportsFirstLastFrame.value
+    const hasImageReference = currentVideoModelSupportsFirstLastFrame.value && videoImageInputMode.value === 'firstLastFrame'
       ? !!videoFirstFrame.value
       : videoReferenceImages.value.length > 0
     const hasVideoReference = currentVideoModelSupportsVideoReference.value
@@ -616,6 +628,11 @@ export function useSettingsModelTest() {
       if (selectedModel?.provider) {
         body.provider = selectedModel.provider
       }
+      if (modelType === 'video') {
+        body.duration = videoDuration.value
+        body.resolution = videoResolution.value
+        body.aspectRatio = videoAspectRatio.value
+      }
 
       if (
         modelType === 'image'
@@ -644,7 +661,7 @@ export function useSettingsModelTest() {
       ) {
         const refs = videoReferenceImages.value.slice(0, currentVideoModelMaxReferenceImages.value)
         body.referenceImages = refs
-        if (refs.length > 0) {
+        if (refs.length > 0 && !currentVideoTestOptions.value.seedance) {
           body.imageUrl = refs[0]
         }
       }
@@ -821,6 +838,10 @@ export function useSettingsModelTest() {
   }
 
   return {
+    videoDuration,
+    videoResolution,
+    videoAspectRatio,
+    currentVideoTestOptions,
     loading,
     models,
     modelCatalogError,

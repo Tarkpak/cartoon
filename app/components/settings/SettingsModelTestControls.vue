@@ -20,8 +20,13 @@ const customPrompts = defineModel<Record<ModelTestTab, string>>('customPrompts',
 const imageAspectRatio = defineModel<string>('imageAspectRatio', { required: true })
 const imageSize = defineModel<string>('imageSize', { required: true })
 const imageQuality = defineModel<string>('imageQuality', { required: true })
+const videoDuration = defineModel<number>('videoDuration', { required: true })
+const videoResolution = defineModel<string>('videoResolution', { required: true })
+const videoAspectRatio = defineModel<string>('videoAspectRatio', { required: true })
 
 const props = defineProps<{
+  videoMaxDuration: number
+  videoResolutionOptions: string[]
   testResults: Record<ModelTestTab, TestResult>
   currentImageModelSupportsReference: boolean
   currentImageModelRequiresReference: boolean
@@ -142,6 +147,26 @@ const videoReferenceMaterialReady = computed(() => {
 
 <template>
   <div class="space-y-3 px-4 py-3">
+    <div v-if="activeTab === 'video'" class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <label class="space-y-1 text-xs text-muted-foreground">
+        <span>时长（秒）</span>
+        <Input v-model.number="videoDuration" type="number" :min="4" :max="props.videoMaxDuration" :step="1" />
+      </label>
+      <label class="space-y-1 text-xs text-muted-foreground">
+        <span>画质</span>
+        <Select v-model="videoResolution">
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem v-for="value in props.videoResolutionOptions" :key="value" :value="value">{{ value }}</SelectItem></SelectContent>
+        </Select>
+      </label>
+      <label class="space-y-1 text-xs text-muted-foreground">
+        <span>画幅</span>
+        <Select v-model="videoAspectRatio">
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem v-for="value in ['16:9', '9:16', '1:1']" :key="value" :value="value">{{ value }}</SelectItem></SelectContent>
+        </Select>
+      </label>
+    </div>
     <!-- Label + Run button -->
     <div class="flex items-center justify-between gap-3">
       <div class="flex items-center gap-4">

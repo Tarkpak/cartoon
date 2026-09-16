@@ -84,6 +84,7 @@ struct ImageConstraint {
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VideoConstraint {
+    max_duration: Option<u32>,
     support_first_last_frame: Option<bool>,
     support_image_to_video: Option<bool>,
     support_text_to_video: Option<bool>,
@@ -152,6 +153,7 @@ fn fallback_registry() -> ModelConstraintRegistry {
                 max_reference_images: Some(1),
             }),
             video: Some(VideoConstraint {
+                max_duration: None,
                 support_first_last_frame: Some(false),
                 support_image_to_video: Some(false),
                 support_text_to_video: Some(true),
@@ -606,6 +608,9 @@ pub(super) fn build_available_model_entry(
         AvailableModelKind::Video => {
             let default_video = registry.defaults.video.as_ref();
             let rule_video = matched_rule.and_then(|rule| rule.video.as_ref());
+            let max_duration = rule_video.and_then(|item| item.max_duration).unwrap_or_else(|| {
+                if provider == "gemini" { 8 } else if model_id == "kling-video-o1" { 10 } else { 15 }
+            });
 
             let support_first_last_frame = pick_bool(
                 rule_video.and_then(|item| item.support_first_last_frame),
@@ -644,7 +649,7 @@ pub(super) fn build_available_model_entry(
                         default_video.and_then(|item| item.max_reference_images),
                     )
                     .unwrap_or(1)
-                    .min(12),
+                    .min(30),
                 )
             } else {
                 None
@@ -656,7 +661,7 @@ pub(super) fn build_available_model_entry(
                         default_video.and_then(|item| item.max_reference_videos),
                     )
                     .unwrap_or(1)
-                    .min(4),
+                    .min(10),
                 )
             } else {
                 None
@@ -668,7 +673,7 @@ pub(super) fn build_available_model_entry(
                         default_video.and_then(|item| item.max_reference_audios),
                     )
                     .unwrap_or(1)
-                    .min(8),
+                    .min(10),
                 )
             } else {
                 None
@@ -701,6 +706,7 @@ pub(super) fn build_available_model_entry(
             object.insert("model".to_string(), json!(model_id));
             object.insert("displayName".to_string(), json!(display_name));
             object.insert("description".to_string(), json!(description));
+            object.insert("maxDuration".to_string(), json!(max_duration));
             object.insert(
                 "supportFirstLastFrame".to_string(),
                 json!(support_first_last_frame),

@@ -28,7 +28,6 @@ const PROMPT_TEMPLATE_SCENE_VIDEO_GENERATION: &str = "scene_video_generation";
 const PROMPT_TEMPLATE_ORIGIN_EXPLAINER_VIDEO_GENERATION: &str = "origin_explainer_video_generation";
 const ORIGIN_EXPLAINER_DEFAULT_STYLE_PROMPT: &str = "高精度 3D 科普动画，微距特写、横截面透视与解构拆解图，半透明结晶材质，发光粒子流与高保真流体动力学特效，极简深色石砖平台，中国传统写意远山与云海背景，画面清晰克制、结构精密、无字幕无水印";
 const SCRIPT_PARSE_MIN_DURATION: &str = "4";
-const SCRIPT_PARSE_MAX_DURATION: &str = "15";
 const GPT_TEXT_MAX_COMPLETION_TOKENS: u64 = 65_536;
 const SCRIPT_PARSING_CONTRACT: &str =
     include_str!("../../assets/default-prompts/script_parsing_contract.txt");
@@ -5792,6 +5791,10 @@ fn build_script_parse_prompt(
         .unwrap_or_else(|| json!([]));
     let text_length = text.chars().count().to_string();
     let recommended_min_scenes = runtime_scene_count_hint(body);
+    let video_model = resolve_runtime_workflow_model_id(conn, "video_generation").unwrap_or_default();
+    let provider = resolve_model_provider(&video_model, &load_provider_creds(conn)).unwrap_or_default();
+    let (_, video_caps) = build_available_model_entry(&provider, &video_model);
+    let scene_duration_max = video_caps.get("maxDuration").and_then(Value::as_u64).unwrap_or(15).to_string();
     let era_hint = resolve_runtime_script_era_hint(&text, &style);
 
     if parse_mode == "origin_explainer" {
@@ -5804,7 +5807,7 @@ fn build_script_parse_prompt(
                 ("textLength", text_length.as_str()),
                 ("recommendedMinScenes", recommended_min_scenes.as_str()),
                 ("sceneDurationMin", SCRIPT_PARSE_MIN_DURATION),
-                ("sceneDurationMax", SCRIPT_PARSE_MAX_DURATION),
+                ("sceneDurationMax", scene_duration_max.as_str()),
                 (
                     "scriptParseModeLabel",
                     runtime_script_parse_mode_label(parse_mode),
@@ -5816,7 +5819,7 @@ fn build_script_parse_prompt(
                 ("eraHint", era_hint.as_str()),
             ],
         )?;
-        return Ok(append_environment_capture_mode_rule(rendered));
+        return Ok(append_video_planning_rules(append_environment_capture_mode_rule(rendered), &video_model));
     }
 
     let episode_context_brief = build_episode_context_brief(&episode_plan);
@@ -5827,7 +5830,7 @@ fn build_script_parse_prompt(
     } else {
         director_preferences.trim()
     };
-    Ok(render_runtime_prompt(
+    Ok(append_video_planning_rules(render_runtime_prompt(
         script_parsing_contract_for_variant(&contract_variant),
         &[
             ("novelText", text.as_str()),
@@ -5835,7 +5838,7 @@ fn build_script_parse_prompt(
             ("textLength", text_length.as_str()),
             ("recommendedMinScenes", recommended_min_scenes.as_str()),
             ("sceneDurationMin", SCRIPT_PARSE_MIN_DURATION),
-            ("sceneDurationMax", SCRIPT_PARSE_MAX_DURATION),
+            ("sceneDurationMax", scene_duration_max.as_str()),
             (
                 "scriptParseModeLabel",
                 runtime_script_parse_mode_label(parse_mode),
@@ -5849,7 +5852,14 @@ fn build_script_parse_prompt(
             // Render user-editable text last so placeholders inside it stay literal.
             ("directorPrompt", director_prompt),
         ],
-    ))
+    ), &video_model))
+}
+
+fn append_video_planning_rules(prompt: String, model_id: &str) -> String {
+    if !is_seedance_25_model(model_id) {
+        return prompt;
+    }
+    format!("{prompt}\n\n{}", include_str!("../../assets/default-prompts/seedance_25_planning.txt"))
 }
 
 #[cfg(test)]
@@ -8383,7 +8393,7 @@ fn scene_video_visual_reference_urls(config: &Value) -> Vec<String> {
         .unwrap_or_default()
         .into_iter()
         .filter_map(|item| trimmed_json_string(&item))
-        .take(9)
+        .take(if is_seedance_25_model(&json_string(config.get("modelId"), "")) { 30 } else { 9 })
         .collect::<Vec<_>>();
     if !reference_images.is_empty() {
         return reference_images;
@@ -8548,6 +8558,9 @@ fn bind_scene_video_reference_numbers_to_text(value: &str, config: &Value) -> St
 
 fn build_scene_video_execution_constraints(scene: &Value, config: &Value) -> String {
     let mut lines = Vec::new();
+    if is_seedance_25_model(&json_string(config.get("modelId"), "")) {
+        lines.push("Seedance 2.5：按给定时间轴生成完整片段，保留对白、动作与停顿，不强制凑满 30 秒；台词 {} 为角色发声，音效 <> 为环境或动作声，画外音不驱动口型。参考素材仅提供已指定的身份、空间或音色，不执行原视频编辑或延长。".to_string());
+    }
     for (key, label) in [
         ("shotType", "景别"),
         ("cameraAngle", "机位角度"),
@@ -9605,7 +9618,7 @@ fn model_max_audio_references(provider: &str, model_id: &str) -> usize {
         .and_then(Value::as_u64)
         .map(|value| value as usize)
         .unwrap_or(1)
-        .clamp(1, 8)
+        .clamp(1, 10)
 }
 
 fn config_audio_reference_urls(config: &Value) -> Vec<String> {
@@ -9763,7 +9776,7 @@ fn apply_scene_video_reference_inputs(
         .and_then(Value::as_u64)
         .map(|value| value as usize)
         .unwrap_or(if support_reference_images { 3 } else { 1 })
-        .clamp(1, 9);
+        .clamp(1, 30);
 
     let mut seen_reference = HashSet::<String>::new();
     let mut ordered_references: Vec<String> = Vec::new();
@@ -10531,7 +10544,7 @@ fn normalize_video_duration(value: Option<&Value>) -> i64 {
         .filter(|value| value.is_finite())
         .map(|value| value.round() as i64)
         .unwrap_or(8);
-    numeric.clamp(4, 15)
+    numeric.clamp(4, 30)
 }
 
 fn validate_provider_video_duration(
@@ -10539,9 +10552,9 @@ fn validate_provider_video_duration(
     provider: &str,
     model_id: &str,
 ) -> Result<(), ApiError> {
-    let duration = normalize_video_duration(config.get("duration"));
+    let duration = config.get("duration").and_then(Value::as_f64).unwrap_or(8.0);
     let (min_duration, max_duration) = match provider {
-        "volcengine" => (4, 15),
+        "volcengine" => (4, if is_seedance_25_model(model_id) { 30 } else { 15 }),
         "kling" => (4, if model_id == "kling-video-o1" { 10 } else { 15 }),
         "gemini" => (4, 8),
         "custom_openai"
@@ -10557,7 +10570,7 @@ fn validate_provider_video_duration(
         _ => (4, 15),
     };
 
-    if !(min_duration..=max_duration).contains(&duration) {
+    if !(min_duration as f64..=max_duration as f64).contains(&duration) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             format!(
@@ -10572,7 +10585,7 @@ fn validate_provider_video_duration(
             .get("lastFrame")
             .and_then(Value::as_str)
             .is_some_and(|value| !value.trim().is_empty())
-        && duration != 8
+        && duration != 8.0
     {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -10583,6 +10596,22 @@ fn validate_provider_video_duration(
         ));
     }
 
+    Ok(())
+}
+
+fn validate_video_reference_counts(config: &Value, provider: &str, model_id: &str) -> Result<(), ApiError> {
+    let (_, caps) = build_available_model_entry(provider, model_id);
+    for (field, capability, fallback) in [
+        ("referenceImages", "maxReferenceImages", 9),
+        ("arkAssetIds", "maxReferenceImages", 9),
+        ("referenceVideos", "maxReferenceVideos", 3),
+        ("audioReferences", "maxReferenceAudios", 3),
+    ] {
+        let limit = caps.get(capability).and_then(Value::as_u64).unwrap_or(fallback) as usize;
+        if config.get(field).and_then(Value::as_array).is_some_and(|items| items.len() > limit) {
+            return Err(workflow_validation_error(format!("body.config.{field}"), format!("当前模型最多支持 {limit} 个参考素材")));
+        }
+    }
     Ok(())
 }
 
@@ -12268,6 +12297,10 @@ fn is_seedance_model(model_id: &str) -> bool {
     model_id.trim().to_ascii_lowercase().contains("seedance")
 }
 
+fn is_seedance_25_model(model_id: &str) -> bool {
+    model_id.trim().to_ascii_lowercase().contains("seedance-2-5")
+}
+
 fn is_seedance_fast_model(model_id: &str) -> bool {
     let normalized = model_id.trim().to_ascii_lowercase();
     normalized.contains("seedance") && normalized.contains("fast")
@@ -12286,7 +12319,9 @@ fn normalize_volcengine_resolution(model_id: &str, value: Option<&Value>) -> Str
         Some("4k") | Some("4K") | Some("2160p") => "4k",
         _ => "720p",
     };
-    if matches!(resolution, "1080p" | "4k") && is_seedance_limited_resolution_model(model_id) {
+    if resolution == "4k" && is_seedance_25_model(model_id) {
+        "1080p".to_string()
+    } else if matches!(resolution, "1080p" | "4k") && is_seedance_limited_resolution_model(model_id) {
         "720p".to_string()
     } else {
         resolution.to_string()
@@ -12382,6 +12417,27 @@ async fn normalize_volcengine_video_config_images(
     state: &BackendState,
     config: &mut Value,
 ) -> Result<(), ApiError> {
+    if let Some(videos) = config.get("referenceVideos").and_then(Value::as_array).cloned() {
+        let mut hosted = Vec::new();
+        for video in videos {
+            let source = video.as_str().unwrap_or("").trim();
+            if is_http_url(source) || source.starts_with("asset://") {
+                hosted.push(json!(source));
+                continue;
+            }
+            if !load_backend_tos_config().enabled {
+                return Err(ApiError::new(StatusCode::BAD_REQUEST, "本地参考视频需要配置 TOS 后才能提交给火山引擎"));
+            }
+            let (bytes, mime) = resolve_source_bytes(state, source, 200 * 1024 * 1024).await?;
+            let extension = if mime.as_deref() == Some("video/quicktime") { "mov" } else { "mp4" };
+            let filename = format!("video-reference-{}.{}", Uuid::new_v4().simple(), extension);
+            let url = upload_media_bytes_to_tos_async("videos", filename, bytes).await?
+                .filter(|url| is_http_url(url))
+                .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "参考视频上传未返回公网 URL"))?;
+            hosted.push(json!(url));
+        }
+        config["referenceVideos"] = json!(hosted);
+    }
     for key in ["imageUrl", "firstFrame", "lastFrame"] {
         let Some(raw) = config
             .get(key)
@@ -12482,7 +12538,8 @@ fn volcengine_ark_reference_images(config: &Value) -> Vec<String> {
 fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
     let prompt = json_string(config.get("prompt"), "");
     let aspect_ratio = normalize_volcengine_aspect_ratio(config.get("aspectRatio"));
-    let duration = normalize_video_duration(config.get("duration")).clamp(4, 15);
+    let duration = normalize_video_duration(config.get("duration"));
+    let max_images = if is_seedance_25_model(model_id) { 30 } else { 9 };
     let resolution = normalize_volcengine_resolution(model_id, config.get("resolution"));
     let image_url = normalize_video_url_input(config.get("imageUrl"));
     let first_frame = normalize_video_url_input(config.get("firstFrame"));
@@ -12505,13 +12562,13 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
         })
-        .take(9)
+        .take(max_images)
         .collect::<Vec<_>>();
     let ark_reference_images = volcengine_ark_reference_images(config);
     let reference_images = if ark_reference_images.is_empty() {
         reference_images
     } else {
-        ark_reference_images.into_iter().take(9).collect::<Vec<_>>()
+        ark_reference_images.into_iter().take(max_images).collect::<Vec<_>>()
     };
     let has_reference_images = !reference_images.is_empty();
     let using_first_last = !has_reference_images && first_frame.is_some() && last_frame.is_some();
@@ -12528,7 +12585,7 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
               "image_url": { "url": first_frame }
             }));
         }
-        let remaining_limit = if first_frame.is_some() { 8 } else { 9 };
+        let remaining_limit = max_images - usize::from(first_frame.is_some());
         for image in reference_images
             .into_iter()
             .filter(|image| first_frame.as_deref() != Some(image.as_str()))
@@ -12565,6 +12622,13 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
         }
     }
 
+    for video_url in config.get("referenceVideos").and_then(Value::as_array).into_iter().flatten()
+        .filter_map(|item| item.as_str()).take(if is_seedance_25_model(model_id) { 10 } else { 3 }) {
+        content.push(json!({
+            "type": "video_url", "role": "reference_video", "video_url": { "url": video_url }
+        }));
+    }
+
     for audio_url in audio_urls {
         content.push(json!({
           "type": "audio_url",
@@ -12573,6 +12637,12 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
         }));
     }
 
+    let aspect_ratio = if is_seedance_25_model(model_id)
+        && content.iter().any(|item| item["role"] == "first_frame") {
+        "adaptive".to_string()
+    } else {
+        aspect_ratio
+    };
     json!({
       "model": model_id,
       "content": content,
@@ -15589,6 +15659,32 @@ mod tests {
     }
 
     #[test]
+    fn seedance_25_preserves_long_generation_and_model_limits() {
+        let model = "doubao-seedance-2-5-260628";
+        let config = json!({ "prompt": "0-30秒：连续对话", "duration": 30,
+            "firstFrame": "https://example.com/frame.png", "resolution": "4k" });
+        assert!(validate_provider_video_duration(&config, "volcengine", model).is_ok());
+        assert!(validate_provider_video_duration(&config, "volcengine", "doubao-seedance-2-0-260128").is_err());
+        assert!(validate_provider_video_duration(&json!({"duration": 31}), "volcengine", model).is_err());
+        let request = build_volcengine_video_request(model, &config);
+        assert_eq!(request["duration"], 30);
+        assert_eq!(request["ratio"], "adaptive");
+        assert_eq!(request["resolution"], "1080p");
+        let images: Vec<_> = (0..30).map(|n| format!("https://example.com/{n}.png")).collect();
+        let config = json!({"prompt": "参考生视频", "duration": 24, "referenceImages": images,
+            "referenceVideos": ["https://example.com/video.mp4"]});
+        assert!(validate_video_reference_counts(&config, "volcengine", model).is_ok());
+        assert!(validate_video_reference_counts(&config, "volcengine", "doubao-seedance-2-0-260128").is_err());
+        let request = build_volcengine_video_request(model, &config);
+        let content = request["content"].as_array().unwrap();
+        assert_eq!(content.iter().filter(|item| item["type"] == "image_url").count(), 30);
+        assert_eq!(content.iter().filter(|item| item["type"] == "video_url").count(), 1);
+        assert_eq!(request["ratio"], "16:9");
+        assert!(append_video_planning_rules("剧本".into(), model).contains("4-30"));
+        assert_eq!(append_video_planning_rules("剧本".into(), "doubao-seedance-2-0-260128"), "剧本");
+    }
+
+    #[test]
     fn script_result_normalizes_scene_durations_before_save() {
         let result = normalize_model_script_result(
             json!({
@@ -15608,7 +15704,7 @@ mod tests {
             .map(|scene| scene["duration"].as_i64().unwrap())
             .collect::<Vec<_>>();
 
-        assert_eq!(durations, vec![5, 4, 15, 8]);
+        assert_eq!(durations, vec![5, 4, 20, 8]);
     }
 
     #[test]
@@ -15639,7 +15735,7 @@ mod tests {
         let mut config = json!({ "prompt": "生成视频", "duration": 3 });
         let error = validate_video_generation_config(&mut config)
             .expect_err("New video requests must be at least four seconds");
-        assert!(error.message.contains("between 4 and 15"));
+        assert!(error.message.contains("between 4 and 30"));
     }
 
     #[test]
@@ -18367,9 +18463,9 @@ pub(super) async fn api_models_test(
             let scene_id = format!("model_test_{}", Uuid::new_v4().simple());
             let mut config = json!({
               "prompt": prompt,
-              "duration": 5,
-              "aspectRatio": "16:9",
-              "resolution": "720P",
+              "duration": body.get("duration").cloned().unwrap_or(json!(5)),
+              "aspectRatio": body.get("aspectRatio").cloned().unwrap_or(json!("16:9")),
+              "resolution": body.get("resolution").cloned().unwrap_or(json!("720p")),
               "size": "1280*720",
               "modelId": model_id,
               "provider": provider
@@ -18379,7 +18475,7 @@ pub(super) async fn api_models_test(
                 if let Some(reference_images) = body.get("referenceImages") {
                     obj.insert("referenceImages".to_string(), reference_images.clone());
                 }
-                if let Some(first_frame) = body.get("firstFrame").or_else(|| body.get("imageUrl")) {
+                if let Some(first_frame) = body.get("firstFrame") {
                     obj.insert("firstFrame".to_string(), first_frame.clone());
                 }
                 if let Some(last_frame) = body.get("lastFrame") {
@@ -18407,7 +18503,13 @@ pub(super) async fn api_models_test(
                     obj.insert("audioReferences".to_string(), audio_references.clone());
                 }
             }
+            validate_video_generation_config(&mut config)?;
+            validate_provider_video_duration(&config, &provider, &model_id)?;
+            validate_video_reference_counts(&config, &provider, &model_id)?;
             normalize_video_audio_reference_url(&state, &mut config).await?;
+            if provider == "volcengine" {
+                normalize_volcengine_video_config_images(&state, &mut config).await?;
+            }
             if !is_supported_video_provider(&provider, &model_id) {
                 let error_payload =
                     json!({ "message": format!("供应商 {} 暂不支持视频模型测试", provider) });
@@ -21203,8 +21305,9 @@ fn validate_video_generation_config(config: &mut Value) -> Result<(), ApiError> 
     workflow_optional_bool(config, "promptExtend", "body.config")?;
     workflow_optional_bool(config, "watermark", "body.config")?;
     workflow_optional_number(config, "seed", "body.config")?;
-    validate_optional_string_array(config, "referenceImages", "body.config", 9)?;
-    validate_optional_string_array(config, "arkAssetIds", "body.config", 9)?;
+    validate_optional_string_array(config, "referenceImages", "body.config", 30)?;
+    validate_optional_string_array(config, "arkAssetIds", "body.config", 30)?;
+    validate_optional_string_array(config, "referenceVideos", "body.config", 10)?;
 
     match config.get("duration").filter(|value| !value.is_null()) {
         Some(value) => {
@@ -21214,10 +21317,10 @@ fn validate_video_generation_config(config: &mut Value) -> Result<(), ApiError> 
                 .ok_or_else(|| {
                     workflow_validation_error("body.config.duration", "Expected number")
                 })?;
-            if !(4.0..=15.0).contains(&duration) {
+            if !(4.0..=30.0).contains(&duration) {
                 return Err(workflow_validation_error(
                     "body.config.duration",
-                    "Number must be between 4 and 15",
+                    "Number must be between 4 and 30",
                 ));
             }
         }
@@ -21634,8 +21737,9 @@ pub(super) async fn api_asset_video_generate(
         config["negativePrompt"] = json!(negative_prompt);
     }
     apply_scene_video_reference_inputs(&mut config, &scene, &provider, &model_id);
-    config["duration"] = json!(normalize_video_duration(config.get("duration")));
     validate_provider_video_duration(&config, &provider, &model_id)?;
+    validate_video_reference_counts(&config, &provider, &model_id)?;
+    config["duration"] = json!(normalize_video_duration(config.get("duration")));
     apply_workflow_video_generation_options(
         &mut config,
         &workflow_model_options,
@@ -21812,6 +21916,8 @@ pub(super) async fn api_video_generate(
         object.insert("modelId".to_string(), json!(configured_model));
         object.insert("provider".to_string(), json!(provider));
     }
+    validate_provider_video_duration(&config, &provider, &configured_model)?;
+    validate_video_reference_counts(&config, &provider, &configured_model)?;
     let provider_name = config
         .get("provider")
         .and_then(Value::as_str)

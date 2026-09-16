@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { buildParsedCharacters, buildParsedScenes } from './asset-workbench-script-parsing'
 
 describe('asset-workbench-script-parsing', () => {
+  it('preserves long Seedance scenes and rejects durations above the storage limit', () => {
+    const scenes = buildParsedScenes({ scenes: [
+      { id: 'long', description: '0-30秒：人物对话。', duration: 30 },
+      { id: 'invalid', description: '无效时长', duration: 31 }
+    ] })
+    expect(scenes.map(scene => scene.duration)).toEqual([30, 8])
+  })
+
   it('normalizes fractional model durations before project save', () => {
     const scenes = buildParsedScenes({
       scenes: [{

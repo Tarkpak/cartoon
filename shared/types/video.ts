@@ -10,10 +10,10 @@ export type Resolution = z.infer<typeof ResolutionSchema>
 export const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1'])
 export type AspectRatio = z.infer<typeof AspectRatioSchema>
 
-/** 视频时长 (整数秒) - 支持 4-15 秒 */
+/** 视频时长 (整数秒)，具体范围由生成模型校验。 */
 export const DurationSchema = z.number()
   .transform(value => Math.round(value))
-  .pipe(z.number().int().min(4).max(15))
+  .pipe(z.number().int().min(4).max(30))
 export type Duration = number
 
 /** 视频模型类型 */
@@ -26,10 +26,11 @@ export type VideoProvider = z.infer<typeof VideoProviderSchema>
 
 /** 视频生成配置 */
 export const VideoGenerationConfigSchema = z.object({
+  referenceVideos: z.array(z.string()).max(10).optional(),
   firstFrame: z.string().optional().describe('首帧图片（URL 或 dataURL）'),
   lastFrame: z.string().optional().describe('尾帧图片（URL 或 dataURL）'),
   imageUrl: z.string().optional().describe('输入图片 URL - Qwen 图生视频使用'),
-  referenceImages: z.array(z.string()).max(9).optional().describe('多参考图（不同模型上限不同，服务端会按模型裁剪）'),
+  referenceImages: z.array(z.string()).max(30).optional().describe('多参考图（服务端按模型校验数量）'),
   audioUrl: z.string().optional().describe('显式音频参考 URL 或 dataURL（如 Qwen/Seedance 支持）'),
   prompt: z.string().describe('视频描述提示词'),
   negativePrompt: z.string().optional().describe('负面提示词 - Qwen 使用'),

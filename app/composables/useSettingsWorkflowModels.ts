@@ -25,6 +25,7 @@ import {
 } from '@/lib/settings-models'
 
 export interface CompatibleModel {
+  maxDuration?: number
   model: string
   displayName: string
   provider: string

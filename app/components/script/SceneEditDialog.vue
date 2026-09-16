@@ -20,6 +20,7 @@ import { resetFileInput } from '~/lib/asset-workbench-upload'
 import { resolveChatUploadAssetName } from '~/lib/asset-workbench-scene-chat'
 import { toImageSrc } from '~/lib/media'
 import { formatSceneDescriptionTimelineBreaks } from '~/lib/scene-description-format'
+import type { WorkflowData } from '~/composables/useSettingsWorkflowModels'
 
 const props = defineProps<{
   open: boolean
@@ -34,6 +35,21 @@ const emit = defineEmits<{
   'save': [scene: SceneEditData]
   'save-asset-references': [payload: { sceneId: string, assetIds: string[] }]
 }>()
+
+const maxVideoDuration = ref(15)
+watch(() => props.open, async (open) => {
+  if (!open) return
+  try {
+    const result = await $fetch<{ success: boolean, data: WorkflowData }>('/api/models/workflow')
+    if (result.success) {
+      const model = result.data.currentSelections.video_generation || ''
+      const workflow = result.data.workflows.find(item => item.id === 'video_generation')
+      maxVideoDuration.value = workflow?.compatibleModels.find(item => item.model === model)?.maxDuration ?? 15
+    }
+  } catch {
+    maxVideoDuration.value = 15
+  }
+}, { immediate: true })
 
 // 本地编辑状态
 const editForm = ref<SceneEditData>({
@@ -586,6 +602,7 @@ function handleSceneAssetUpload(event: Event) {
         class="min-h-0 flex-1 space-y-6 overflow-y-auto py-4 pr-1"
       >
         <ScriptSceneEditBasicPanel
+          :max-duration="maxVideoDuration"
           v-model:edit-form="editForm"
           :scene-description-supports-mention="sceneDescriptionSupportsMention"
           :scene-description-mention-open="sceneDescriptionMentionOpen"
