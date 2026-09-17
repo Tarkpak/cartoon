@@ -17,6 +17,9 @@ credentials centrally; the legacy local credentials API also supports AutoDL.
 | minimax_h3_lightx2v | Both first and last frames required | 1-10 seconds |
 
 Model testing exposes 480p and 768p, with landscape, portrait and square output.
+Global video settings also expose H3 quality (480p or 768p) when an AutoDL workflow
+is selected. This setting is saved and used for scene generation; existing configurations
+default to 768p. Model testing continues to use its own resolution selection.
 Existing scene requests using the shared 720p default map to H3's 768p preset.
 1080p and 4K are rejected. Scene/script duration rules remain independent of the model test limits.
 

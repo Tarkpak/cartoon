@@ -111,6 +111,7 @@ export const WorkflowVideoAudioDefaultsSchema = z.object({
 export type WorkflowVideoAudioDefaults = z.infer<typeof WorkflowVideoAudioDefaultsSchema>
 
 export const WorkflowVideoGenerationModelOptionsSchema = z.object({
+  autodl: z.object({ quality: z.enum(['480p', '768p']).default('768p') }).default({ quality: '768p' }),
   klingV3Omni: KlingV3OmniVideoOptionsSchema.default({
     sound: 'off',
     mode: 'pro'
@@ -141,6 +142,7 @@ export const WorkflowModelOptionsSchema = z.object({
     panoramaCustomSize: '2048*1024'
   }),
   video_generation: WorkflowVideoGenerationModelOptionsSchema.default({
+    autodl: { quality: '768p' },
     klingV3Omni: {
       sound: 'off',
       mode: 'pro'

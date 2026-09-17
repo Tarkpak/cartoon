@@ -3115,6 +3115,7 @@ fn default_workflow_model_options() -> Value {
       "video_generation": {
         "klingV3Omni": { "sound": "off", "mode": "pro" },
         "seedance": { "quality": "720p" },
+        "autodl": { "quality": "768p" },
         "audioDefaults": { "qwen": true, "kling": true, "seedance": true }
       },
       "completion_notification": { "sound": true, "systemNotification": true }
@@ -3614,6 +3615,11 @@ fn validate_workflow_model_options(step: &str, options: &Value) -> Result<(), Ap
                         StatusCode::BAD_REQUEST,
                         "seedance.quality 无效",
                     ));
+                }
+            }
+            if let Some(autodl) = options.get("autodl") {
+                if !autodl.is_object() || !matches!(autodl.get("quality").and_then(Value::as_str), Some("480p" | "768p")) {
+                    return Err(ApiError::new(StatusCode::BAD_REQUEST, "autodl.quality 无效"));
                 }
             }
             Ok(())

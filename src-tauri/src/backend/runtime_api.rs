@@ -12382,6 +12382,12 @@ fn apply_workflow_video_generation_options(
     provider: &str,
     model_id: &str,
 ) {
+    if provider == "autodl" {
+        let quality = workflow_model_options.pointer("/video_generation/autodl/quality")
+            .and_then(Value::as_str).filter(|value| matches!(*value, "480p" | "768p")).unwrap_or("768p");
+        config["resolution"] = json!(quality);
+        return;
+    }
     if provider != "volcengine" {
         return;
     }

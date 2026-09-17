@@ -28,6 +28,8 @@ const props = defineProps<{
   workflowSaving: boolean
   klingV3OmniOptions: KlingV3OmniVideoOptions
   seedanceVideoOptions: SeedanceVideoOptions
+  autodlVideoQuality: '480p' | '768p'
+  updateWorkflowAutodlVideoQuality: (value: unknown) => Promise<void>
   videoAudioDefaults: WorkflowVideoAudioDefaults
   imageGenerationOptions: WorkflowImageGenerationModelOptions
   updateGlobalWorkflowDefault: (type: 'text' | 'image' | 'video' | 'tts', modelId: string) => Promise<void>
@@ -96,6 +98,13 @@ const hasSeedanceInUse = computed(() => {
   const isSeedance = (id: string) => id.includes('seedance')
   return isSeedance(props.selectedModels.video)
     || props.workflows.some(w => w.selectedModel && isSeedance(w.selectedModel))
+})
+
+const hasAutodlInUse = computed(() => {
+  if (props.activeCategory !== 'video') return false
+  const isAutodl = (id: string) => props.models.video.some(model => model.model === id && model.provider === 'autodl')
+  return isAutodl(props.selectedModels.video)
+    || props.workflows.some(workflow => workflow.selectedModel && isAutodl(workflow.selectedModel))
 })
 
 /** 当前分类下是否有任一步骤使用了 Gemini 图片模型 */
@@ -393,6 +402,26 @@ function toCheckedBoolean(value: unknown): boolean {
             </SelectContent>
           </Select>
         </div>
+      </div>
+    </div>
+
+    <div v-if="hasAutodlInUse" class="space-y-3 border-t pt-3">
+      <h5 class="text-xs font-medium">AutoDL H3</h5>
+      <div class="space-y-1.5">
+        <label for="autodl-video-quality" class="text-xs text-muted-foreground">画质</label>
+        <Select
+          :model-value="props.autodlVideoQuality"
+          :disabled="props.workflowSaving"
+          @update:model-value="props.updateWorkflowAutodlVideoQuality"
+        >
+          <SelectTrigger id="autodl-video-quality" class="h-9 w-full text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="480p">480p</SelectItem>
+            <SelectItem value="768p">768p</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
     </div>
 

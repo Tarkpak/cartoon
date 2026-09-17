@@ -218,6 +218,7 @@ export function useSettingsWorkflowModels() {
             ...DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS
           },
           video_generation: response.data.modelOptions?.video_generation || {
+            autodl: { quality: '768p' },
             klingV3Omni: { ...DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS },
             seedance: { ...DEFAULT_SEEDANCE_VIDEO_OPTIONS },
             audioDefaults: { ...DEFAULT_VIDEO_AUDIO_DEFAULTS }
@@ -242,6 +243,7 @@ export function useSettingsWorkflowModels() {
 
   function getVideoGenerationModelOptions(): WorkflowVideoGenerationModelOptions {
     return workflowData.value?.modelOptions?.video_generation || {
+      autodl: { quality: '768p' },
       klingV3Omni: { ...DEFAULT_KLING_V3_OMNI_VIDEO_OPTIONS },
       seedance: { ...DEFAULT_SEEDANCE_VIDEO_OPTIONS },
       audioDefaults: { ...DEFAULT_VIDEO_AUDIO_DEFAULTS }
@@ -286,6 +288,29 @@ export function useSettingsWorkflowModels() {
     return getVideoGenerationModelOptions().seedance
   })
 
+  const autodlVideoQuality = computed(() => getVideoGenerationModelOptions().autodl?.quality || '768p')
+
+  async function updateWorkflowAutodlVideoQuality(value: unknown) {
+    if (!workflowData.value || (value !== '480p' && value !== '768p')) return
+    workflowSaving.value = true
+    workflowError.value = ''
+    try {
+      const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
+        method: 'POST',
+        body: {
+          step: 'video_generation',
+          modelOptions: { ...getVideoGenerationModelOptions(), autodl: { quality: value } }
+        }
+      })
+      if (!response.success) throw new Error('保存 H3 画质失败')
+      await loadWorkflowModels()
+    } catch (error) {
+      workflowError.value = error instanceof Error ? error.message : '保存 H3 画质失败'
+    } finally {
+      workflowSaving.value = false
+    }
+  }
+
   const videoAudioDefaults = computed<WorkflowVideoAudioDefaults>(() => {
     return getVideoGenerationModelOptions().audioDefaults
   })
@@ -324,6 +349,7 @@ export function useSettingsWorkflowModels() {
 
     const current = getVideoGenerationModelOptions()
     const next: WorkflowVideoGenerationModelOptions = {
+      ...current,
       klingV3Omni: {
         ...current.klingV3Omni,
         ...patch
@@ -362,6 +388,7 @@ export function useSettingsWorkflowModels() {
 
     const current = getVideoGenerationModelOptions()
     const next: WorkflowVideoGenerationModelOptions = {
+      ...current,
       klingV3Omni: {
         ...current.klingV3Omni
       },
@@ -522,6 +549,7 @@ export function useSettingsWorkflowModels() {
 
     const current = getVideoGenerationModelOptions()
     const next: WorkflowVideoGenerationModelOptions = {
+      ...current,
       klingV3Omni: {
         ...current.klingV3Omni
       },
@@ -617,6 +645,8 @@ export function useSettingsWorkflowModels() {
     activeCategoryWorkflows,
     klingV3OmniOptions,
     seedanceVideoOptions,
+    autodlVideoQuality,
+    updateWorkflowAutodlVideoQuality,
     videoAudioDefaults,
     imageGenerationOptions,
     completionNotificationOptions,

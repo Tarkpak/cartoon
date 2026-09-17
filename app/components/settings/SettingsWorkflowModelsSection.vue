@@ -17,6 +17,8 @@ const {
   activeCategoryWorkflows,
   klingV3OmniOptions,
   seedanceVideoOptions,
+  autodlVideoQuality,
+  updateWorkflowAutodlVideoQuality,
   videoAudioDefaults,
   imageGenerationOptions,
   getCapabilityLabel,
@@ -97,6 +99,8 @@ const {
               :workflow-saving="workflowSaving"
               :kling-v3-omni-options="klingV3OmniOptions"
               :seedance-video-options="seedanceVideoOptions"
+              :autodl-video-quality="autodlVideoQuality"
+              :update-workflow-autodl-video-quality="updateWorkflowAutodlVideoQuality"
               :video-audio-defaults="videoAudioDefaults"
               :image-generation-options="imageGenerationOptions"
               :update-global-workflow-default="updateGlobalWorkflowDefault"

@@ -409,6 +409,22 @@ mod tests {
     }
 
     #[test]
+    fn autodl_workflow_quality_reaches_upstream_request() {
+        for quality in ["480p", "768p"] {
+            let options = json!({"autodl":{"quality":quality}});
+            assert!(validate_workflow_model_options("video_generation", &options).is_ok());
+            let mut config = json!({"prompt":"test", "aspectRatio":"9:16"});
+            apply_workflow_video_generation_options(&mut config, &json!({"video_generation":options}), "autodl", "minimax_h3_lightx2v_no_pic");
+            let request = autodl_request("minimax_h3_lightx2v_no_pic", &config).unwrap();
+            assert_eq!(request["resolution"], format!("{quality}竖"));
+        }
+        assert!(validate_workflow_model_options("video_generation", &json!({"autodl":{"quality":"1080p"}})).is_err());
+        let mut config = json!({"prompt":"test"});
+        apply_workflow_video_generation_options(&mut config, &json!({}), "autodl", "minimax_h3_lightx2v_no_pic");
+        assert_eq!(config["resolution"], "768p");
+    }
+
+    #[test]
     fn autodl_inferred_provider_accepts_one_second() {
         let mut config = json!({"prompt":"test", "modelId":"minimax_h3_lightx2v_no_pic", "duration":1});
         assert!(validate_video_generation_config(&mut config).is_ok());
