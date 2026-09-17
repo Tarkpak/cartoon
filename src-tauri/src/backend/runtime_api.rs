@@ -1,4 +1,7 @@
 use super::*;
+#[path = "autodl.rs"]
+mod autodl;
+use autodl::*;
 use crate::process_util::hidden_command;
 use axum::body::{Body, Bytes};
 use futures_util::stream;
@@ -9788,7 +9791,7 @@ fn apply_scene_video_reference_inputs(
 
     let supports_multi_reference = support_reference_images && reference_limit > 1;
     let wants_multi_reference = has_character_ref && ordered_references.len() > 1;
-    let multi_reference_images: Vec<String> = if supports_multi_reference && wants_multi_reference {
+    let mut multi_reference_images: Vec<String> = if supports_multi_reference && wants_multi_reference {
         ordered_references
             .iter()
             .take(reference_limit)
@@ -9797,6 +9800,12 @@ fn apply_scene_video_reference_inputs(
     } else {
         Vec::new()
     };
+    if provider == "autodl" && supports_multi_reference {
+        if let Some(first) = continuity_first_frame.as_ref() {
+            multi_reference_images.retain(|image| image != first);
+            multi_reference_images.truncate(reference_limit.saturating_sub(1));
+        }
+    }
 
     // Kling single-image mode treats `imageUrl` as a first frame, so prefer the
     // environment image as the anchor to avoid forcing a character into frame 1.
@@ -9825,8 +9834,10 @@ fn apply_scene_video_reference_inputs(
                 object.insert("imageUrl".to_string(), json!(primary));
             }
         }
-        if let Some(first_frame) = continuity_first_frame.as_deref() {
-            object.insert("firstFrame".to_string(), json!(first_frame));
+        if support_image_to_video {
+            if let Some(first_frame) = continuity_first_frame.as_deref() {
+                object.insert("firstFrame".to_string(), json!(first_frame));
+            }
         }
         if !multi_reference_images.is_empty() {
             object.insert("referenceImages".to_string(), json!(multi_reference_images));
@@ -10286,7 +10297,7 @@ async fn complete_tracked_video_task(
     let local_video_url =
         persist_video_source(state, remote_video_url, &format!("video_{}", scene_id)).await?;
     let last_frame = sync_scene_video_result(state, scene_id, &local_video_url)?;
-    let completed_metadata = json!({
+    let mut completed_metadata = json!({
       "provider": provider,
       "modelId": model_id.unwrap_or(""),
       "fallback": false,
@@ -10294,6 +10305,16 @@ async fn complete_tracked_video_task(
       "remoteVideoUrl": remote_video_url,
       "upstreamTask": upstream_task
     });
+    if provider == "autodl" {
+        let raw: String = db_connection(state)?.query_row(
+            "SELECT COALESCE(metadata, '{}') FROM video_tasks WHERE id = ?1",
+            params![task_id], |row| row.get(0),
+        ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let saved: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
+        for key in ["config", "duration", "resolution", "aspectRatio"] {
+            if let Some(value) = saved.get(key) { completed_metadata[key] = value.clone(); }
+        }
+    }
     persist_generated_video_record(
         state,
         task_id,
@@ -10348,6 +10369,12 @@ async fn refresh_tracked_video_task(
     let refresh_result = CURRENT_MODEL_LOG_CONTEXT
         .scope(context, async {
         match provider {
+            "autodl" => {
+                let upstream_id = upstream_task.get("taskId").and_then(Value::as_str).unwrap_or("");
+                if !upstream_id.is_empty() {
+                    refresh_autodl_video_task(state, task_id, scene_id, model_id.unwrap_or(""), upstream_id).await?;
+                }
+            }
             "qwen" => {
                 let upstream_task_id = upstream_task.get("taskId").and_then(Value::as_str).unwrap_or("");
                 if upstream_task_id.trim().is_empty() {
@@ -10554,6 +10581,7 @@ fn validate_provider_video_duration(
 ) -> Result<(), ApiError> {
     let duration = config.get("duration").and_then(Value::as_f64).unwrap_or(8.0);
     let (min_duration, max_duration) = match provider {
+        "autodl" => (1, if model_id == "minimax_h3_lightx2v" { 10 } else { 15 }),
         "volcengine" => (4, if is_seedance_25_model(model_id) { 30 } else { 15 }),
         "kling" => (4, if model_id == "kling-video-o1" { 10 } else { 15 }),
         "gemini" => (4, 8),
@@ -10600,6 +10628,9 @@ fn validate_provider_video_duration(
 }
 
 fn validate_video_reference_counts(config: &Value, provider: &str, model_id: &str) -> Result<(), ApiError> {
+    if provider == "autodl" && config.get("prompt").is_some() {
+        validate_autodl_config(model_id, config)?;
+    }
     let (_, caps) = build_available_model_entry(provider, model_id);
     for (field, capability, fallback) in [
         ("referenceImages", "maxReferenceImages", 9),
@@ -11456,7 +11487,7 @@ fn is_grok_video_model(model_id: &str) -> bool {
 }
 
 fn is_supported_video_provider(provider: &str, model_id: &str) -> bool {
-    matches!(provider, "qwen" | "volcengine" | "kling" | "gemini")
+    matches!(provider, "qwen" | "volcengine" | "kling" | "gemini" | "autodl")
         || (provider == "custom_openai" && is_grok_video_model(model_id))
 }
 
@@ -15422,6 +15453,9 @@ pub(super) async fn api_test(
 
 fn infer_model_provider(model_id: &str) -> Option<String> {
     let normalized = model_id.trim().to_ascii_lowercase();
+    if manual_provider_seed_available_models("autodl").iter().any(|id| id == &normalized) {
+        return Some("autodl".to_string());
+    }
     if normalized.is_empty() {
         return None;
     }
@@ -18581,6 +18615,10 @@ pub(super) async fn api_models_test(
                         config.clone(),
                     ),
                 );
+            } else if provider == "autodl" {
+                spawn_video_task_background(context.clone(), run_autodl_video_task_background(
+                    state.clone(), task_id.clone(), scene_id.clone(), model_id.clone(), config.clone(),
+                ));
             } else if provider == "custom_openai" {
                 spawn_video_task_background(
                     context.clone(),
@@ -21317,10 +21355,14 @@ fn validate_video_generation_config(config: &mut Value) -> Result<(), ApiError> 
                 .ok_or_else(|| {
                     workflow_validation_error("body.config.duration", "Expected number")
                 })?;
-            if !(4.0..=30.0).contains(&duration) {
+            let is_autodl = config.get("provider").and_then(Value::as_str) == Some("autodl")
+                || (config.get("provider").and_then(Value::as_str).unwrap_or("").trim().is_empty()
+                    && config.get("modelId").and_then(Value::as_str).and_then(infer_model_provider).as_deref() == Some("autodl"));
+            let min_duration = if is_autodl { 1.0 } else { 4.0 };
+            if !(min_duration..=30.0).contains(&duration) {
                 return Err(workflow_validation_error(
                     "body.config.duration",
-                    "Number must be between 4 and 30",
+                    format!("Number must be between {min_duration} and 30"),
                 ));
             }
         }
@@ -21335,7 +21377,7 @@ fn validate_video_generation_config(config: &mut Value) -> Result<(), ApiError> 
         config,
         "resolution",
         Some("720p"),
-        &["480p", "720p", "1080p", "4k"],
+        &["480p", "720p", "768p", "1080p", "4k"],
     )?;
     validate_enum_or_default(
         config,
@@ -21348,7 +21390,7 @@ fn validate_video_generation_config(config: &mut Value) -> Result<(), ApiError> 
         config,
         "provider",
         None,
-        &["gemini", "qwen", "kling", "volcengine", "custom_openai"],
+        &["gemini", "qwen", "kling", "volcengine", "custom_openai", "autodl"],
     )?;
 
     Ok(())
@@ -21737,9 +21779,18 @@ pub(super) async fn api_asset_video_generate(
         config["negativePrompt"] = json!(negative_prompt);
     }
     apply_scene_video_reference_inputs(&mut config, &scene, &provider, &model_id);
+    if provider == "autodl" && model_id == "minimax_h3_lightx2v" {
+        for key in ["firstFrame", "lastFrame"] {
+            if let Some(frame) = body.get(key).and_then(trimmed_json_string) {
+                config[key] = json!(frame);
+            }
+        }
+    }
     validate_provider_video_duration(&config, &provider, &model_id)?;
     validate_video_reference_counts(&config, &provider, &model_id)?;
-    config["duration"] = json!(normalize_video_duration(config.get("duration")));
+    if provider != "autodl" {
+        config["duration"] = json!(normalize_video_duration(config.get("duration")));
+    }
     apply_workflow_video_generation_options(
         &mut config,
         &workflow_model_options,
@@ -21768,6 +21819,9 @@ pub(super) async fn api_asset_video_generate(
         build_video_prompt_from_scene(&conn, &scene, &config)?
     };
     config["prompt"] = json!(prompt);
+    if provider == "autodl" {
+        validate_autodl_config(&model_id, &config)?;
+    }
     let provider_name = config
         .get("provider")
         .and_then(Value::as_str)
@@ -21841,6 +21895,10 @@ pub(super) async fn api_asset_video_generate(
                 config.clone(),
             ),
         );
+    } else if provider_name == "autodl" {
+        spawn_video_task_background(context.clone(), run_autodl_video_task_background(
+            state.clone(), task_id.clone(), scene_id.clone(), model_id, config.clone(),
+        ));
     } else if provider_name == "custom_openai" {
         spawn_video_task_background(
             context.clone(),
@@ -22009,6 +22067,10 @@ pub(super) async fn api_video_generate(
                 config.clone(),
             ),
         );
+    } else if provider_name == "autodl" {
+        spawn_video_task_background(context.clone(), run_autodl_video_task_background(
+            state.clone(), task_id.clone(), scene_id.clone(), model_id, config.clone(),
+        ));
     } else if provider_name == "custom_openai" {
         spawn_video_task_background(
             context.clone(),

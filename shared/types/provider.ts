@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 /** 模型提供商 */
 export const ModelProviderSchema = z.enum([
+  'autodl',
   'gemini', // Google Gemini
   'qwen', // 阿里云千问
   'kling', // 可灵 AI
@@ -215,6 +216,7 @@ export type KlingCredential = z.infer<typeof KlingCredentialSchema>
 
 /** GET /api/model-providers/credentials 返回结构 */
 export const ProviderCredentialsPublicSchema = z.object({
+  autodl: ProviderApiKeyCredentialSchema.default({}),
   gemini: ProviderApiKeyCredentialSchema,
   qwen: ProviderApiKeyCredentialSchema,
   volcengine: ProviderApiKeyCredentialSchema,

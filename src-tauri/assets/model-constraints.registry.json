@@ -61,6 +61,38 @@
   },
   "rules": [
     {
+      "provider": "autodl",
+      "modelKind": "video",
+      "displayName": "H3 多图多音频（升级画质）",
+      "docUrl": "https://autodl.art/docs/comfyui_api/",
+      "match": { "type": "exact", "value": "minimax_h3_zm_u24" },
+      "video": { "maxDuration": 15, "supportTextToVideo": false, "supportImageToVideo": true, "supportReferenceImages": true, "maxReferenceImages": 9, "supportAudioReference": true, "maxReferenceAudios": 3 }
+    },
+    {
+      "provider": "autodl",
+      "modelKind": "video",
+      "displayName": "H3 多图多音频（高速版）",
+      "docUrl": "https://autodl.art/docs/comfyui_api/",
+      "match": { "type": "exact", "value": "minimax_h3_zm_u08" },
+      "video": { "maxDuration": 15, "supportTextToVideo": false, "supportImageToVideo": true, "supportReferenceImages": true, "maxReferenceImages": 9, "supportAudioReference": true, "maxReferenceAudios": 3 }
+    },
+    {
+      "provider": "autodl",
+      "modelKind": "video",
+      "displayName": "H3 文生视频",
+      "docUrl": "https://autodl.art/docs/comfyui_api/",
+      "match": { "type": "exact", "value": "minimax_h3_lightx2v_no_pic" },
+      "video": { "maxDuration": 15, "supportTextToVideo": true }
+    },
+    {
+      "provider": "autodl",
+      "modelKind": "video",
+      "displayName": "H3 首尾帧视频",
+      "docUrl": "https://autodl.art/docs/comfyui_api/",
+      "match": { "type": "exact", "value": "minimax_h3_lightx2v" },
+      "video": { "maxDuration": 10, "supportTextToVideo": false, "supportImageToVideo": true, "supportFirstLastFrame": true, "supportReferenceImages": false, "maxReferenceImages": 2 }
+    },
+    {
       "provider": "*",
       "match": { "type": "exact", "value": "gpt-image-2" },
       "modelKind": "image",

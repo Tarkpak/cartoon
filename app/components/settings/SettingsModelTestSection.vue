@@ -298,10 +298,12 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
         </div>
 
         <SettingsModelTestControls
+          :video-provider="currentSelectedModelMeta?.provider"
           v-model:video-duration="videoDuration"
           v-model:video-resolution="videoResolution"
           v-model:video-aspect-ratio="videoAspectRatio"
           :video-max-duration="currentVideoTestOptions.maxDuration"
+          :video-min-duration="currentVideoTestOptions.minDuration"
           :video-resolution-options="currentVideoTestOptions.resolutions"
           v-model:active-tab="activeTab"
           v-model:custom-prompts="customPrompts"

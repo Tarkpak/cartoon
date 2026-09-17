@@ -83,7 +83,7 @@
               <n-input v-model:value="credentialForm.secretKey" type="password" show-password-on="click" />
             </n-form-item>
           </template>
-          <n-form-item v-else label="API Key">
+          <n-form-item v-else :label="credentialProvider?.providerKey === 'autodl' ? 'ComfyUI Token' : 'API Key'">
             <n-input v-model:value="credentialForm.apiKey" type="password" show-password-on="click" />
           </n-form-item>
           <n-form-item

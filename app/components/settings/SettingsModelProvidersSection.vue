@@ -16,7 +16,7 @@ import SettingsProviderLogo from '@/components/settings/SettingsProviderLogo.vue
 import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.vue'
 import { useSettingsModelCatalog } from '@/composables/useSettingsModelCatalog'
 
-type ProviderId = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'deepseek' | 'custom_openai'
+type ProviderId = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'deepseek' | 'custom_openai' | 'autodl'
 
 interface ModelProviderCatalogEntry {
   model: string
@@ -88,7 +88,7 @@ const activeProviderSummary = computed(() => {
   return providers.value.find(provider => provider.provider === activeProvider.value) || providers.value[0] || null
 })
 
-type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'deepseek' | 'kling'
+type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'deepseek' | 'kling' | 'autodl'
 
 const activeCredentialProvider = computed<CredentialProvider | null>(() => {
   const provider = activeProviderSummary.value?.provider

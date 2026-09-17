@@ -3148,6 +3148,7 @@ fn default_provider_credentials() -> Value {
       "qwen":       { "apiKey": "", "baseUrl": "" },
       "volcengine": { "apiKey": "", "mediakitApiKey": "", "arkAccessKey": "", "arkSecretKey": "", "arkProjectName": "default", "arkOpenApiBaseUrl": "", "baseUrl": "" },
       "deepseek":   { "apiKey": "", "baseUrl": "" },
+      "autodl":     { "apiKey": "", "baseUrl": "" },
       "kling":      { "accessKey": "", "secretKey": "", "baseUrl": "" }
     })
 }
@@ -4674,8 +4675,7 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         error_message TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        completed_at TEXT,
-        batch_id TEXT
+        completed_at TEXT
       );
 
       CREATE TABLE IF NOT EXISTS image_enhance_tasks (
@@ -9106,7 +9106,8 @@ async fn api_models_workflow_post(
     })))
 }
 
-const SUPPORTED_MODEL_PROVIDERS: [&str; 6] = [
+const SUPPORTED_MODEL_PROVIDERS: [&str; 7] = [
+    "autodl",
     "qwen",
     "volcengine",
     "kling",
@@ -9757,6 +9758,7 @@ fn normalize_imported_provider_credentials(input: &Value) -> Result<Value, ApiEr
     let qwen = settings_optional_object_field(input, "qwen", "providerCredentials")?;
     let volcengine = settings_optional_object_field(input, "volcengine", "providerCredentials")?;
     let deepseek = settings_optional_object_field(input, "deepseek", "providerCredentials")?;
+    let autodl = settings_optional_object_field(input, "autodl", "providerCredentials")?;
     let kling = settings_optional_object_field(input, "kling", "providerCredentials")?;
 
     Ok(json!({
@@ -9764,6 +9766,7 @@ fn normalize_imported_provider_credentials(input: &Value) -> Result<Value, ApiEr
       "qwen": normalize_imported_api_key_provider_credentials(qwen, "qwen")?,
       "volcengine": normalize_imported_api_key_provider_credentials(volcengine, "volcengine")?,
       "deepseek": normalize_imported_api_key_provider_credentials(deepseek, "deepseek")?,
+      "autodl": normalize_imported_api_key_provider_credentials(autodl, "autodl")?,
       "kling": normalize_imported_kling_credentials(kling)?
     }))
 }
@@ -10034,6 +10037,7 @@ fn provider_sync_base_url(provider: &str, creds: &Value) -> Option<String> {
             configured.or_else(|| Some("https://ark.cn-beijing.volces.com/api/v3".to_string()))
         }
         "deepseek" => configured.or_else(|| Some("https://api.deepseek.com".to_string())),
+        "autodl" => configured.or_else(|| Some("https://autodl.art".to_string())),
         "gemini" => configured
             .or_else(|| Some("https://generativelanguage.googleapis.com/v1beta".to_string())),
         "custom_openai" => configured,
@@ -10043,7 +10047,7 @@ fn provider_sync_base_url(provider: &str, creds: &Value) -> Option<String> {
 
 fn provider_sync_api_key(provider: &str, creds: &Value) -> Option<String> {
     match provider {
-        "qwen" | "volcengine" | "deepseek" | "custom_openai" => {
+        "qwen" | "volcengine" | "deepseek" | "custom_openai" | "autodl" => {
             provider_credential_field(creds, provider, "apiKey")
         }
         _ => None,
@@ -10254,6 +10258,7 @@ fn resolve_provider_meta(
     provider: &str,
 ) -> Option<(&'static str, &'static str, &'static str, bool)> {
     match provider {
+        "autodl" => Some(("AutoDL", "MiniMax H3", "manual", false)),
         "qwen" => Some((
             "通义千问",
             "通过 DashScope OpenAI 兼容 /models 同步账号可用模型，再按本地能力表过滤可用流程模型。",
@@ -10296,7 +10301,7 @@ fn resolve_provider_meta(
 
 fn resolve_provider_configured(provider: &str, creds: &Value) -> bool {
     match provider {
-        "qwen" | "volcengine" | "deepseek" | "gemini" => {
+        "qwen" | "volcengine" | "deepseek" | "gemini" | "autodl" => {
             provider_credential_field(creds, provider, "apiKey").is_some()
         }
         "kling" => {
@@ -10399,6 +10404,12 @@ fn resolve_provider_models(
 
 fn manual_provider_seed_available_models(provider: &str) -> Vec<String> {
     match provider {
+        "autodl" => vec![
+            "minimax_h3_zm_u24".to_string(),
+            "minimax_h3_zm_u08".to_string(),
+            "minimax_h3_lightx2v_no_pic".to_string(),
+            "minimax_h3_lightx2v".to_string(),
+        ],
         "qwen" => vec![
             "qwen3.6-plus".to_string(),
             "qwen3-max-2026-01-23".to_string(),
@@ -11390,6 +11401,7 @@ fn provider_credentials_public(creds: &Value) -> Value {
         "baseUrl": base_url("volcengine")
       },
       "deepseek":   { "hasApiKey": mask("deepseek", "apiKey"), "baseUrl": base_url("deepseek") },
+      "autodl":     { "hasApiKey": mask("autodl", "apiKey"), "baseUrl": base_url("autodl") },
       "kling": {
         "hasAccessKey": mask("kling", "accessKey"),
         "hasSecretKey": mask("kling", "secretKey"),
@@ -13214,7 +13226,7 @@ async fn api_provider_credentials_put(
 ) -> Result<Json<Value>, ApiError> {
     if !matches!(
         provider.as_str(),
-        "gemini" | "qwen" | "volcengine" | "deepseek" | "kling"
+        "gemini" | "qwen" | "volcengine" | "deepseek" | "kling" | "autodl"
     ) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,

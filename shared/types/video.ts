@@ -3,7 +3,7 @@ import { z } from 'zod'
 // ==================== 视频配置 ====================
 
 /** 视频分辨率 */
-export const ResolutionSchema = z.enum(['480p', '720p', '1080p', '4k'])
+export const ResolutionSchema = z.enum(['480p', '720p', '768p', '1080p', '4k'])
 export type Resolution = z.infer<typeof ResolutionSchema>
 
 /** 视频宽高比 */
@@ -13,7 +13,7 @@ export type AspectRatio = z.infer<typeof AspectRatioSchema>
 /** 视频时长 (整数秒)，具体范围由生成模型校验。 */
 export const DurationSchema = z.number()
   .transform(value => Math.round(value))
-  .pipe(z.number().int().min(4).max(30))
+  .pipe(z.number().int().min(1).max(30))
 export type Duration = number
 
 /** 视频模型类型 */
@@ -21,11 +21,12 @@ export const VideoModelSchema = z.enum(['standard', 'fast'])
 export type VideoModel = z.infer<typeof VideoModelSchema>
 
 /** 视频提供商 */
-export const VideoProviderSchema = z.enum(['gemini', 'qwen', 'kling', 'volcengine', 'custom_openai'])
+export const VideoProviderSchema = z.enum(['gemini', 'qwen', 'kling', 'volcengine', 'custom_openai', 'autodl'])
 export type VideoProvider = z.infer<typeof VideoProviderSchema>
 
 /** 视频生成配置 */
 export const VideoGenerationConfigSchema = z.object({
+  audioReferences: z.array(z.string()).max(10).optional(),
   referenceVideos: z.array(z.string()).max(10).optional(),
   firstFrame: z.string().optional().describe('首帧图片（URL 或 dataURL）'),
   lastFrame: z.string().optional().describe('尾帧图片（URL 或 dataURL）'),

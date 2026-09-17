@@ -59,6 +59,7 @@ function getProviderBadge(provider: string) {
     case 'volcengine': return { text: '火山', class: 'bg-red-100 text-red-700' }
     case 'openai': return { text: 'OpenAI', class: 'bg-green-100 text-green-700' }
     case 'deepseek': return { text: 'DeepSeek', class: 'bg-purple-100 text-purple-700' }
+    case 'autodl': return { text: 'AutoDL', class: 'bg-emerald-100 text-emerald-700' }
     default: return { text: provider, class: 'bg-gray-100 text-gray-700' }
   }
 }

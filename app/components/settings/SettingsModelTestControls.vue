@@ -25,6 +25,8 @@ const videoResolution = defineModel<string>('videoResolution', { required: true 
 const videoAspectRatio = defineModel<string>('videoAspectRatio', { required: true })
 
 const props = defineProps<{
+  videoProvider?: string
+  videoMinDuration: number
   videoMaxDuration: number
   videoResolutionOptions: string[]
   testResults: Record<ModelTestTab, TestResult>
@@ -137,6 +139,11 @@ const canRunCurrentTabTest = computed(() => {
 })
 
 const videoReferenceMaterialReady = computed(() => {
+  if (props.videoProvider === 'autodl') {
+    return props.currentVideoModelSupportsFirstLastFrame
+      ? !!props.videoFirstFrame && !!props.videoLastFrame
+      : props.videoReferenceImages.length > 0
+  }
   if (props.currentVideoModelSupportsFirstLastFrame && props.videoFirstFrame) return true
   if (props.currentVideoModelSupportsImageReference && props.videoReferenceImages.length > 0) return true
   if (props.currentVideoModelSupportsVideoReference && props.videoReferenceVideos.length > 0) return true
@@ -150,7 +157,7 @@ const videoReferenceMaterialReady = computed(() => {
     <div v-if="activeTab === 'video'" class="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <label class="space-y-1 text-xs text-muted-foreground">
         <span>时长（秒）</span>
-        <Input v-model.number="videoDuration" type="number" :min="4" :max="props.videoMaxDuration" :step="1" />
+        <Input v-model.number="videoDuration" type="number" :min="props.videoMinDuration" :max="props.videoMaxDuration" :step="1" />
       </label>
       <label class="space-y-1 text-xs text-muted-foreground">
         <span>画质</span>
@@ -168,8 +175,8 @@ const videoReferenceMaterialReady = computed(() => {
       </label>
     </div>
     <!-- Label + Run button -->
-    <div class="flex items-center justify-between gap-3">
-      <div class="flex items-center gap-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center gap-4">
         <label class="text-xs text-muted-foreground">
           {{ activeTab === 'tts' ? '测试文本' : '测试提示词' }}
         </label>
@@ -241,7 +248,7 @@ const videoReferenceMaterialReady = computed(() => {
           </Select>
         </div>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <span
           v-if="activeTab === 'image' && props.currentImageModelRequiresReference && props.referenceImages.length === 0"
           class="text-xs text-amber-600 dark:text-amber-400"
@@ -255,7 +262,7 @@ const videoReferenceMaterialReady = computed(() => {
         <Button
           size="sm"
           :disabled="currentTestStatus === 'testing' || !canRunCurrentTabTest"
-          class="gap-1.5"
+          class="shrink-0 gap-1.5"
           @click="props.testModel(activeTab)"
         >
           <Loader2
@@ -534,7 +541,7 @@ const videoReferenceMaterialReady = computed(() => {
           {{
             props.currentVideoModelMaxReferenceImages <= 1
               ? '视频参考图 (单图)'
-              : `视频参考图 (可选，最多 ${props.currentVideoModelMaxReferenceImages} 张)`
+              : `视频参考图 (${props.videoProvider === 'autodl' ? '必填' : '可选'}，最多 ${props.currentVideoModelMaxReferenceImages} 张)`
           }}
         </label>
 

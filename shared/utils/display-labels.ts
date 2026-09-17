@@ -54,6 +54,7 @@ export const STATUS_LABELS: DisplayLabels = {
 }
 
 const PROVIDER_LABELS: DisplayLabels = {
+  autodl: 'AutoDL',
   custom_openai: '自定义 OpenAI',
   openai: 'OpenAI',
   gemini: 'Gemini',

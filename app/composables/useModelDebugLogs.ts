@@ -39,7 +39,7 @@ export interface ModelDebugLogEntry {
   ownerDisplayName?: string
 }
 
-export const MODEL_DEBUG_PROVIDER_OPTIONS = ['gemini', 'qwen', 'kling', 'volcengine', 'deepseek', 'custom_openai']
+export const MODEL_DEBUG_PROVIDER_OPTIONS = ['gemini', 'qwen', 'kling', 'volcengine', 'deepseek', 'custom_openai', 'autodl']
 
 export const MODEL_DEBUG_OPERATION_OPTIONS = [
   'generateText',

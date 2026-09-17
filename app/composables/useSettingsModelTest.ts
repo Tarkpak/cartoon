@@ -114,8 +114,8 @@ export function useSettingsModelTest() {
 
   const currentVideoTestOptions = computed(() => videoTestOptions(currentVideoModel.value))
   watch(currentVideoTestOptions, (options) => {
-    videoDuration.value = Math.min(options.maxDuration, Math.max(4, videoDuration.value))
-    if (!options.resolutions.includes(videoResolution.value)) videoResolution.value = '720p'
+    videoDuration.value = Math.min(options.maxDuration, Math.max(options.minDuration, videoDuration.value))
+    if (!options.resolutions.includes(videoResolution.value)) videoResolution.value = options.resolutions[0]!
   })
 
   const currentVideoModelSupportsVideoReference = computed(() => {
@@ -306,8 +306,12 @@ export function useSettingsModelTest() {
 
   const canRunVideoTest = computed(() => {
     if (activeTab.value !== 'video') return true
-    if (!Number.isInteger(videoDuration.value) || videoDuration.value < 4
+    if (!Number.isInteger(videoDuration.value) || videoDuration.value < currentVideoTestOptions.value.minDuration
       || videoDuration.value > currentVideoTestOptions.value.maxDuration) return false
+    if (currentVideoModel.value?.provider === 'autodl') {
+      if (currentVideoModel.value.model === 'minimax_h3_lightx2v') return !!videoFirstFrame.value && !!videoLastFrame.value
+      if (currentVideoModel.value.supportImageToVideo) return videoReferenceImages.value.length > 0
+    }
     if (!currentVideoModelRequiresReference.value) return true
     const hasImageReference = currentVideoModelSupportsFirstLastFrame.value && videoImageInputMode.value === 'firstLastFrame'
       ? !!videoFirstFrame.value
@@ -656,7 +660,7 @@ export function useSettingsModelTest() {
       } else if (
         modelType === 'video'
         && currentVideoModelSupportsImageReference.value
-        && videoImageInputMode.value === 'referenceImages'
+        && (videoImageInputMode.value === 'referenceImages' || !currentVideoModelSupportsFirstLastFrame.value)
         && videoReferenceImages.value.length > 0
       ) {
         const refs = videoReferenceImages.value.slice(0, currentVideoModelMaxReferenceImages.value)
@@ -726,7 +730,9 @@ export function useSettingsModelTest() {
             throw new Error('视频模型测试未返回任务 ID')
           }
 
-          const completedResult = await pollModelTestVideoTask(taskId)
+          const completedResult = await pollModelTestVideoTask(taskId, selectedModel?.provider === 'autodl'
+            ? { maxAttempts: 720, pollIntervalMs: 5000 }
+            : {})
           result = {
             ...pendingResult,
             ...completedResult,

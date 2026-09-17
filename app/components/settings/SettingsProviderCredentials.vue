@@ -3,7 +3,7 @@ import { Check, Loader2, Save, X } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import type { ProviderCredentialsPublic } from '#shared/types/provider'
 
-type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'deepseek' | 'kling'
+type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'deepseek' | 'kling' | 'autodl'
 
 const props = defineProps<{
   provider: CredentialProvider
@@ -16,6 +16,7 @@ interface ProviderCredentialsResponse {
 }
 
 const PROVIDER_BASE_URL_PLACEHOLDER: Record<CredentialProvider, string> = {
+  autodl: 'https://autodl.art',
   gemini: 'https://generativelanguage.googleapis.com/v1beta',
   qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
@@ -242,7 +243,7 @@ onMounted(() => {
         class="space-y-1.5"
       >
         <div class="flex items-center justify-between">
-          <label class="text-xs text-muted-foreground">API Key</label>
+          <label class="text-xs text-muted-foreground">{{ provider === 'autodl' ? 'ComfyUI Token' : 'API Key' }}</label>
           <span
             class="inline-flex items-center gap-1 text-xs"
             :class="hasApiKey ? 'text-emerald-600' : 'text-muted-foreground'"
