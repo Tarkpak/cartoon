@@ -1133,6 +1133,12 @@ async function batchGenerateCharacters(
 
 const {
   editingCharacterId,
+  characterCreateDialogOpen,
+  characterCreateError,
+  characterCreateSubmitting,
+  setCharacterCreateDialogOpen,
+  submitCharacterCreate,
+  removeCharacter,
   characterEditDraft,
   characterRegenerateDialogOpen,
   characterRegeneratePrompt,
@@ -3742,6 +3748,8 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
           @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
           @preview-image="openImagePreview($event.src, $event.alt)"
           @start-character-edit="startEditCharacter"
+          @add-character="setCharacterCreateDialogOpen(true)"
+          @remove-character="removeCharacter"
           @add-character-variant="openCharacterVariantDialog"
           @remove-character-variant="removeCharacterVariant"
           @cancel-character-edit="cancelEditCharacter"
@@ -3932,6 +3940,18 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
       :set-image-preview-open="setImagePreviewState"
       :image-preview-src="imagePreviewSrc"
       :image-preview-alt="imagePreviewAlt"
+    />
+
+    <SettingsTextInputDialog
+      :open="characterCreateDialogOpen"
+      title="新增角色"
+      label="角色名称"
+      placeholder="角色名称"
+      confirm-text="创建角色"
+      :busy="characterCreateSubmitting"
+      :error="characterCreateError || ''"
+      @update:open="setCharacterCreateDialogOpen"
+      @confirm="submitCharacterCreate"
     />
 
     <SettingsTextInputDialog

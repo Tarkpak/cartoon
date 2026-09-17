@@ -24,6 +24,9 @@ export function useAssetWorkbenchCharacterActions(options: {
 }) {
   const CHARACTER_REGENERATION_INITIAL_PROMPT = ''
   const editingCharacterId = ref<string | null>(null)
+  const characterCreateDialogOpen = ref(false)
+  const characterCreateError = ref<string | null>(null)
+  const characterCreateSubmitting = ref(false)
   const characterVariantDialogOpen = ref(false)
   const characterVariantTargetId = ref<string | null>(null)
   const characterVariantError = ref<string | null>(null)
@@ -65,6 +68,43 @@ export function useAssetWorkbenchCharacterActions(options: {
 
   function createDefaultCharacterId(): string {
     return `char_variant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  }
+
+  function setCharacterCreateDialogOpen(open: boolean) {
+    if (characterCreateSubmitting.value) return
+    characterCreateError.value = null
+    characterCreateDialogOpen.value = open
+  }
+
+  async function submitCharacterCreate(rawName: string) {
+    if (characterCreateSubmitting.value) return
+    const name = rawName.trim()
+    if (!name || options.characters.value.some(character => normalizeToken(character.name) === normalizeToken(name))) {
+      characterCreateError.value = name ? '同名角色资产已存在' : '角色名称不能为空'
+      return
+    }
+    const character: CharacterData = {
+      id: (options.createCharacterId || createDefaultCharacterId)(),
+      name,
+      appearance: '',
+      role: '配角',
+      language: 'mandarin',
+      generating: false,
+      generatingViews: false
+    }
+    characterCreateSubmitting.value = true
+    characterCreateError.value = null
+    options.characters.value.push(character)
+    try {
+      if (await options.saveProject() === false) throw new Error('项目保存失败，请重试')
+      characterCreateDialogOpen.value = false
+      startEditCharacter(character)
+    } catch (error) {
+      options.characters.value = options.characters.value.filter(item => item.id !== character.id)
+      characterCreateError.value = options.resolveUiError(error, '角色创建失败')
+    } finally {
+      characterCreateSubmitting.value = false
+    }
   }
 
   function normalizeVariantInput(parent: CharacterData, rawValue: string): {
@@ -246,56 +286,69 @@ export function useAssetWorkbenchCharacterActions(options: {
     }
   }
 
-  async function removeCharacterVariant(characterId: string) {
+  async function removeCharacter(characterId: string) {
     const target = options.characters.value.find(character => character.id === characterId)
     if (!target) return
 
     const { toast } = useToast()
-    if (!target.parentCharacterId) {
-      toast.warning('只能删除角色变体')
+    const removedCharacters = options.characters.value.filter(character => character.id === characterId || character.parentCharacterId === characterId)
+    if (removedCharacters.some(character => character.generating || character.generatingViews)) {
+      toast.warning('请等待角色生成完成后再删除')
       return
     }
+    const removedIds = new Set(removedCharacters.map(character => character.id))
+    const label = target.parentCharacterId ? '角色变体' : '角色'
 
     const confirmed = await useConfirm().confirm({
-      title: '删除角色变体',
-      description: `确定删除「${target.name}」？已生成的角色图、历史记录和绑定素材会从项目中移除。`,
+      title: `删除${label}`,
+      description: `确定删除「${target.name}」${removedCharacters.length > 1 ? `及其 ${removedCharacters.length - 1} 个变体` : ''}？角色图、历史记录和素材引用会从项目中移除，剧本中的人物描述保留。`,
       confirmText: '删除',
       cancelText: '取消',
       variant: 'destructive'
     })
     if (!confirmed) return
 
-    const fullAssetId = `char:${characterId}`
+    const isRemovedAsset = (assetId: string) => removedIds.has(assetId.replace(/^char:/, ''))
     let affectedSceneCount = 0
-    if (options.sceneConfigs) {
-      for (const scene of options.scenes.value) {
-        const config = options.sceneConfigs.value[scene.id]
-        if (!config?.mustReferenceAssetIds?.includes(fullAssetId)) continue
-        config.mustReferenceAssetIds = config.mustReferenceAssetIds.filter(assetId => assetId !== fullAssetId)
+    for (const scene of options.scenes.value) {
+      let affected = false
+      const config = options.sceneConfigs?.value[scene.id]
+      if (config?.mustReferenceAssetIds?.some(isRemovedAsset)) {
+        config.mustReferenceAssetIds = config.mustReferenceAssetIds.filter(assetId => !isRemovedAsset(assetId))
+        affected = true
+      }
+      for (const character of scene.characters) {
+        if (character.assetId && isRemovedAsset(character.assetId)) {
+          delete character.assetId
+          affected = true
+        }
+        if (removedCharacters.some(item => item.name === character.name)) affected = true
+      }
+      if (affected) {
         affectedSceneCount += 1
         invalidateSceneGenerationState(scene)
       }
-      if (affectedSceneCount > 0) {
-        options.synchronizeQueueItems?.()
-      }
     }
 
-    options.characters.value = options.characters.value.filter(character => character.id !== characterId)
-    if (editingCharacterId.value === characterId) {
+    options.characters.value = options.characters.value.filter(character => !removedIds.has(character.id))
+    if (affectedSceneCount > 0) options.synchronizeQueueItems?.()
+    if (editingCharacterId.value && removedIds.has(editingCharacterId.value)) {
       cancelEditCharacter()
     }
 
-    const saved = await options.saveProject()
-    if (saved === false) {
-      toast.error('角色变体已删除，但项目保存失败')
-      return
+    try {
+      const saved = await options.saveProject()
+      const metaSaved = affectedSceneCount > 0 ? await options.saveWorkflowMeta?.() : true
+      if (saved === false || metaSaved === false) {
+        toast.error('角色已删除，但项目保存失败，请重试保存')
+        return
+      }
+      toast.success(`已删除${label}：${target.name}`, {
+        description: affectedSceneCount > 0 ? `已更新 ${affectedSceneCount} 个场景的素材引用状态。` : undefined
+      })
+    } catch (error) {
+      toast.error(options.resolveUiError(error, '删除后的项目保存失败，请重试保存'))
     }
-    if (affectedSceneCount > 0) {
-      await options.saveWorkflowMeta?.()
-    }
-    toast.success(`已删除角色变体：${target.name}`, {
-      description: affectedSceneCount > 0 ? `已同步移除 ${affectedSceneCount} 个场景中的引用。` : undefined
-    })
   }
 
   async function saveCharacterEdit(saveOptions: { regenerate?: boolean } = {}) {
@@ -313,6 +366,10 @@ export function useAssetWorkbenchCharacterActions(options: {
       toast.warning('角色名称不能为空')
       return
     }
+    if (options.characters.value.some(character => character.id !== target.id && normalizeToken(character.name) === normalizeToken(nextName))) {
+      toast.warning('同名角色资产已存在')
+      return
+    }
 
     const oldName = target.name
     target.name = nextName
@@ -323,7 +380,12 @@ export function useAssetWorkbenchCharacterActions(options: {
 
     synchronizeCharacterNameInScenes(oldName, target.name)
 
-    await options.saveProject()
+    try {
+      if (await options.saveProject() === false) throw new Error('项目保存失败，请重试')
+    } catch (error) {
+      toast.error(options.resolveUiError(error, '角色保存失败'))
+      return
+    }
     cancelEditCharacter()
 
     if (saveOptions.regenerate) {
@@ -395,6 +457,12 @@ export function useAssetWorkbenchCharacterActions(options: {
   }
 
   return {
+    characterCreateDialogOpen,
+    characterCreateError,
+    characterCreateSubmitting,
+    setCharacterCreateDialogOpen,
+    submitCharacterCreate,
+    removeCharacter,
     editingCharacterId,
     characterEditDraft,
     characterVariantDialogOpen,
@@ -411,7 +479,7 @@ export function useAssetWorkbenchCharacterActions(options: {
     openCharacterVariantDialog,
     setCharacterVariantDialogOpen,
     submitCharacterVariant,
-    removeCharacterVariant,
+    removeCharacterVariant: removeCharacter,
     handleGenerateCharacter,
     saveCharacterEdit,
     openCharacterRegenerateDialog,

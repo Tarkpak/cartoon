@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { LibraryAsset, LibraryAssetCategory } from '#shared/types/library'
-import { Database, Download, Loader2 } from 'lucide-vue-next'
+import { Database, Download, Loader2, Plus } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
 import type {
   PropAsset,
@@ -48,6 +48,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  'add-character': []
+  'remove-character': [characterId: string]
   'select-stage': [stage: AutoStageKey]
   'preview-image': [payload: { src: string | undefined, alt: string }]
   'start-character-edit': [character: CharacterData]
@@ -127,15 +129,7 @@ const hasSeedAssets = computed(() => {
 </script>
 
 <template>
-  <div
-    v-if="scenesCount === 0 && !hasSeedAssets"
-    class="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground"
-  >
-    <p class="text-sm">
-      请先完成"{{ parseStageLabel || '剧本解析' }}"步骤
-    </p>
-  </div>
-  <template v-else>
+  <div class="flex min-h-0 flex-1 flex-col gap-3">
     <!-- Status bar -->
     <div class="shrink-0 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div
@@ -175,6 +169,10 @@ const hasSeedAssets = computed(() => {
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
+        <Button v-if="assetTab === 'characters'" size="sm" class="gap-1.5" :disabled="autoRunning" @click="emit('add-character')">
+          <Plus class="h-3.5 w-3.5" />
+          新增角色
+        </Button>
         <Button size="sm" variant="outline" class="gap-1.5" @click="libraryPickerOpen = true">
           <Database class="h-3.5 w-3.5" />
           从资源库选择
@@ -233,6 +231,7 @@ const hasSeedAssets = computed(() => {
         :set-character-edit-draft="setCharacterEditDraft"
         @preview-image="emit('preview-image', $event)"
         @start-edit="emit('start-character-edit', $event)"
+        @remove-character="emit('remove-character', $event)"
         @add-variant="emit('add-character-variant', $event)"
         @remove-variant="emit('remove-character-variant', $event)"
         @cancel-edit="emit('cancel-character-edit')"
@@ -309,5 +308,5 @@ const hasSeedAssets = computed(() => {
         @preview-image="emit('preview-image', $event)"
       />
     </div>
-  </template>
+  </div>
 </template>

@@ -24,6 +24,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  'remove-character': [characterId: string]
   'preview-image': [payload: { src: string | undefined, alt: string }]
   'start-edit': [character: CharacterData]
   'add-variant': [character: CharacterData]
@@ -221,10 +222,7 @@ watch(
   >
     <User class="h-8 w-8 opacity-40" />
     <p class="text-sm">
-      暂未识别到角色
-    </p>
-    <p class="text-xs">
-      返回"剧本解析"补充角色信息后重新解析
+      暂无角色资产
     </p>
   </div>
   <div
@@ -895,6 +893,17 @@ watch(
           >
             <Pencil class="mr-1 h-3 w-3" />
             编辑
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            class="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+            title="删除角色"
+            aria-label="删除角色"
+            :disabled="autoRunning || char.generating || char.generatingViews || !!uploadingCharacterId || !!uploadingArkCharacterId || !!uploadingCharacterVoiceId"
+            @click="emit('remove-character', char.id)"
+          >
+            <Trash2 class="h-3.5 w-3.5" />
           </Button>
           <Input
             :id="buildAssetUploadInputId('char', char.id)"
