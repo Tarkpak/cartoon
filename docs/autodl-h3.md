@@ -33,7 +33,9 @@ persisted processing tasks after a restart. Transient query failures are retried
 submission is never automatically retried to avoid creating duplicate paid tasks.
 Repeated transport errors or the background polling deadline leave the upstream task
 in processing so subsequent status requests can recover it. Only a completed generation
-emits a billable success log; submission and polling logs are pending.
+emits a billable success log; submission logs are pending. Normal polling does not emit
+model logs; query errors and failed generations retain error logs. Background polling
+and client status refreshes share a per-task five-second throttle and an in-flight lock.
 
 The scene workbench currently does not provide a dedicated first/last-frame input pair.
 Use model testing or the video generation API for the first/last-frame workflow; the

@@ -1,5 +1,28 @@
 use super::*;
 
+type AutodlPollState = tokio::sync::Mutex<Option<std::time::Instant>>;
+
+fn autodl_poll_state(task_id: &str) -> std::sync::Arc<AutodlPollState> {
+    static POLLS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (std::sync::Arc<AutodlPollState>, std::time::Instant)>>> = std::sync::OnceLock::new();
+    let mut polls = POLLS.get_or_init(Default::default).lock().unwrap_or_else(|error| error.into_inner());
+    let now = std::time::Instant::now();
+    // Expire idle entries without removing a task that is still being queried or saved.
+    polls.retain(|_, (state, touched)| std::sync::Arc::strong_count(state) > 1 || now.duration_since(*touched).as_secs() < 60);
+    let (state, touched) = polls.entry(task_id.to_string()).or_insert_with(|| (std::sync::Arc::new(AutodlPollState::new(None)), now));
+    *touched = now;
+    state.clone()
+}
+
+fn autodl_begin_poll(state: std::sync::Arc<AutodlPollState>) -> Option<tokio::sync::OwnedMutexGuard<Option<std::time::Instant>>> {
+    let mut guard = state.try_lock_owned().ok()?;
+    let now = std::time::Instant::now();
+    if guard.is_some_and(|last| now.duration_since(last) < std::time::Duration::from_secs(5)) {
+        return None;
+    }
+    *guard = Some(now);
+    Some(guard)
+}
+
 fn autodl_error(message: impl Into<String>) -> ApiError {
     ApiError::new(StatusCode::BAD_REQUEST, message)
 }
@@ -182,7 +205,8 @@ async fn autodl_http(model_id: &str, path: &str, body: Option<&Value>) -> Result
         Ok(payload)
     }
     .await;
-    llm_dev_write_db_log(
+    if body.is_some() || result.is_err() {
+        llm_dev_write_db_log(
         "autodl",
         model_id,
         if body.is_some() {
@@ -197,7 +221,8 @@ async fn autodl_http(model_id: &str, path: &str, body: Option<&Value>) -> Result
         result.as_ref().ok(),
         None,
         result.as_ref().err().map(String::as_str),
-    );
+        );
+    }
     result
 }
 
@@ -245,20 +270,11 @@ pub(super) async fn refresh_autodl_video_task(
     model_id: &str,
     upstream_id: &str,
 ) -> Result<bool, ApiError> {
-    let payload = autodl_http(
-        model_id,
-        &format!("result/{}", tos_percent_encode(upstream_id)),
-        None,
-    )
-    .await
-    .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, e))?;
-    let outcome = autodl_result(&payload);
-    if matches!(outcome, Ok(None)) {
+    // Both background polling and UI status requests share this per-task gate.
+    // Hold it through persistence so concurrent observers cannot finalize twice.
+    let Some(_guard) = autodl_begin_poll(autodl_poll_state(task_id)) else {
         return Ok(false);
-    }
-    // Background polling and status requests can observe completion together.
-    static FINALIZE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _guard = FINALIZE.lock().await;
+    };
     let task: Option<(String, String)> = db_connection(state)?
         .query_row(
             "SELECT status, COALESCE(metadata, '{}') FROM video_tasks WHERE id = ?1",
@@ -271,6 +287,14 @@ pub(super) async fn refresh_autodl_video_task(
     if status != "processing" {
         return Ok(true);
     }
+    let payload = autodl_http(
+        model_id,
+        &format!("result/{}", tos_percent_encode(upstream_id)),
+        None,
+    )
+    .await
+    .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, e))?;
+    let outcome = autodl_result(&payload);
     let metadata: Value = serde_json::from_str(&metadata).unwrap_or_else(|_| json!({}));
     match outcome {
         Ok(Some(url)) => {
@@ -291,6 +315,8 @@ pub(super) async fn refresh_autodl_video_task(
         Ok(None) => Ok(false),
         Err(error) => {
             fail_tracked_video_task(state, task_id, &error).await?;
+            llm_dev_write_db_log("autodl", model_id, "generateVideo", "error",
+                Utc::now().timestamp_millis(), None, metadata.get("config"), Some(&payload), None, Some(&error));
             Ok(true)
         }
     }
@@ -335,6 +361,20 @@ pub(super) async fn run_autodl_video_task_background(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn autodl_poll_gate_shares_throttle_and_excludes_inflight_requests() {
+        let state = autodl_poll_state("poll-gate-test");
+        let mut guard = autodl_begin_poll(state.clone()).unwrap();
+        assert!(autodl_begin_poll(autodl_poll_state("poll-gate-test")).is_none());
+        assert!(autodl_begin_poll(autodl_poll_state("independent-task")).is_some());
+        *guard = Some(std::time::Instant::now() - std::time::Duration::from_secs(6));
+        assert!(autodl_begin_poll(state.clone()).is_none());
+        drop(guard);
+        let guard = autodl_begin_poll(state.clone()).unwrap();
+        drop(guard);
+        assert!(autodl_begin_poll(state).is_none());
+    }
 
     #[test]
     fn autodl_maps_reference_media_and_resolution() {

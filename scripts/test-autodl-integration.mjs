@@ -13,6 +13,7 @@ const dir = await mkdtemp(join(tmpdir(), 'playlet-autodl-'))
 let backend
 const jobs = new Map()
 const requests = []
+const queryTimes = new Map()
 let mockBase
 const mock = createServer(async (req, res) => {
   if (req.url === '/video.mp4') {
@@ -31,7 +32,16 @@ const mock = createServer(async (req, res) => {
     jobs.set(id, body)
     res.end(JSON.stringify({ code: 'Success', data: { task_id: id, status: 'QUEUED' } }))
   } else {
-    const body = jobs.get(req.url.split('/').at(-1))
+    const id = req.url.split('/').at(-1)
+    const times = queryTimes.get(id) || []
+    times.push(Date.now())
+    queryTimes.set(id, times)
+    const body = jobs.get(id)
+    if (times.length === 1) {
+      await delay(100)
+      res.end(JSON.stringify({ code: 'Success', data: { status: 'RUNNING' } }))
+      return
+    }
     res.end(JSON.stringify({ code: 'Success', data: body.prompt === 'failure'
       ? { status: 'FAILED', message: 'mock generation failed' }
       : { status: body.prompt === 'uppercase' ? 'SUCCESS' : 'completed', results: [{ type: 'video', url: `${mockBase}/video.mp4` }] } }))
@@ -84,7 +94,8 @@ try {
     assert.ok(taskId, JSON.stringify(submitted))
     let result
     for (let attempt = 0; attempt < 40; attempt++) {
-      result = await api(`/api/video/status/${taskId}`)
+      const responses = await Promise.all(Array.from({ length: 3 }, () => api(`/api/video/status/${taskId}`)))
+      result = responses.find(response => response.task.status === 'completed') || responses[0]
       const task = result.task
       if (task.status === 'completed' || task.status === 'failed') break
       await delay(250)
@@ -109,11 +120,17 @@ try {
   const invalid = await fetch(`${base}/api/models/test`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider: 'autodl', modelType: 'video', modelId: models[3], prompt: 'test', duration: 15 }) })
   assert.equal(invalid.status, 400)
   assert.equal(requests.length, 5, 'invalid request must not reach upstream')
+  for (const times of queryTimes.values()) {
+    assert.equal(times.length, 2, 'concurrent status refreshes must share upstream polling')
+    assert.ok(times[1] - times[0] >= 4900, 'upstream polls must be spaced five seconds apart')
+  }
   const db = new Database(join(dir, 'test.db'))
   try {
     const logs = db.query("SELECT operation, status FROM model_debug_logs WHERE provider = 'autodl'").all()
     assert.equal(logs.filter(log => log.status === 'success').length, 4, 'only completed generations may be billed')
     assert.ok(logs.filter(log => log.status === 'success').every(log => log.operation === 'generateVideo'))
+    assert.equal(logs.filter(log => log.operation === 'queryVideo').length, 0, 'normal polls must not generate model logs')
+    assert.equal(logs.filter(log => log.operation === 'generateVideo' && log.status === 'error').length, 1, 'failed generation must retain an error log')
     const completed = db.query("SELECT metadata FROM video_tasks WHERE status = 'completed'").all()
     for (const row of completed) {
       const metadata = JSON.parse(row.metadata)
