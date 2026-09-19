@@ -3,7 +3,7 @@ import { Check, Loader2, Save, X } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import type { ProviderCredentialsPublic } from '#shared/types/provider'
 
-type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'deepseek' | 'kling' | 'autodl'
+type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'deepseek' | 'kling' | 'autodl' | 'topaz'
 
 const props = defineProps<{
   provider: CredentialProvider
@@ -21,7 +21,8 @@ const PROVIDER_BASE_URL_PLACEHOLDER: Record<CredentialProvider, string> = {
   qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
   deepseek: 'https://api.deepseek.com',
-  kling: 'https://api-beijing.klingai.com'
+  kling: 'https://api-beijing.klingai.com',
+  topaz: 'https://api.topazlabs.com'
 }
 
 const loading = ref(false)
@@ -267,6 +268,21 @@ onMounted(() => {
           class="text-xs text-muted-foreground"
         >
           支持多个密钥轮换，用英文逗号、分号或换行分隔。
+        </p>
+        <p
+          v-if="props.provider === 'topaz'"
+          class="text-xs text-muted-foreground"
+        >
+          Topaz API 单独使用 credits 计费。可前往
+          <a
+            href="https://account.topazlabs.com/manage-api"
+            target="_blank"
+            rel="noreferrer"
+            class="text-primary underline underline-offset-2"
+          >
+            Topaz API Keys
+          </a>
+          创建密钥；密钥仅在创建时完整显示。
         </p>
       </div>
 

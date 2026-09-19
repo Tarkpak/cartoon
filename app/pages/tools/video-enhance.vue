@@ -8,6 +8,8 @@ definePageMeta({
 })
 
 type EnhanceKind = 'standard' | 'professional' | 'fast' | 'generative'
+type EnhanceProvider = 'mediakit' | 'topaz'
+type TopazModel = 'ganim-1' | 'prob-4'
 
 interface EnhanceSubmitResponse {
   success: boolean
@@ -19,6 +21,13 @@ interface EnhanceUploadResponse {
   videoUrl: string
   sourceObjectKey?: string
   reused?: boolean
+}
+
+interface TopazCreateResponse {
+  success: boolean
+  taskId: string
+  uploadUrls: string[]
+  estimates?: Record<string, unknown>
 }
 
 interface VideoEnhanceBatchSettings {
@@ -45,6 +54,8 @@ interface VideoEnhanceQueueItem {
   taskId: string
   errorMessage: string
   reused: boolean
+  width: number
+  height: number
 }
 
 type FetchErrorWithData = Error & {
@@ -62,6 +73,8 @@ const { toast } = useToast()
 const { confirm } = useConfirm()
 
 const kind = ref<EnhanceKind>('standard')
+const provider = ref<EnhanceProvider>('mediakit')
+const topazModel = ref<TopazModel>('ganim-1')
 const queue = ref<VideoEnhanceQueueItem[]>([])
 const scene = ref('short_series')
 const resolution = ref('1080p')
@@ -187,6 +200,7 @@ const selectedKindOption = computed(() => kindOptions.find(option => option.valu
 const selectedSceneLabel = computed(() => sceneOptions.find(option => option.value === scene.value)?.label || scene.value)
 const resolutionSummary = computed(() => resolutionMode.value === 'limit' ? `短边 ${resolutionLimit.value}px` : resolution.value.toUpperCase())
 const selectedDocsUrl = computed(() => {
+  if (provider.value === 'topaz') return 'https://developer.topazlabs.com/getting-started/video-quickstart'
   switch (kind.value) {
     case 'fast':
       return 'https://www.volcengine.com/docs/6448/2487478?lang=zh'
@@ -197,6 +211,21 @@ const selectedDocsUrl = computed(() => {
   }
 })
 const supportsResolutionLimit = computed(() => kind.value !== 'generative')
+
+const topazModelOptions = [
+  {
+    value: 'ganim-1' as const,
+    label: 'Gaia 2 动画',
+    description: '逐帧独立 2x 超分，适合动漫、动效和逐帧素材。',
+    cost: '较低'
+  },
+  {
+    value: 'prob-4' as const,
+    label: 'Proteus Auto',
+    description: '通用 2x 超分，自动修复噪声和压缩伪影。',
+    cost: '标准'
+  }
+]
 
 watch(kind, (value) => {
   if (value === 'generative') {
@@ -254,6 +283,25 @@ function isVideoFile(file: File) {
   return file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name)
 }
 
+function readVideoDimensions(file: File): Promise<{ width: number, height: number }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.onloadedmetadata = () => {
+      const dimensions = { width: video.videoWidth, height: video.videoHeight }
+      URL.revokeObjectURL(url)
+      if (!dimensions.width || !dimensions.height) reject(new Error('无法读取视频分辨率'))
+      else resolve(dimensions)
+    }
+    video.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('无法读取视频元数据'))
+    }
+    video.src = url
+  })
+}
+
 function addFilesToQueue(files: File[]) {
   const videoFiles = files.filter(isVideoFile)
   if (videoFiles.length === 0) {
@@ -274,7 +322,7 @@ function addFilesToQueue(files: File[]) {
   }
 
   errorMessage.value = ''
-  queue.value.push(...uniqueVideoFiles.map(file => ({
+  const addedItems = uniqueVideoFiles.map(file => ({
     id: createQueueId(),
     file,
     fileName: file.name,
@@ -286,8 +334,20 @@ function addFilesToQueue(files: File[]) {
     status: 'pending' as QueueStatus,
     taskId: '',
     errorMessage: '',
-    reused: false
-  })))
+    reused: false,
+    width: 0,
+    height: 0
+  }))
+  queue.value.push(...addedItems)
+  for (const item of addedItems) {
+    void readVideoDimensions(item.file).then(({ width, height }) => {
+      item.width = width
+      item.height = height
+    }).catch((error) => {
+      item.errorMessage = error instanceof Error ? error.message : '无法读取视频元数据'
+      item.status = 'failed'
+    })
+  }
   queue.value.sort((left, right) => fileNameCollator.compare(left.fileName, right.fileName))
 
   if (videoFiles.length < files.length) {
@@ -411,15 +471,103 @@ async function submitQueueItem(item: VideoEnhanceQueueItem, settings: VideoEnhan
   item.status = 'submitted'
 }
 
+function topazContainer(fileName: string) {
+  const extension = fileName.split('.').pop()?.toLowerCase()
+  return extension === 'm4v' ? 'm4v' : extension || 'mp4'
+}
+
+function uploadTopazPart(
+  url: string,
+  blob: Blob,
+  contentType: string,
+  requireETag: boolean,
+  onProgress: (loaded: number) => void
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', url)
+    xhr.setRequestHeader('Content-Type', contentType || 'application/octet-stream')
+    xhr.upload.onprogress = event => onProgress(event.loaded)
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(`Topaz 直传失败 (${xhr.status})`))
+        return
+      }
+      const etag = xhr.getResponseHeader('ETag') || xhr.getResponseHeader('etag')
+      if (requireETag && !etag) {
+        reject(new Error('Topaz 分片已上传，但浏览器无法读取 ETag；请检查 Topaz 上传地址的 CORS 暴露头配置'))
+        return
+      }
+      // Topaz ignores the value for a single URL, but request validation still requires an entry.
+      resolve(etag || 'unused')
+    }
+    xhr.onerror = () => reject(new Error('无法直传 Topaz，请检查网络或 Topaz 上传地址的 CORS 配置'))
+    xhr.send(blob)
+  })
+}
+
+async function submitTopazQueueItem(item: VideoEnhanceQueueItem, currentBatchId: string) {
+  if (!item.width || !item.height) throw new Error('尚未读取到视频分辨率')
+  if (item.width * 2 > 8192 || item.height * 2 > 8192) {
+    throw new Error('源视频尺寸过大，2x 输出会超过 Topaz 8192 像素限制')
+  }
+  item.status = 'submitting'
+  const response = await $fetch<TopazCreateResponse>('/api/tools/video-enhance/topaz/create', {
+    method: 'POST',
+    body: {
+      batchId: currentBatchId,
+      fileName: item.fileName,
+      container: topazContainer(item.fileName),
+      model: topazModel.value,
+      outputWidth: Math.ceil(item.width * 2 / 4) * 4,
+      outputHeight: Math.ceil(item.height * 2 / 4) * 4
+    }
+  })
+  item.taskId = response.taskId
+  item.status = 'uploading'
+  const partCount = response.uploadUrls.length
+  const partSize = partCount === 1
+    ? item.file.size
+    : Math.max(500 * 1024 * 1024, Math.ceil(item.file.size / partCount))
+  let uploadedBeforePart = 0
+  const uploadResults: Array<{ partNum: number, eTag: string }> = []
+  for (let index = 0; index < partCount; index += 1) {
+    const start = index * partSize
+    const end = Math.min(item.file.size, start + partSize)
+    const part = item.file.slice(start, end)
+    const eTag = await uploadTopazPart(
+      response.uploadUrls[index]!,
+      part,
+      item.file.type,
+      partCount > 1,
+      (loaded) => {
+        item.uploadProgress = Math.min(99, Math.round(((uploadedBeforePart + loaded) / item.file.size) * 100))
+      }
+    )
+    uploadedBeforePart += part.size
+    uploadResults.push({ partNum: index + 1, eTag })
+  }
+  await $fetch('/api/tools/video-enhance/topaz/complete', {
+    method: 'POST',
+    body: { taskId: response.taskId, uploadResults }
+  })
+  item.uploadProgress = 100
+  item.status = 'submitted'
+}
+
 async function submitTask() {
   errorMessage.value = ''
   const settings = lockedBatchSettings.value || createBatchSettings()
-  const kindLabel = kindOptions.find(option => option.value === settings.kind)?.label || settings.kind
-  const sceneLabel = settings.kind === 'standard' ? selectedSceneLabel.value : '默认'
-  const fpsLabel = settings.fps === undefined ? '保持原帧率' : `${settings.fps} fps`
+  const kindLabel = provider.value === 'topaz'
+    ? topazModelOptions.find(option => option.value === topazModel.value)?.label || topazModel.value
+    : kindOptions.find(option => option.value === settings.kind)?.label || settings.kind
+  const sceneLabel = provider.value === 'topaz' ? '客户端直传' : settings.kind === 'standard' ? selectedSceneLabel.value : '默认'
+  const fpsLabel = provider.value === 'topaz' ? '保持原帧率' : settings.fps === undefined ? '保持原帧率' : `${settings.fps} fps`
   const confirmed = await confirm({
     title: `提交 ${pendingQueue.value.length} 个视频增强任务？`,
-    description: `${kindLabel} · ${sceneLabel} · ${resolutionSummary.value} · ${fpsLabel}。确认后整批任务将锁定使用这套参数。`,
+    description: provider.value === 'topaz'
+      ? `${kindLabel} · ${sceneLabel} · 2x 输出 · ${fpsLabel}。视频不会经过业务服务器。`
+      : `${kindLabel} · ${sceneLabel} · ${resolutionSummary.value} · ${fpsLabel}。确认后整批任务将锁定使用这套参数。`,
     confirmText: '确认批量提交',
     cancelText: '返回检查'
   })
@@ -440,7 +588,8 @@ async function submitTask() {
     for (const item of queue.value) {
       if (item.status === 'submitted') continue
       try {
-        await submitQueueItem(item, settings, currentBatchId)
+        if (provider.value === 'topaz') await submitTopazQueueItem(item, currentBatchId)
+        else await submitQueueItem(item, settings, currentBatchId)
         successCount += 1
       } catch (error) {
         item.status = 'failed'
@@ -502,7 +651,7 @@ onBeforeRouteLeave(confirmDiscardQueue)
     <AppPageHeader
       v-if="!embeddedInUnifiedEnhance"
       title="画质增强"
-      description="选择本地视频上传到 TOS 后，提交到火山引擎 AI MediaKit 进行画质增强。"
+      description="使用 MediaKit 或客户端直传 Topaz 进行视频画质增强。"
     >
       <template #actions>
         <div class="flex flex-wrap gap-2">
@@ -537,7 +686,44 @@ onBeforeRouteLeave(confirmDiscardQueue)
     <AppPageContent scroll inner-class="space-y-6">
       <Card>
         <CardContent class="space-y-5 pt-6">
-          <div class="grid gap-3 md:grid-cols-4">
+          <div class="space-y-2">
+            <label class="text-sm font-medium text-foreground">云端服务</label>
+            <Select v-model="provider" :disabled="parametersLocked">
+              <SelectTrigger class="max-w-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="mediakit">火山引擎 AI MediaKit</SelectItem>
+                <SelectItem value="topaz">Topaz Labs（客户端直传）</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div
+            v-if="provider === 'topaz'"
+            class="grid gap-3 md:grid-cols-2"
+          >
+            <button
+              v-for="option in topazModelOptions"
+              :key="option.value"
+              type="button"
+              class="rounded-xl bg-muted/20 p-3 text-left transition-colors hover:bg-muted/35 disabled:cursor-not-allowed disabled:opacity-60"
+              :class="topazModel === option.value ? 'border-primary bg-primary/5' : 'border-border'"
+              :disabled="parametersLocked"
+              @click="topazModel = option.value"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-sm font-medium text-foreground">{{ option.label }}</div>
+                <Badge variant="outline">{{ option.cost }}</Badge>
+              </div>
+              <div class="mt-1 text-xs leading-5 text-muted-foreground">{{ option.description }}</div>
+            </button>
+          </div>
+
+          <div
+            v-else
+            class="grid gap-3 md:grid-cols-4"
+          >
             <button
               v-for="option in kindOptions"
               :key="option.value"
@@ -707,6 +893,7 @@ onBeforeRouteLeave(confirmDiscardQueue)
                       </div>
                       <div class="mt-1 text-xs text-muted-foreground">
                         {{ formatBytes(item.fileSize) }} · {{ item.fileType }}
+                        <template v-if="item.width && item.height"> · {{ item.width }}×{{ item.height }}</template>
                       </div>
                       <div
                         v-if="item.status === 'uploading' || item.uploadProgress > 0 && item.status !== 'submitted'"
@@ -714,7 +901,7 @@ onBeforeRouteLeave(confirmDiscardQueue)
                       >
                         <Progress :model-value="item.uploadProgress" />
                         <div class="text-xs text-muted-foreground">
-                          正在上传到 TOS：{{ item.uploadProgress }}%
+                          {{ provider === 'topaz' ? '正在由客户端直传 Topaz' : '正在上传到 TOS' }}：{{ item.uploadProgress }}%
                         </div>
                       </div>
                       <div
@@ -743,7 +930,14 @@ onBeforeRouteLeave(confirmDiscardQueue)
           </div>
 
           <div
-            v-if="selectedKindOption"
+            v-if="provider === 'topaz'"
+            class="rounded-xl bg-primary/5 px-3 py-2 text-sm leading-6 text-muted-foreground"
+          >
+            视频文件由当前浏览器直接上传 Topaz，业务服务器不接收视频内容。输出固定为源尺寸 2 倍，最高限制为 8192 像素。
+          </div>
+
+          <div
+            v-if="provider === 'mediakit' && selectedKindOption"
             class="rounded-xl bg-muted/25 p-3 text-sm"
           >
             <div class="flex items-center justify-between gap-4">
@@ -776,7 +970,7 @@ onBeforeRouteLeave(confirmDiscardQueue)
           </div>
 
           <div
-            v-if="showAdvancedOptions"
+            v-if="provider === 'mediakit' && showAdvancedOptions"
             class="grid gap-4 md:grid-cols-3"
           >
             <div
@@ -870,7 +1064,7 @@ onBeforeRouteLeave(confirmDiscardQueue)
           </div>
 
           <div
-            v-if="kind === 'generative'"
+            v-if="provider === 'mediakit' && kind === 'generative'"
             class="rounded-xl bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
           >
             大模型版本输入最高支持 1080p：短边需在 360-1080 像素之间，长边需在 360-1920 像素之间，且仅支持 SDR 视频。

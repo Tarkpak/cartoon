@@ -26,6 +26,9 @@ interface EnhanceStatusResponse {
   rawStatus?: string
   videoUrl?: string | null
   errorMessage?: string | null
+  provider?: 'mediakit' | 'topaz'
+  progress?: number | null
+  resultExpiresAt?: number | null
 }
 
 interface EnhanceSaveResponse {
@@ -53,6 +56,9 @@ interface VideoEnhanceTaskRecord {
   createdAt: string
   updatedAt: string
   completedAt?: string | null
+  provider: 'mediakit' | 'topaz'
+  progress?: number
+  resultExpiresAt?: number | null
 }
 
 interface VideoEnhanceTasksResponse {
@@ -74,6 +80,7 @@ const sourceDeleted = ref(false)
 const resultVideoUrl = ref('')
 const localVideoUrl = ref('')
 const resultDeleted = ref(false)
+const selectedProvider = ref<'mediakit' | 'topaz'>('mediakit')
 const errorMessage = ref('')
 const querying = ref(false)
 const saving = ref(false)
@@ -100,6 +107,7 @@ const canSave = computed(() => (
   && !saving.value
   && !batchSaving.value
   && !savingTaskIds.value.has(taskId.value)
+  && selectedProvider.value !== 'topaz'
 ))
 const pollingActive = computed(() => status.value === 'processing' && pollingTimer !== null)
 const displayResultVideoUrl = computed(() => localVideoUrl.value || resultVideoUrl.value)
@@ -126,6 +134,7 @@ const filteredTasks = computed(() => batchFilter.value === 'all'
   : recentTasks.value.filter(task => task.batchId === batchFilter.value))
 const savableFilteredTasks = computed(() => filteredTasks.value.filter(record => (
   record.status === 'completed'
+  && record.provider !== 'topaz'
   && Boolean(record.resultVideoUrl)
   && !record.savedVideoUrl
   && !record.resultDeleted
@@ -200,6 +209,7 @@ function syncSelectedTaskFromRecords() {
   if (!selectedRecord) return
   sourceVideoUrl.value = selectedRecord.sourceVideoUrl || sourceVideoUrl.value
   sourceDeleted.value = selectedRecord.sourceDeleted
+  selectedProvider.value = selectedRecord.provider
   resultDeleted.value = selectedRecord.resultDeleted
   if (!resultVideoUrl.value) {
     resultVideoUrl.value = selectedRecord.resultVideoUrl || ''
@@ -222,6 +232,7 @@ function selectTask(record: VideoEnhanceTaskRecord) {
   rawStatus.value = record.rawStatus || record.status
   sourceVideoUrl.value = record.sourceVideoUrl || ''
   sourceDeleted.value = record.sourceDeleted
+  selectedProvider.value = record.provider
   resultVideoUrl.value = record.resultVideoUrl || ''
   localVideoUrl.value = record.savedVideoUrl || ''
   resultDeleted.value = record.resultDeleted
@@ -239,6 +250,7 @@ async function queryStatus(autoPoll = false) {
   try {
     const response = await $fetch<EnhanceStatusResponse>(`/api/tools/video-enhance/status/${encodeURIComponent(id)}`)
     rawStatus.value = response.rawStatus || response.status
+    selectedProvider.value = response.provider || 'mediakit'
     localVideoUrl.value = ''
     resultDeleted.value = false
     if (response.status === 'completed') {
@@ -463,7 +475,28 @@ async function downloadTaskResult(record: VideoEnhanceTaskRecord, showToast = tr
     errorMessage: ''
   })
   try {
-    const response = await fetch(`/api/tools/video-enhance/download/${encodeURIComponent(record.taskId)}`)
+    if (record.provider === 'topaz' && record.resultVideoUrl) {
+      const fileName = resultDownloadFileName(record.fileName)
+      const link = document.createElement('a')
+      link.href = record.resultVideoUrl
+      link.download = fileName
+      link.rel = 'noreferrer'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTaskDownloadState(record.taskId, {
+        status: 'completed',
+        progress: 100,
+        loadedBytes: 0,
+        totalBytes: 0,
+        errorMessage: ''
+      })
+      if (showToast) toast.success(`已开始直接下载「${fileName}」`)
+      return true
+    }
+    const response = await fetch(
+      `/api/tools/video-enhance/download/${encodeURIComponent(record.taskId)}`
+    )
     if (!response.ok) {
       const payload = await response.json().catch(() => null) as { message?: string } | null
       throw new Error(payload?.message || `下载失败 (${response.status})`)
@@ -649,7 +682,7 @@ function taskStatusVariant(value: TaskStatus | string) {
     <AppPageHeader
       v-if="!embeddedInUnifiedTasks"
       title="画质增强任务"
-      description="查询火山引擎 AI MediaKit 画质增强任务状态，完成后保存结果视频。"
+      description="查询 MediaKit 与 Topaz 画质增强任务，完成后直接下载结果视频。"
     >
       <template #actions>
         <Button
@@ -744,6 +777,7 @@ function taskStatusVariant(value: TaskStatus | string) {
             </a>
           </Button>
           <Button
+            v-if="selectedProvider !== 'topaz'"
             variant="outline"
             size="sm"
             :disabled="!canSave"
@@ -1044,7 +1078,7 @@ function taskStatusVariant(value: TaskStatus | string) {
                     v-if="record.status === 'completed' && record.resultVideoUrl && !record.savedVideoUrl && !record.resultDeleted || record.sourceObjectKey && !record.sourceDeleted || record.resultObjectKey && !record.resultDeleted"
                   />
                   <DropdownMenuItem
-                    v-if="record.status === 'completed' && record.resultVideoUrl && !record.savedVideoUrl && !record.resultDeleted"
+                    v-if="record.provider !== 'topaz' && record.status === 'completed' && record.resultVideoUrl && !record.savedVideoUrl && !record.resultDeleted"
                     :disabled="savingTaskIds.has(record.taskId)"
                     @select="saveTaskResult(record)"
                   >

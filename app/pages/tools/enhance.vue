@@ -59,7 +59,7 @@ const pageDescription = computed(() => {
   if (activeView.value === 'tasks') return '查看云端视频和图片增强任务的进度与结果。'
   return activeMode.value === 'local'
     ? '使用本机算力处理视频和图片，无需上传素材。'
-    : '使用火山引擎 AI MediaKit 提升视频和图片画质。'
+    : '使用火山引擎 AI MediaKit 或 Topaz Labs 提升视频和图片画质。'
 })
 
 function updateQuery(updates: Record<string, string>, clearKeys: string[] = []) {

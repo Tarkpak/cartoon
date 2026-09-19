@@ -3150,7 +3150,8 @@ fn default_provider_credentials() -> Value {
       "volcengine": { "apiKey": "", "mediakitApiKey": "", "arkAccessKey": "", "arkSecretKey": "", "arkProjectName": "default", "arkOpenApiBaseUrl": "", "baseUrl": "" },
       "deepseek":   { "apiKey": "", "baseUrl": "" },
       "autodl":     { "apiKey": "", "baseUrl": "" },
-      "kling":      { "accessKey": "", "secretKey": "", "baseUrl": "" }
+      "kling":      { "accessKey": "", "secretKey": "", "baseUrl": "" },
+      "topaz":      { "apiKey": "", "baseUrl": "https://api.topazlabs.com" }
     })
 }
 
@@ -4375,6 +4376,14 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
     }
 
     ensure_column(conn, "video_enhance_tasks", "batch_id", "TEXT")?;
+    ensure_column(
+        conn,
+        "video_enhance_tasks",
+        "provider",
+        "TEXT NOT NULL DEFAULT 'mediakit'",
+    )?;
+    ensure_column(conn, "video_enhance_tasks", "progress", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(conn, "video_enhance_tasks", "result_expires_at", "INTEGER")?;
 
     for (column, definition) in [
         ("batch_id", "TEXT"),
@@ -5515,6 +5524,14 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route(
             "/api/tools/video-enhance",
             post(api_tools_video_enhance_submit),
+        )
+        .route(
+            "/api/tools/video-enhance/topaz/create",
+            post(api_tools_topaz_video_create),
+        )
+        .route(
+            "/api/tools/video-enhance/topaz/complete",
+            post(api_tools_topaz_video_complete),
         )
         .route(
             "/api/tools/subtitle-erasure",
@@ -9112,7 +9129,7 @@ async fn api_models_workflow_post(
     })))
 }
 
-const SUPPORTED_MODEL_PROVIDERS: [&str; 7] = [
+const SUPPORTED_MODEL_PROVIDERS: [&str; 8] = [
     "autodl",
     "qwen",
     "volcengine",
@@ -9120,6 +9137,7 @@ const SUPPORTED_MODEL_PROVIDERS: [&str; 7] = [
     "gemini",
     "deepseek",
     "custom_openai",
+    "topaz",
 ];
 
 fn is_supported_provider(provider: &str) -> bool {
@@ -9766,6 +9784,7 @@ fn normalize_imported_provider_credentials(input: &Value) -> Result<Value, ApiEr
     let deepseek = settings_optional_object_field(input, "deepseek", "providerCredentials")?;
     let autodl = settings_optional_object_field(input, "autodl", "providerCredentials")?;
     let kling = settings_optional_object_field(input, "kling", "providerCredentials")?;
+    let topaz = settings_optional_object_field(input, "topaz", "providerCredentials")?;
 
     Ok(json!({
       "gemini": normalize_imported_api_key_provider_credentials(gemini, "gemini")?,
@@ -9773,7 +9792,8 @@ fn normalize_imported_provider_credentials(input: &Value) -> Result<Value, ApiEr
       "volcengine": normalize_imported_api_key_provider_credentials(volcengine, "volcengine")?,
       "deepseek": normalize_imported_api_key_provider_credentials(deepseek, "deepseek")?,
       "autodl": normalize_imported_api_key_provider_credentials(autodl, "autodl")?,
-      "kling": normalize_imported_kling_credentials(kling)?
+      "kling": normalize_imported_kling_credentials(kling)?,
+      "topaz": normalize_imported_api_key_provider_credentials(topaz, "topaz")?
     }))
 }
 
@@ -10301,13 +10321,19 @@ fn resolve_provider_meta(
             "manual",
             false,
         )),
+        "topaz" => Some((
+            "Topaz Labs",
+            "视频超分与修复 API；视频由客户端直传 Topaz，不经过业务服务器。",
+            "manual",
+            false,
+        )),
         _ => None,
     }
 }
 
 fn resolve_provider_configured(provider: &str, creds: &Value) -> bool {
     match provider {
-        "qwen" | "volcengine" | "deepseek" | "gemini" | "autodl" => {
+        "qwen" | "volcengine" | "deepseek" | "gemini" | "autodl" | "topaz" => {
             provider_credential_field(creds, provider, "apiKey").is_some()
         }
         "kling" => {
@@ -11408,6 +11434,7 @@ fn provider_credentials_public(creds: &Value) -> Value {
       },
       "deepseek":   { "hasApiKey": mask("deepseek", "apiKey"), "baseUrl": base_url("deepseek") },
       "autodl":     { "hasApiKey": mask("autodl", "apiKey"), "baseUrl": base_url("autodl") },
+      "topaz":      { "hasApiKey": mask("topaz", "apiKey"), "baseUrl": base_url("topaz") },
       "kling": {
         "hasAccessKey": mask("kling", "accessKey"),
         "hasSecretKey": mask("kling", "secretKey"),
@@ -13232,7 +13259,7 @@ async fn api_provider_credentials_put(
 ) -> Result<Json<Value>, ApiError> {
     if !matches!(
         provider.as_str(),
-        "gemini" | "qwen" | "volcengine" | "deepseek" | "kling" | "autodl"
+        "gemini" | "qwen" | "volcengine" | "deepseek" | "kling" | "autodl" | "topaz"
     ) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
