@@ -280,7 +280,7 @@ function triggerFolderUpload() {
 }
 
 function isVideoFile(file: File) {
-  return file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name)
+  return file.type.startsWith('video/') || /\.(3gp|avi|dv|flv|m1v|m2t|m2ts|m2v|m4v|mkv|mov|mp4|mpeg|mpg|mts|mxf|ser|ts|vob|webm|wmv)$/i.test(file.name)
 }
 
 function readVideoDimensions(file: File): Promise<{ width: number, height: number }> {
@@ -480,9 +480,8 @@ function uploadTopazPart(
   url: string,
   blob: Blob,
   contentType: string,
-  requireETag: boolean,
   onProgress: (loaded: number) => void
-): Promise<string> {
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('PUT', url)
@@ -493,13 +492,7 @@ function uploadTopazPart(
         reject(new Error(`Topaz 直传失败 (${xhr.status})`))
         return
       }
-      const etag = xhr.getResponseHeader('ETag') || xhr.getResponseHeader('etag')
-      if (requireETag && !etag) {
-        reject(new Error('Topaz 分片已上传，但浏览器无法读取 ETag；请检查 Topaz 上传地址的 CORS 暴露头配置'))
-        return
-      }
-      // Topaz ignores the value for a single URL, but request validation still requires an entry.
-      resolve(etag || 'unused')
+      resolve()
     }
     xhr.onerror = () => reject(new Error('无法直传 Topaz，请检查网络或 Topaz 上传地址的 CORS 配置'))
     xhr.send(blob)
@@ -526,32 +519,15 @@ async function submitTopazQueueItem(item: VideoEnhanceQueueItem, currentBatchId:
   item.taskId = response.taskId
   try {
     item.status = 'uploading'
-    const partCount = response.uploadUrls.length
-    const partSize = partCount === 1
-      ? item.file.size
-      : Math.max(500 * 1024 * 1024, Math.ceil(item.file.size / partCount))
-    let uploadedBeforePart = 0
-    const uploadResults: Array<{ partNum: number, eTag: string }> = []
-    for (let index = 0; index < partCount; index += 1) {
-      const start = index * partSize
-      const end = Math.min(item.file.size, start + partSize)
-      const part = item.file.slice(start, end)
-      const eTag = await uploadTopazPart(
-        response.uploadUrls[index]!,
-        part,
-        item.file.type,
-        partCount > 1,
-        (loaded) => {
-          item.uploadProgress = Math.min(99, Math.round(((uploadedBeforePart + loaded) / item.file.size) * 100))
-        }
-      )
-      uploadedBeforePart += part.size
-      uploadResults.push({ partNum: index + 1, eTag })
+    if (response.uploadUrls.length !== 1) {
+      throw new Error('Topaz Express 未返回唯一的直传地址')
     }
-    await $fetch('/api/tools/video-enhance/topaz/complete', {
-      method: 'POST',
-      body: { taskId: response.taskId, uploadResults }
-    })
+    await uploadTopazPart(
+      response.uploadUrls[0]!,
+      item.file,
+      item.file.type,
+      loaded => item.uploadProgress = Math.min(99, Math.round((loaded / item.file.size) * 100))
+    )
     item.uploadProgress = 100
     item.status = 'submitted'
   } catch (error) {
@@ -790,7 +766,7 @@ onBeforeRouteLeave(confirmDiscardQueue)
                 ref="fileInputRef"
                 type="file"
                 multiple
-                accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi"
+                accept="video/*,.3gp,.avi,.dv,.flv,.m1v,.m2t,.m2ts,.m2v,.m4v,.mkv,.mov,.mp4,.mpeg,.mpg,.mts,.mxf,.ser,.ts,.vob,.webm,.wmv"
                 class="hidden"
                 @change="handleSourceFileChange"
               >
@@ -799,7 +775,7 @@ onBeforeRouteLeave(confirmDiscardQueue)
                 type="file"
                 multiple
                 webkitdirectory
-                accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi"
+                accept="video/*,.3gp,.avi,.dv,.flv,.m1v,.m2t,.m2ts,.m2v,.m4v,.mkv,.mov,.mp4,.mpeg,.mpg,.mts,.mxf,.ser,.ts,.vob,.webm,.wmv"
                 class="hidden"
                 @change="handleSourceFolderChange"
               >

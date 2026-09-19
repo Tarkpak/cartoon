@@ -139,10 +139,17 @@ const savableFilteredTasks = computed(() => filteredTasks.value.filter(record =>
   && !record.savedVideoUrl
   && !record.resultDeleted
 )))
+function isTopazResultExpired(record: VideoEnhanceTaskRecord) {
+  return record.provider === 'topaz'
+    && Boolean(record.resultExpiresAt)
+    && record.resultExpiresAt! <= Date.now()
+}
+
 const downloadableFilteredTasks = computed(() => filteredTasks.value.filter(record => (
   record.status === 'completed'
   && Boolean(record.resultVideoUrl || record.savedVideoUrl)
   && !record.resultDeleted
+  && !isTopazResultExpired(record)
 )))
 const batchSaveLabel = computed(() => batchFilter.value === 'all' ? '保存全部结果' : '保存当前批次')
 const batchDownloadLabel = computed(() => batchFilter.value === 'all' ? '下载全部结果' : '下载当前批次')
@@ -466,6 +473,10 @@ async function openDownloadDirectory() {
 async function downloadTaskResult(record: VideoEnhanceTaskRecord, showToast = true) {
   if (record.status !== 'completed' || record.resultDeleted) return false
   if (taskDownloadState(record.taskId)?.status === 'downloading') return false
+  if (isTopazResultExpired(record)) {
+    if (showToast) toast.error('Topaz 下载地址已过期', { description: 'Topaz 默认仅保留结果 7 天，且状态查询不会刷新签名地址。' })
+    return false
+  }
 
   setTaskDownloadState(record.taskId, {
     status: 'downloading',
@@ -1020,9 +1031,9 @@ function taskStatusVariant(value: TaskStatus | string) {
                 size="icon"
                 class="h-8 w-8"
                 :class="taskDownloadState(record.taskId)?.status === 'completed' ? 'text-success hover:text-success' : ''"
-                :title="taskDownloadState(record.taskId)?.status === 'failed' ? '重试下载' : taskDownloadState(record.taskId)?.status === 'completed' ? '下载完成，点击重新下载' : '下载结果'"
-                :aria-label="taskDownloadState(record.taskId)?.status === 'failed' ? '重试下载' : '下载结果'"
-                :disabled="batchDownloading || taskDownloadState(record.taskId)?.status === 'downloading'"
+                :title="isTopazResultExpired(record) ? 'Topaz 下载地址已过期' : taskDownloadState(record.taskId)?.status === 'failed' ? '重试下载' : taskDownloadState(record.taskId)?.status === 'completed' ? '下载完成，点击重新下载' : '下载结果'"
+                :aria-label="isTopazResultExpired(record) ? 'Topaz 下载地址已过期' : taskDownloadState(record.taskId)?.status === 'failed' ? '重试下载' : '下载结果'"
+                :disabled="batchDownloading || taskDownloadState(record.taskId)?.status === 'downloading' || isTopazResultExpired(record)"
                 @click="downloadTaskResult(record)"
               >
                 <Loader2
