@@ -533,6 +533,7 @@ function ensureDefaultProviders(conn: Database) {
     ['volcengine', '火山方舟', 'https://ark.cn-beijing.volces.com/api/v3'],
     ['deepseek', 'DeepSeek', 'https://api.deepseek.com'],
     ['autodl', 'AutoDL', 'https://autodl.art'],
+    ['topaz', 'Topaz Labs', 'https://api.topazlabs.com'],
     ['kling', '可灵', 'https://api-beijing.klingai.com'],
     ['custom_openai', '自定义 OpenAI 兼容', '']
   ]

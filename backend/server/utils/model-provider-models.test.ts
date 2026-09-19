@@ -14,3 +14,16 @@ describe('AutoDL catalog', () => {
     expect(manualProviderSeedAvailableModels('unknown')).toEqual([])
   })
 })
+
+describe('Topaz catalog', () => {
+  it('publishes video enhancement models to clients', () => {
+    const models = manualProviderSeedAvailableModels('topaz')
+    expect(CLIENT_MODEL_PROVIDER_KEYS).toContain('topaz')
+    expect(models).toEqual(['ganim-1', 'prob-4'])
+    expect(buildAvailableModelCatalog('topaz', models).every(model => model.kind === 'video')).toBe(true)
+  })
+
+  it('uses the fixed catalog instead of dynamic model sync', () => {
+    expect(providerSupportsModelSync('topaz')).toBe(false)
+  })
+})

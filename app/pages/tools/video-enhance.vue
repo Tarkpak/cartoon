@@ -524,35 +524,44 @@ async function submitTopazQueueItem(item: VideoEnhanceQueueItem, currentBatchId:
     }
   })
   item.taskId = response.taskId
-  item.status = 'uploading'
-  const partCount = response.uploadUrls.length
-  const partSize = partCount === 1
-    ? item.file.size
-    : Math.max(500 * 1024 * 1024, Math.ceil(item.file.size / partCount))
-  let uploadedBeforePart = 0
-  const uploadResults: Array<{ partNum: number, eTag: string }> = []
-  for (let index = 0; index < partCount; index += 1) {
-    const start = index * partSize
-    const end = Math.min(item.file.size, start + partSize)
-    const part = item.file.slice(start, end)
-    const eTag = await uploadTopazPart(
-      response.uploadUrls[index]!,
-      part,
-      item.file.type,
-      partCount > 1,
-      (loaded) => {
-        item.uploadProgress = Math.min(99, Math.round(((uploadedBeforePart + loaded) / item.file.size) * 100))
-      }
-    )
-    uploadedBeforePart += part.size
-    uploadResults.push({ partNum: index + 1, eTag })
+  try {
+    item.status = 'uploading'
+    const partCount = response.uploadUrls.length
+    const partSize = partCount === 1
+      ? item.file.size
+      : Math.max(500 * 1024 * 1024, Math.ceil(item.file.size / partCount))
+    let uploadedBeforePart = 0
+    const uploadResults: Array<{ partNum: number, eTag: string }> = []
+    for (let index = 0; index < partCount; index += 1) {
+      const start = index * partSize
+      const end = Math.min(item.file.size, start + partSize)
+      const part = item.file.slice(start, end)
+      const eTag = await uploadTopazPart(
+        response.uploadUrls[index]!,
+        part,
+        item.file.type,
+        partCount > 1,
+        (loaded) => {
+          item.uploadProgress = Math.min(99, Math.round(((uploadedBeforePart + loaded) / item.file.size) * 100))
+        }
+      )
+      uploadedBeforePart += part.size
+      uploadResults.push({ partNum: index + 1, eTag })
+    }
+    await $fetch('/api/tools/video-enhance/topaz/complete', {
+      method: 'POST',
+      body: { taskId: response.taskId, uploadResults }
+    })
+    item.uploadProgress = 100
+    item.status = 'submitted'
+  } catch (error) {
+    const message = resolveFetchErrorMessage(error, 'Topaz 直传失败')
+    await $fetch('/api/tools/video-enhance/topaz/upload-failed', {
+      method: 'POST',
+      body: { taskId: response.taskId, errorMessage: message }
+    }).catch(() => undefined)
+    throw error
   }
-  await $fetch('/api/tools/video-enhance/topaz/complete', {
-    method: 'POST',
-    body: { taskId: response.taskId, uploadResults }
-  })
-  item.uploadProgress = 100
-  item.status = 'submitted'
 }
 
 async function submitTask() {

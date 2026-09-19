@@ -86,6 +86,15 @@
           <n-form-item v-else :label="credentialProvider?.providerKey === 'autodl' ? 'ComfyUI Token' : 'API Key'">
             <n-input v-model:value="credentialForm.apiKey" type="password" show-password-on="click" />
           </n-form-item>
+          <n-alert
+            v-if="credentialProvider?.providerKey === 'topaz'"
+            type="info"
+            style="margin-bottom: 16px"
+          >
+            Topaz API 单独使用 credits 计费。前往
+            <a href="https://account.topazlabs.com/manage-api" target="_blank" rel="noopener noreferrer">Topaz API Keys</a>
+            申请或管理 API Key。
+          </n-alert>
           <n-form-item
             v-if="credentialProvider?.providerKey === 'volcengine'"
             label="AI MediaKit API Key"

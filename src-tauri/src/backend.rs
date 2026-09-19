@@ -5534,6 +5534,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             post(api_tools_topaz_video_complete),
         )
         .route(
+            "/api/tools/video-enhance/topaz/upload-failed",
+            post(api_tools_topaz_video_upload_failed),
+        )
+        .route(
             "/api/tools/subtitle-erasure",
             post(api_tools_subtitle_erasure_submit),
         )

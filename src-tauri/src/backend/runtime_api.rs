@@ -649,7 +649,9 @@ fn llm_dev_write_db_log_impl(
       "createdAt": now.to_rfc3339()
     });
 
-    let owner_user_id = context.owner_user_id.clone();
+    let owner_user_id = context.owner_user_id.clone().or_else(|| {
+        config_connection().and_then(|conn| cloud_user_id(&conn))
+    });
     if let Some(conn) = config_connection() {
         let _ = conn.execute(
             "INSERT INTO model_debug_logs (
@@ -1283,14 +1285,31 @@ fn update_video_enhance_task_status(
     response_json: &Value,
     error_message: Option<&str>,
 ) -> Result<(), ApiError> {
-    let conn = db_connection(state)?;
+    let mut conn = db_connection(state)?;
+    let transaction = conn
+        .transaction()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let previous = transaction
+        .query_row(
+            "SELECT status, provider, kind FROM video_enhance_tasks WHERE task_id = ?1",
+            params![task_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let now = now_iso();
     let completed_at = if status == "completed" || status == "failed" {
         Some(now.as_str())
     } else {
         None
     };
-    conn.execute(
+    let updated = transaction.execute(
         "UPDATE video_enhance_tasks
          SET status = ?1,
              raw_status = ?2,
@@ -1301,7 +1320,8 @@ fn update_video_enhance_task_status(
              completed_at = COALESCE(completed_at, ?7),
              progress = COALESCE(CAST(json_extract(?4, '$.progress') AS INTEGER), progress),
              result_expires_at = COALESCE(CAST(json_extract(?4, '$.download.expiresAt') AS INTEGER), result_expires_at)
-         WHERE task_id = ?8",
+         WHERE task_id = ?8
+           AND (?1 NOT IN ('completed', 'failed') OR status NOT IN ('completed', 'failed'))",
         params![
             status,
             raw_status,
@@ -1314,6 +1334,35 @@ fn update_video_enhance_task_status(
         ],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    transaction
+        .commit()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if let Some((previous_status, provider, model)) = previous {
+        let reached_terminal = updated > 0
+            && matches!(status, "completed" | "failed")
+            && !matches!(previous_status.as_str(), "completed" | "failed");
+        if provider == "topaz" && reached_terminal {
+            let response_summary = json!({
+              "taskId": task_id,
+              "status": raw_status,
+              "progress": response_json.get("progress"),
+              "hasDownload": result_video_url.is_some(),
+              "resultExpiresAt": response_json.get("download").and_then(|value| value.get("expiresAt"))
+            });
+            llm_dev_write_db_log(
+                "topaz",
+                &model,
+                "generateVideo",
+                if status == "completed" { "success" } else { "error" },
+                Utc::now().timestamp_millis(),
+                None,
+                Some(&json!({ "taskId": task_id })),
+                Some(&response_summary),
+                None,
+                error_message,
+            );
+        }
+    }
     Ok(())
 }
 
@@ -1488,54 +1537,85 @@ async fn query_topaz_video_enhance_task(
     state: &BackendState,
     task_id: &str,
 ) -> Result<(Value, String, String, Option<String>, Option<String>), ApiError> {
-    let (api_key, base_url) = topaz_credentials(state)?;
-    let response = llm_http_client()
-        .get(format!("{base_url}/video/{task_id}/status"))
-        .header("X-API-Key", api_key)
-        .header(reqwest::header::ACCEPT, "application/json")
-        .send()
-        .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
-    let status_code = response.status();
-    let body_text = response
-        .text()
-        .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
-    if !status_code.is_success() {
-        return Err(ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            build_sync_error_message(status_code, &body_text),
-        ));
-    }
-    let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            format!("解析 Topaz 任务状态失败: {error}"),
+    let model = {
+        let conn = db_connection(state)?;
+        conn.query_row(
+            "SELECT kind FROM video_enhance_tasks WHERE task_id = ?1 AND provider = 'topaz'",
+            params![task_id],
+            |row| row.get::<_, String>(0),
         )
-    })?;
-    let raw_status = payload
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("processing")
-        .to_string();
-    let normalized_status = topaz_status_label(&raw_status).to_string();
-    let video_url = payload
-        .get("download")
-        .and_then(|value| value.get("url"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    let error_message = if normalized_status == "failed" {
-        payload
-            .get("message")
-            .and_then(Value::as_str)
-            .or_else(|| payload.get("errorCode").and_then(Value::as_str))
-            .map(str::to_string)
-    } else {
-        None
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "Topaz 画质增强任务不存在"))?
     };
-    Ok((payload, raw_status, normalized_status, video_url, error_message))
+    let (api_key, base_url) = topaz_credentials(state)?;
+    let endpoint = format!("{base_url}/video/{task_id}/status");
+    let started_at = Utc::now().timestamp_millis();
+    let result = async {
+        let response = llm_http_client()
+            .get(&endpoint)
+            .header("X-API-Key", api_key)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        let status_code = response.status();
+        let body_text = response
+            .text()
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        if !status_code.is_success() {
+            return Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                build_sync_error_message(status_code, &body_text),
+            ));
+        }
+        let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("解析 Topaz 任务状态失败: {error}"),
+            )
+        })?;
+        let raw_status = payload
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("processing")
+            .to_string();
+        let normalized_status = topaz_status_label(&raw_status).to_string();
+        let video_url = payload
+            .get("download")
+            .and_then(|value| value.get("url"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let error_message = if normalized_status == "failed" {
+            payload
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| payload.get("errorCode").and_then(Value::as_str))
+                .map(str::to_string)
+        } else {
+            None
+        };
+        Ok((payload, raw_status, normalized_status, video_url, error_message))
+    }
+    .await;
+    if let Err(error) = &result {
+        llm_dev_write_db_log(
+            "topaz",
+            &model,
+            "queryVideoEnhance",
+            "error",
+            started_at,
+            Some(&endpoint),
+            Some(&json!({ "taskId": task_id })),
+            None,
+            None,
+            Some(&error.message),
+        );
+    }
+    result
 }
 
 fn subtitle_erasure_task_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
@@ -3234,31 +3314,46 @@ pub(super) async fn api_tools_topaz_video_create(
       }
     });
     let (api_key, base_url) = topaz_credentials(&state)?;
-    let response = llm_http_client()
-        .post(format!("{base_url}/video/express"))
-        .header("X-API-Key", api_key)
-        .header(reqwest::header::ACCEPT, "application/json")
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
-    let status = response.status();
-    let body_text = response
-        .text()
-        .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
-    if !status.is_success() {
-        return Err(ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            build_sync_error_message(status, &body_text),
-        ));
+    let endpoint = format!("{base_url}/video/express");
+    let started_at = Utc::now().timestamp_millis();
+    let result = async {
+        let response = llm_http_client()
+            .post(&endpoint)
+            .header("X-API-Key", api_key)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        let status = response.status();
+        let body_text = response
+            .text()
+            .await
+            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        if !status.is_success() {
+            return Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                build_sync_error_message(status, &body_text),
+            ));
+        }
+        serde_json::from_str::<Value>(&body_text).map_err(|error| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                format!("解析 Topaz 创建任务响应失败: {error}"),
+            )
+        })
     }
-    let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
-        ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            format!("解析 Topaz 创建任务响应失败: {error}"),
-        )
-    })?;
+    .await;
+    let payload = match result {
+        Ok(payload) => payload,
+        Err(error) => {
+            llm_dev_write_db_log(
+                "topaz", model, "createVideoEnhance", "error", started_at, Some(&endpoint),
+                Some(&request_body), None, None, Some(&error.message),
+            );
+            return Err(error);
+        }
+    };
     let task_id = payload
         .get("requestId")
         .and_then(Value::as_str)
@@ -3273,6 +3368,15 @@ pub(super) async fn api_tools_topaz_video_create(
     if upload_urls.iter().any(|value| !value.is_string()) {
         return Err(ApiError::new(StatusCode::BAD_GATEWAY, "Topaz 返回的直传地址无效"));
     }
+    let response_summary = json!({
+      "taskId": task_id,
+      "uploadPartCount": upload_urls.len(),
+      "estimates": payload.get("estimates")
+    });
+    llm_dev_write_db_log(
+        "topaz", model, "createVideoEnhance", "pending", started_at, Some(&endpoint),
+        Some(&request_body), Some(&response_summary), None, None,
+    );
     let batch_id = body.get("batchId").and_then(Value::as_str);
     let now = now_iso();
     let conn = db_connection(&state)?;
@@ -3289,7 +3393,7 @@ pub(super) async fn api_tools_topaz_video_create(
             if model == "ganim-1" { "Topaz Gaia 2 动画" } else { "Topaz Proteus" },
             file_name,
             request_body.to_string(),
-            payload.to_string(),
+            response_summary.to_string(),
             now
         ],
     )
@@ -3328,27 +3432,70 @@ pub(super) async fn api_tools_topaz_video_complete(
             return Err(ApiError::new(StatusCode::BAD_REQUEST, "Topaz 分片上传结果无效"));
         }
     }
+    let model = {
+        let conn = db_connection(&state)?;
+        conn.query_row(
+            "SELECT kind FROM video_enhance_tasks WHERE task_id = ?1 AND provider = 'topaz' AND status = 'processing'",
+            params![task_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "待上传的 Topaz 任务不存在"))?
+    };
     let (api_key, base_url) = topaz_credentials(&state)?;
+    let endpoint = format!("{base_url}/video/{task_id}/complete-upload/");
+    let started_at = Utc::now().timestamp_millis();
     let response = llm_http_client()
-        .patch(format!("{base_url}/video/{task_id}/complete-upload/"))
+        .patch(&endpoint)
         .header("X-API-Key", api_key)
         .header(reqwest::header::ACCEPT, "application/json")
         .json(&json!({ "uploadResults": upload_results }))
         .send()
         .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        .map_err(|error| {
+            llm_dev_write_db_log(
+                "topaz", &model, "completeVideoUpload", "error", started_at, Some(&endpoint),
+                Some(&json!({ "taskId": task_id, "uploadPartCount": upload_results.len() })),
+                None, None, Some(&error.to_string()),
+            );
+            ApiError::new(StatusCode::BAD_GATEWAY, error.to_string())
+        })?;
     let status = response.status();
     let body_text = response
         .text()
         .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        .map_err(|error| {
+            llm_dev_write_db_log(
+                "topaz",
+                &model,
+                "completeVideoUpload",
+                "error",
+                started_at,
+                Some(&endpoint),
+                Some(&json!({ "taskId": task_id, "uploadPartCount": upload_results.len() })),
+                None,
+                None,
+                Some(&error.to_string()),
+            );
+            ApiError::new(StatusCode::BAD_GATEWAY, error.to_string())
+        })?;
     if !status.is_success() {
-        return Err(ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            build_sync_error_message(status, &body_text),
-        ));
+        let message = build_sync_error_message(status, &body_text);
+        llm_dev_write_db_log(
+            "topaz", &model, "completeVideoUpload", "error", started_at, Some(&endpoint),
+            Some(&json!({ "taskId": task_id, "uploadPartCount": upload_results.len() })),
+            None, None, Some(&message),
+        );
+        return Err(ApiError::new(StatusCode::BAD_GATEWAY, message));
     }
     let payload = serde_json::from_str::<Value>(&body_text).unwrap_or_else(|_| json!({}));
+    let response_summary = json!({ "taskId": task_id, "accepted": true });
+    llm_dev_write_db_log(
+        "topaz", &model, "completeVideoUpload", "pending", started_at, Some(&endpoint),
+        Some(&json!({ "taskId": task_id, "uploadPartCount": upload_results.len() })),
+        Some(&response_summary), None, None,
+    );
     let conn = db_connection(&state)?;
     conn.execute(
         "UPDATE video_enhance_tasks SET raw_status = 'accepted', response_json = ?1, updated_at = ?2
@@ -3356,6 +3503,59 @@ pub(super) async fn api_tools_topaz_video_complete(
         params![payload.to_string(), now_iso(), task_id],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(Json(json!({ "success": true, "taskId": task_id })))
+}
+
+pub(super) async fn api_tools_topaz_video_upload_failed(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let task_id = body
+        .get("taskId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少 Topaz 任务 ID"))?;
+    let error_message = body
+        .get("errorMessage")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("客户端直传 Topaz 失败");
+    let error_message = error_message.chars().take(4096).collect::<String>();
+    let conn = db_connection(&state)?;
+    let model = conn
+        .query_row(
+            "SELECT kind FROM video_enhance_tasks WHERE task_id = ?1 AND provider = 'topaz' AND status = 'processing'",
+            params![task_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "待上传的 Topaz 任务不存在"))?;
+    let updated = conn
+        .execute(
+            "UPDATE video_enhance_tasks
+             SET status = 'failed', raw_status = 'upload_failed', error_message = ?1, updated_at = ?2
+             WHERE task_id = ?3 AND provider = 'topaz' AND status = 'processing'",
+            params![&error_message, now_iso(), task_id],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if updated == 0 {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "待上传的 Topaz 任务不存在"));
+    }
+    llm_dev_write_db_log(
+        "topaz",
+        &model,
+        "uploadVideo",
+        "error",
+        Utc::now().timestamp_millis(),
+        None,
+        Some(&json!({ "taskId": task_id })),
+        None,
+        None,
+        Some(&error_message),
+    );
     Ok(Json(json!({ "success": true, "taskId": task_id })))
 }
 

@@ -28,6 +28,7 @@ export type ModelCategory = 'text' | 'image' | 'video' | 'voice' | 'three_d' | '
 
 export const CLIENT_MODEL_PROVIDER_KEYS = [
   'autodl',
+  'topaz',
   'gemini',
   'qwen',
   'volcengine',
@@ -69,6 +70,8 @@ export function manualProviderSeedAvailableModels(providerKey: string): string[]
   switch (normalizeProviderKey(providerKey)) {
     case 'autodl':
       return ['minimax_h3_zm_u24', 'minimax_h3_zm_u08', 'minimax_h3_lightx2v_no_pic', 'minimax_h3_lightx2v']
+    case 'topaz':
+      return ['ganim-1', 'prob-4']
     case 'qwen':
       return [
         'qwen3.6-plus',
@@ -163,7 +166,7 @@ export function providerModelsEndpoint(baseUrl: string) {
 
 function providerModelCategory(providerKey: string, model: string): ModelCategory {
   const provider = normalizeProviderKey(providerKey)
-  if (provider === 'autodl' && manualProviderSeedAvailableModels(provider).includes(model)) return 'video'
+  if (['autodl', 'topaz'].includes(provider) && manualProviderSeedAvailableModels(provider).includes(model)) return 'video'
   const normalized = model.trim().toLowerCase()
   if (!normalized) return 'other'
   if (normalized.includes('asr') || normalized.includes('tts') || normalized.includes('lyria')) return 'voice'
