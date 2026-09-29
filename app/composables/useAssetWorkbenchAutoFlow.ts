@@ -151,15 +151,12 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
       options.selectedStyleId.value = options.projectStyleId.value
     }
 
-    const hasMeta = await options.loadWorkflowMeta(options.projectAssetWorkflow.value)
+    await options.loadWorkflowMeta(options.projectAssetWorkflow.value)
 
     if (!isCurrentProjectRoute()) return
 
-    await options.persistAutomaticAssetPlan({
-      overwriteExistingConfigs: !hasMeta
-    })
-
-    if (!isCurrentProjectRoute()) return
+    // Loading a project is read-only. Asset planning runs when the user starts
+    // the assets stage, so opening and closing a project cannot rewrite it.
 
     const stageFromRoute = normalizeRouteAutoStage(options.route.query.stage)
     if (stageFromRoute) {

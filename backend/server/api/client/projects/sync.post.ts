@@ -16,7 +16,6 @@ import {
 
 interface ProjectPayload {
   id?: string
-  force?: boolean
   localProjectId?: string
   name?: string
   title?: string
@@ -36,6 +35,8 @@ interface ProjectPayload {
   updated_at?: string
   localUpdatedAt?: string
   local_updated_at?: string
+  baseUpdatedAt?: string | null
+  deletedAt?: string | null
   summary?: unknown
   snapshot?: unknown
   ownerUserId?: string
@@ -99,11 +100,18 @@ export default defineEventHandler(async (event) => {
       role: existing.role,
       permissions_json: existing.permissions_json
     }, 'edit')
+    const canDelete = isOwnerOrAdmin || !!existing?.role && projectMemberCan({
+      role: existing.role,
+      permissions_json: existing.permissions_json
+    }, 'delete')
     const canManageMembers = isOwnerOrAdmin || !!existing?.role && projectMemberCan({
       role: existing.role,
       permissions_json: existing.permissions_json
     }, 'manage_members')
-    if (existing && !isOwnerOrAdmin) {
+    if (project.deletedAt && !canDelete) {
+      throw createError({ statusCode: 403, statusMessage: 'Project delete permission required' })
+    }
+    if (existing && !isOwnerOrAdmin && !project.deletedAt) {
       if (!canEdit && !(Array.isArray(project.members) && canManageMembers)) {
         throw createError({ statusCode: 403, statusMessage: 'Project edit permission required' })
       }
@@ -154,8 +162,8 @@ export default defineEventHandler(async (event) => {
   const upsertProject = db.prepare(`
     INSERT INTO user_projects
       (id, user_id, local_project_id, name, description, script_parse_mode, style_id, aspect_ratio, status,
-       summary_json, local_created_at, local_updated_at, last_synced_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      summary_json, local_created_at, local_updated_at, deleted_at, last_synced_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id, local_project_id) DO UPDATE SET
       name = excluded.name,
       description = excluded.description,
@@ -166,10 +174,11 @@ export default defineEventHandler(async (event) => {
       summary_json = excluded.summary_json,
       local_created_at = excluded.local_created_at,
       local_updated_at = excluded.local_updated_at,
+      deleted_at = excluded.deleted_at,
       last_synced_at = excluded.last_synced_at,
       updated_at = excluded.updated_at
   `)
-  const selectProject = db.prepare('SELECT id, local_updated_at FROM user_projects WHERE user_id = ? AND local_project_id = ? LIMIT 1')
+  const selectProject = db.prepare('SELECT id, local_updated_at, deleted_at FROM user_projects WHERE user_id = ? AND local_project_id = ? LIMIT 1')
   const synced = db.transaction((items: ProjectPayload[]) => {
     const result: Array<{ localProjectId: string, projectId: string, status: 'synced' | 'skipped', reason?: string }> = []
     for (const project of items) {
@@ -179,7 +188,23 @@ export default defineEventHandler(async (event) => {
       }
       const access = resolveProjectAccess(project, localProjectId)
       const { ownerUserId } = access
-      if (!access.canEdit) {
+      const existing = selectProject.get(ownerUserId, localProjectId) as { id: string, local_updated_at: string | null, deleted_at: string | null } | undefined
+      const projectId = existing?.id || randomUUID()
+      const baseUpdatedAt = optionalString(project.baseUpdatedAt, 64)
+      if (existing?.deleted_at && !project.deletedAt) {
+        result.push(skippedProjectResult({ localProjectId, projectId, reason: 'project_deleted' }))
+        continue
+      }
+      if (existing && baseUpdatedAt !== (existing.local_updated_at || '')) {
+        if (project.deletedAt && existing.deleted_at
+          && optionalString(project.deletedAt, 64) === existing.deleted_at) {
+          result.push({ localProjectId, projectId, status: 'synced' })
+          continue
+        }
+        result.push(skippedProjectResult({ localProjectId, projectId, reason: 'stale_local_update' }))
+        continue
+      }
+      if (!access.canEdit && !project.deletedAt) {
         if (!access.existing || !Array.isArray(project.members) || !access.canManageMembers) {
           throw createError({ statusCode: 403, statusMessage: 'Project edit permission required' })
         }
@@ -193,21 +218,22 @@ export default defineEventHandler(async (event) => {
         continue
       }
       const name = optionalString(project.name || project.title, 256) || '未命名项目'
-      const existing = selectProject.get(ownerUserId, localProjectId) as { id: string, local_updated_at: string | null } | undefined
-      const projectId = existing?.id || randomUUID()
       const snapshot = optionalJson(project.snapshot) ?? project
-      const force = project.force === true
       const localCreatedAt = optionalString(project.localCreatedAt || project.local_created_at || project.createdAt || project.created_at, 64)
       const localUpdatedAt = optionalString(project.localUpdatedAt || project.local_updated_at || project.updatedAt || project.updated_at, 64)
-      if (!force && existing?.local_updated_at && localUpdatedAt && localUpdatedAt < existing.local_updated_at) {
-        result.push(skippedProjectResult({
-          localProjectId,
-          projectId,
-          reason: 'stale_local_update'
-        }))
+      if (project.deletedAt) {
+        if (!existing) {
+          result.push(skippedProjectResult({ localProjectId, projectId, reason: 'project_missing' }))
+          continue
+        }
+        db.prepare(`
+          UPDATE user_projects
+          SET deleted_at = ?, local_updated_at = ?, last_synced_at = ?, updated_at = ?
+          WHERE id = ?
+        `).run(optionalString(project.deletedAt, 64), localUpdatedAt || timestamp, timestamp, timestamp, projectId)
+        result.push({ localProjectId, projectId, status: 'synced' })
         continue
       }
-
       upsertProject.run(
         projectId,
         ownerUserId,
@@ -221,6 +247,7 @@ export default defineEventHandler(async (event) => {
         jsonText(project.summary || {}),
         localCreatedAt,
         localUpdatedAt || timestamp,
+        optionalString(project.deletedAt, 64) || null,
         timestamp,
         timestamp,
         timestamp

@@ -214,6 +214,7 @@ function initSchema(conn: Database) {
       summary_json TEXT,
       local_created_at TEXT,
       local_updated_at TEXT,
+      deleted_at TEXT,
       last_synced_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -470,6 +471,7 @@ function initSchema(conn: Database) {
     CREATE INDEX IF NOT EXISTS idx_voice_preset_previews_speaker
       ON voice_preset_previews(speaker_id, status);
   `)
+  addColumnIfMissing(conn, 'user_projects', 'deleted_at TEXT')
 
   addColumnIfMissing(conn, 'model_call_logs', 'credits_charged REAL NOT NULL DEFAULT 0')
   addColumnIfMissing(conn, 'model_call_logs', 'client_event_id TEXT')

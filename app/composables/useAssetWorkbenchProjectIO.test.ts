@@ -290,7 +290,7 @@ describe('useAssetWorkbenchProjectIO', () => {
     const putCalls = fetchMock.mock.calls.filter(([url, options]) => {
       return url === projectRoute && (options as FetchOptions | undefined)?.method === 'PUT'
     })
-    expect(putCalls).toHaveLength(2)
+    expect(putCalls).toHaveLength(1)
     warnSpy.mockRestore()
   })
 

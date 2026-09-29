@@ -17,7 +17,7 @@ export default defineEventHandler((event) => {
     SELECT p.id, p.user_id, u.account AS owner_account, u.display_name AS owner_display_name,
            p.local_project_id, p.name, p.description, p.script_parse_mode, p.style_id,
            p.aspect_ratio, p.status, p.local_created_at, p.local_updated_at,
-           p.last_synced_at, p.updated_at, s.snapshot_json, s.created_at AS snapshot_created_at
+           p.last_synced_at, p.updated_at, p.deleted_at, s.snapshot_json, s.created_at AS snapshot_created_at
     FROM user_projects p
     JOIN users u ON u.id = p.user_id
     LEFT JOIN user_project_snapshots s ON s.id = (
@@ -56,6 +56,7 @@ export default defineEventHandler((event) => {
         localUpdatedAt: project.local_updated_at,
         lastSyncedAt: project.last_synced_at,
         updatedAt: project.updated_at,
+        deletedAt: project.deleted_at,
         snapshotCreatedAt: project.snapshot_created_at,
         snapshot
       }

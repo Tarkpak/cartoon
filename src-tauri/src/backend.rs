@@ -4288,6 +4288,7 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("cloud_sync_attempts", "INTEGER NOT NULL DEFAULT 0"),
         ("cloud_sync_error", "TEXT"),
         ("cloud_synced_at", "TEXT"),
+        ("cloud_base_updated_at", "TEXT"),
     ] {
         ensure_column(conn, "projects", column, definition)?;
     }
@@ -4308,6 +4309,16 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         [],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS cloud_project_deletions (
+           project_id TEXT PRIMARY KEY,
+           owner_user_id TEXT NOT NULL,
+           requested_by_user_id TEXT NOT NULL,
+           deleted_at TEXT NOT NULL,
+           base_updated_at TEXT,
+           sync_error TEXT
+         );",
+    ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     for (column, definition) in [
         ("episode_id", "TEXT"),
@@ -6033,7 +6044,8 @@ async fn api_project_list(
     let mut list_sql = format!(
         "WITH paged_projects AS (
            SELECT p.id, p.name, p.description, p.project_type, p.script_parse_mode, p.style_id, p.aspect_ratio,
-                  p.status, p.created_at, p.updated_at, p.owner_user_id, p.owner_account, p.owner_display_name
+                  p.status, p.created_at, p.updated_at, p.owner_user_id, p.owner_account, p.owner_display_name,
+                  p.cloud_sync_status, p.cloud_sync_error
            FROM projects p{} ORDER BY {}",
         where_clause, order_by
     );
@@ -6048,6 +6060,7 @@ async fn api_project_list(
         ")
          SELECT p.id, p.name, p.description, p.project_type, p.script_parse_mode, p.style_id, p.aspect_ratio,
                 p.status, p.created_at, p.updated_at, p.owner_user_id, p.owner_account, p.owner_display_name,
+                p.cloud_sync_status, p.cloud_sync_error,
                 COUNT(s.id),
                 COALESCE(SUM(CASE WHEN s.status = 'video_ready' THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(s.duration), 0),
@@ -6073,8 +6086,8 @@ async fn api_project_list(
             let project_type: Option<String> = row.get(3)?;
             let script_parse_mode: Option<String> = row.get(4)?;
             let owner_user_id: Option<String> = row.get(10)?;
-            let member_role: Option<String> = row.get(16)?;
-            let member_permissions: Option<String> = row.get(17)?;
+            let member_role: Option<String> = row.get(18)?;
+            let member_permissions: Option<String> = row.get(19)?;
             let is_owner = owner_user_id.as_deref() == Some(owner.user_id.as_str());
             let access_role = if is_owner {
                 "owner"
@@ -6100,11 +6113,13 @@ async fn api_project_list(
               "styleId": row.get::<_, String>(5)?,
               "aspectRatio": row.get::<_, String>(6)?,
               "status": row.get::<_, Option<String>>(7)?,
-              "totalScenes": row.get::<_, i64>(13)?,
-              "completedScenes": row.get::<_, i64>(14)?,
-              "totalDuration": row.get::<_, i64>(15)?,
+              "totalScenes": row.get::<_, i64>(15)?,
+              "completedScenes": row.get::<_, i64>(16)?,
+              "totalDuration": row.get::<_, i64>(17)?,
               "createdAt": row.get::<_, String>(8)?,
               "updatedAt": row.get::<_, String>(9)?,
+              "cloudSyncStatus": row.get::<_, String>(13)?,
+              "cloudSyncError": row.get::<_, Option<String>>(14)?,
               "ownerUserId": owner_user_id,
               "ownerAccount": row.get::<_, Option<String>>(11)?,
               "ownerDisplayName": row.get::<_, Option<String>>(12)?,
@@ -6217,7 +6232,7 @@ async fn api_project_create(
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     drop(conn);
-    let cloud_sync = project_cloud_sync_payload(cloud_sync_project_by_id(&state, &id).await);
+    let cloud_sync = queue_project_cloud_sync(&state, &id);
 
     Ok(Json(json!({
       "success": true,
@@ -6361,7 +6376,7 @@ async fn api_project_member_put(
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     drop(conn);
-    let cloud_sync = project_cloud_sync_payload(cloud_sync_project_by_id(&state, &id).await);
+    let cloud_sync = queue_project_cloud_sync(&state, &id);
     Ok(Json(json!({ "success": true, "cloudSync": cloud_sync })))
 }
 
@@ -6385,7 +6400,7 @@ async fn api_project_member_delete(
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     drop(conn);
-    let cloud_sync = project_cloud_sync_payload(cloud_sync_project_by_id(&state, &id).await);
+    let cloud_sync = queue_project_cloud_sync(&state, &id);
     Ok(Json(json!({ "success": true, "cloudSync": cloud_sync })))
 }
 
@@ -6396,12 +6411,32 @@ async fn api_project_delete(
     if id.trim().is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少项目ID"));
     }
-    let conn = db_connection(&state)?;
-    ensure_project_permission(&conn, id.as_str(), ProjectPermission::Delete)?;
-    remember_deleted_project_tombstone(&conn, id.as_str())?;
+    let mut conn = db_connection(&state)?;
+    let requester = ensure_project_permission(&conn, id.as_str(), ProjectPermission::Delete)?;
+    let owner_user_id: String = conn.query_row(
+        "SELECT owner_user_id FROM projects WHERE id = ?1",
+        params![id.as_str()],
+        |row| row.get(0),
+    ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let base_updated_at: Option<String> = conn.query_row(
+        "SELECT cloud_base_updated_at FROM projects WHERE id = ?1",
+        params![id.as_str()],
+        |row| row.get(0),
+    ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let tx = conn.transaction()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    remember_deleted_project_tombstone(&tx, id.as_str())?;
+    let deleted_at = now_iso();
+    tx.execute(
+        "INSERT INTO cloud_project_deletions (project_id, owner_user_id, requested_by_user_id, deleted_at, base_updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(project_id) DO UPDATE SET deleted_at = excluded.deleted_at, base_updated_at = excluded.base_updated_at,
+           requested_by_user_id = excluded.requested_by_user_id",
+        params![id.as_str(), owner_user_id, requester.user_id, deleted_at, base_updated_at],
+    ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     let script_ids = {
-        let mut stmt = conn
+        let mut stmt = tx
             .prepare("SELECT id FROM scripts WHERE project_id = ?1")
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         let rows = stmt
@@ -6413,24 +6448,27 @@ async fn api_project_delete(
     };
 
     for script_id in script_ids {
-        conn.execute(
+        tx.execute(
             "DELETE FROM scenes WHERE script_id = ?1",
             params![script_id],
         )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     }
-    conn.execute(
+    tx.execute(
         "DELETE FROM characters WHERE project_id = ?1",
         params![id.as_str()],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    conn.execute(
+    tx.execute(
         "DELETE FROM scripts WHERE project_id = ?1",
         params![id.as_str()],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    conn.execute("DELETE FROM projects WHERE id = ?1", params![id.as_str()])
+    tx.execute("DELETE FROM projects WHERE id = ?1", params![id.as_str()])
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    tx.commit().map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    drop(conn);
+    queue_project_deletion_sync(&state, &id);
 
     Ok(Json(json!({
       "success": true,
@@ -8090,7 +8128,7 @@ async fn api_project_put_inner(
       "status": if options.skip_cloud_sync { "skipped" } else { "disabled" }
     });
     if !options.skip_cloud_sync {
-        cloud_sync = project_cloud_sync_payload(cloud_sync_project_by_id(&state, &id).await);
+        cloud_sync = queue_project_cloud_sync(&state, &id);
     }
 
     Ok(Json(json!({
@@ -11582,6 +11620,7 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
         }
     };
     let pending_projects_synced = retry_pending_cloud_projects_locked(state, 100).await?;
+    retry_pending_project_deletions_locked(state).await?;
     let conn = db_connection(state)?;
     let mut session = cloud_session(&conn).unwrap_or_else(|| json!({}));
     if let Some(obj) = session.as_object_mut() {
@@ -11814,14 +11853,90 @@ fn spawn_model_call_log_sync_poller() {
     });
 }
 
-fn project_cloud_sync_payload(result: Result<(), ApiError>) -> Value {
-    match result {
-        Ok(()) => json!({ "status": "synced" }),
-        Err(error) => {
+fn queue_project_cloud_sync(state: &BackendState, project_id: &str) -> Value {
+    let state = state.clone();
+    let project_id = project_id.to_string();
+    tokio::spawn(async move {
+        if let Err(error) = cloud_sync_project_by_id(&state, &project_id).await {
             eprintln!("[CloudSync] project sync failed: {}", error.message);
-            json!({ "status": "error", "message": error.message })
+        }
+    });
+    json!({ "status": "pending" })
+}
+
+fn queue_project_deletion_sync(state: &BackendState, project_id: &str) {
+    let state = state.clone();
+    let project_id = project_id.to_string();
+    tokio::spawn(async move {
+        let _guard = cloud_session_operation_lock().lock().await;
+        if let Err(error) = sync_project_deletion_locked(&state, &project_id).await {
+            eprintln!("[CloudSync] project deletion sync failed: {}", error.message);
+        }
+    });
+}
+
+async fn sync_project_deletion_locked(state: &BackendState, project_id: &str) -> Result<(), ApiError> {
+    let deletion = db_connection(state)?.query_row(
+        "SELECT owner_user_id, requested_by_user_id, deleted_at, base_updated_at FROM cloud_project_deletions WHERE project_id = ?1",
+        params![project_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Option<String>>(3)?)),
+    ).optional().map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let Some((owner_user_id, requested_by_user_id, deleted_at, base_updated_at)) = deletion else { return Ok(()); };
+    let result: Result<(), ApiError> = async {
+        let authenticated = {
+            let conn = db_connection(state)?;
+            cloud_base_url(&conn).is_some() && cloud_token(&conn).is_some()
+                && cloud_user_id(&conn).as_deref() == Some(requested_by_user_id.as_str())
+        };
+        if !authenticated {
+            return Err(ApiError::new(StatusCode::UNAUTHORIZED, "云端未登录"));
+        }
+        let mut expected_version = base_updated_at.clone();
+        if let Some(base_url) = cloud_base_url(&db_connection(state)?) {
+            if let Some(token) = cloud_token(&db_connection(state)?) {
+                let summaries = cloud_pull_paginated_items(
+                    &base_url, &token, "/api/client/projects", "projects", 20,
+                ).await?;
+                let remote = summaries.iter().find(|item| {
+                    cloud_value_text(item, "localProjectId") == project_id
+                        && cloud_value_text(item, "ownerUserId") == owner_user_id
+                });
+                if let Some(remote) = remote {
+                    let remote_version = cloud_project_summary_updated_at(remote);
+                    if base_updated_at.as_deref().is_some_and(|base| base != remote_version) {
+                        return Err(ApiError::new(StatusCode::CONFLICT, "云端项目版本已变化，删除未同步"));
+                    }
+                    expected_version = Some(remote_version);
+                } else {
+                    return Ok(());
+                }
+            }
+        }
+        let response = cloud_post_client_json(state, "/api/client/projects/sync", json!({
+            "localProjectId": project_id,
+            "ownerUserId": owner_user_id,
+            "deletedAt": deleted_at,
+            "localUpdatedAt": deleted_at,
+            "baseUpdatedAt": expected_version
+        })).await?;
+        match ensure_cloud_project_sync_accepted(&response, project_id) {
+            Err(error) if error.message.contains("project_missing") => Ok(()),
+            other => other,
+        }
+    }.await;
+    let conn = db_connection(state)?;
+    match &result {
+        Ok(()) => {
+            conn.execute("DELETE FROM cloud_project_deletions WHERE project_id = ?1", params![project_id])
+                .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        }
+        Err(error) => {
+            conn.execute("UPDATE cloud_project_deletions SET sync_error = ?1 WHERE project_id = ?2",
+                params![truncate_log_text(&error.message, 1000), project_id])
+                .map_err(|db_error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, db_error.to_string()))?;
         }
     }
+    result
 }
 
 fn pending_cloud_project_ids(state: &BackendState, limit: i64) -> Result<Vec<String>, ApiError> {
@@ -11882,8 +11997,31 @@ fn spawn_project_sync_poller(state: BackendState) {
             if let Err(error) = retry_pending_cloud_projects_locked(&state, 20).await {
                 eprintln!("[CloudSync] project retry poll failed: {}", error.message);
             }
+            if let Err(error) = retry_pending_project_deletions_locked(&state).await {
+                eprintln!("[CloudSync] project deletion retry failed: {}", error.message);
+            }
         }
     });
+}
+
+async fn retry_pending_project_deletions_locked(state: &BackendState) -> Result<(), ApiError> {
+    let ids = {
+        let conn = db_connection(state)?;
+        let owner = current_project_owner_context(&conn)?;
+        let mut statement = conn.prepare(
+            "SELECT project_id FROM cloud_project_deletions WHERE requested_by_user_id = ?1 LIMIT 20"
+        ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let rows = statement.query_map(params![owner.user_id], |row| row.get::<_, String>(0))
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    };
+    for id in ids {
+        if let Err(error) = sync_project_deletion_locked(state, &id).await {
+            eprintln!("[CloudSync] project deletion retry failed: {}", error.message);
+        }
+    }
+    Ok(())
 }
 
 async fn cloud_sync_project_by_id(state: &BackendState, project_id: &str) -> Result<(), ApiError> {
@@ -11895,15 +12033,16 @@ async fn cloud_sync_project_by_id_locked(
     state: &BackendState,
     project_id: &str,
 ) -> Result<(), ApiError> {
-    let (owner_user_id, project_updated_at) = db_connection(state)?
+    let (owner_user_id, project_updated_at, cloud_base_updated_at, sync_status) = db_connection(state)?
         .query_row(
-            "SELECT owner_user_id, updated_at FROM projects WHERE id = ?1",
+            "SELECT owner_user_id, updated_at, cloud_base_updated_at, cloud_sync_status FROM projects WHERE id = ?1",
             params![project_id],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, String>(3)?)),
         )
         .optional()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "项目不存在"))?;
+    if sync_status != "pending" { return Ok(()); }
     let owner_user_id = owner_user_id
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| ApiError::new(StatusCode::CONFLICT, "项目缺少所属账号"))?;
@@ -11922,8 +12061,8 @@ async fn cloud_sync_project_by_id_locked(
         ));
     }
     let body = json!({
-      "force": true,
       "localProjectId": project_id,
+      "baseUpdatedAt": cloud_base_updated_at,
       "ownerUserId": owner_user_id,
       "name": project.get("name").and_then(Value::as_str).unwrap_or("未命名项目"),
       "description": project.get("description").cloned().unwrap_or(Value::Null),
@@ -11952,20 +12091,23 @@ async fn cloud_sync_project_by_id_locked(
         Ok(()) => {
             conn.execute(
                 "UPDATE projects
-                 SET cloud_sync_status = 'synced', cloud_sync_error = NULL,
-                     cloud_synced_at = ?1, cloud_sync_attempts = cloud_sync_attempts + 1
-                 WHERE id = ?2 AND updated_at = ?3",
-                params![now_iso(), project_id, project_updated_at],
+                 SET cloud_sync_status = CASE WHEN updated_at = ?1 THEN 'synced' ELSE cloud_sync_status END,
+                     cloud_sync_error = CASE WHEN updated_at = ?1 THEN NULL ELSE cloud_sync_error END,
+                     cloud_base_updated_at = ?1,
+                     cloud_synced_at = ?2, cloud_sync_attempts = cloud_sync_attempts + 1
+                 WHERE id = ?3",
+                params![project_updated_at, now_iso(), project_id],
             )
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         }
         Err(error) => {
             conn.execute(
                 "UPDATE projects
-                 SET cloud_sync_status = 'pending', cloud_sync_error = ?1,
+                 SET cloud_sync_status = ?1, cloud_sync_error = ?2,
                      cloud_sync_attempts = cloud_sync_attempts + 1
-                 WHERE id = ?2 AND updated_at = ?3",
+                 WHERE id = ?3 AND updated_at = ?4",
                 params![
+                    if error.status == StatusCode::CONFLICT { "conflict" } else { "pending" },
                     truncate_log_text(&error.message, 1000),
                     project_id,
                     project_updated_at
@@ -12155,15 +12297,46 @@ async fn apply_cloud_project_snapshot(
             return Ok(false);
         }
     }
-    let Some(snapshot) = project.get("snapshot").filter(|value| value.is_object()) else {
-        return Ok(false);
-    };
+    let snapshot = project.get("snapshot").filter(|value| value.is_object()).unwrap_or(&Value::Null);
     let remote_updated_at = cloud_project_remote_updated_at(project, snapshot);
-    let local_updated_at = {
+    if !cloud_value_text(project, "deletedAt").is_empty() {
         let conn = db_connection(state)?;
-        local_project_updated_at_for_owner(&conn, &local_project_id, &owner_user_id)?
+        if let Some(local_updated_at) = local_project_updated_at_for_owner(&conn, &local_project_id, &owner_user_id)? {
+            let local_state = conn.query_row(
+                "SELECT cloud_sync_status, cloud_base_updated_at FROM projects WHERE id = ?1 AND owner_user_id = ?2",
+                params![local_project_id, owner_user_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            if matches!(local_state.0.as_str(), "pending" | "conflict") { return Ok(false); }
+            let should_delete = local_state.1.as_ref()
+                .map(|base| base != &remote_updated_at)
+                .unwrap_or_else(|| should_apply_cloud_update(Some(local_updated_at), &remote_updated_at));
+            if should_delete {
+                delete_local_project_rows(&conn, &local_project_id, &owner_user_id)?;
+                return Ok(true);
+            }
+        }
+        return Ok(false);
+    }
+    if !snapshot.is_object() { return Ok(false); }
+    let should_apply = {
+        let conn = db_connection(state)?;
+        let local_state = conn.query_row(
+            "SELECT cloud_sync_status, cloud_base_updated_at FROM projects WHERE id = ?1 AND owner_user_id = ?2",
+            params![local_project_id, owner_user_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        ).optional().map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        if matches!(local_state.as_ref().map(|value| value.0.as_str()), Some("pending" | "conflict")) { return Ok(false); }
+        if let Some((_, Some(base))) = local_state {
+            base != remote_updated_at
+        } else {
+            should_apply_cloud_update(
+                local_project_updated_at_for_owner(&conn, &local_project_id, &owner_user_id)?,
+                &remote_updated_at,
+            )
+        }
     };
-    if !should_apply_cloud_update(local_updated_at, &remote_updated_at) {
+    if !should_apply {
         return Ok(false);
     }
 
@@ -12191,12 +12364,35 @@ async fn apply_cloud_project_snapshot(
     let conn = db_connection(state)?;
     conn.execute(
         "UPDATE projects
-         SET cloud_sync_status = 'synced', cloud_sync_error = NULL, cloud_synced_at = ?1
-         WHERE id = ?2 AND owner_user_id = ?3",
-        params![now_iso(), local_project_id, owner_user_id],
+         SET cloud_sync_status = 'synced', cloud_sync_error = NULL, cloud_synced_at = ?1,
+             cloud_base_updated_at = ?2
+         WHERE id = ?3 AND owner_user_id = ?4",
+        params![now_iso(), remote_updated_at, local_project_id, owner_user_id],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(true)
+}
+
+fn delete_local_project_rows(conn: &Connection, project_id: &str, owner_user_id: &str) -> Result<(), ApiError> {
+    let script_ids = {
+        let mut statement = conn.prepare("SELECT id FROM scripts WHERE project_id = ?1")
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let rows = statement.query_map(params![project_id], |row| row.get::<_, String>(0))
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    };
+    for script_id in script_ids {
+        conn.execute("DELETE FROM scenes WHERE script_id = ?1", params![script_id])
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
+    for (table, column) in [("characters", "project_id"), ("scripts", "project_id"), ("project_members", "project_id")] {
+        conn.execute(&format!("DELETE FROM {table} WHERE {column} = ?1"), params![project_id])
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
+    conn.execute("DELETE FROM projects WHERE id = ?1 AND owner_user_id = ?2", params![project_id, owner_user_id])
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(())
 }
 
 async fn apply_cloud_projects(state: &BackendState, projects: &Value) -> Value {
@@ -12801,6 +12997,34 @@ async fn cloud_pull_projects_v2(
             continue;
         }
         let remote_updated_at = cloud_project_summary_updated_at(&summary);
+        let local_sync_status = db_connection(state)?.query_row(
+            "SELECT cloud_sync_status, updated_at, cloud_base_updated_at FROM projects WHERE id = ?1 AND owner_user_id = ?2",
+            params![local_project_id, owner_user_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?)),
+        ).optional().map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        if let Some((status, local_updated_at, base_updated_at)) = &local_sync_status {
+            if status == "synced" && base_updated_at.is_none() && local_updated_at == &remote_updated_at {
+                db_connection(state)?.execute(
+                    "UPDATE projects SET cloud_base_updated_at = ?1 WHERE id = ?2 AND owner_user_id = ?3",
+                    params![remote_updated_at, local_project_id, owner_user_id],
+                ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            }
+        }
+        if matches!(local_sync_status.as_ref().map(|value| value.0.as_str()), Some("pending" | "conflict")) {
+            skipped += 1;
+            continue;
+        }
+        if !cloud_value_text(&summary, "deletedAt").is_empty() {
+            match apply_cloud_project_snapshot(state, &summary).await {
+                Ok(true) => imported += 1,
+                Ok(false) => skipped += 1,
+                Err(error) => {
+                    failed += 1;
+                    eprintln!("[CloudSync] project deletion import failed: {}", error.message);
+                }
+            }
+            continue;
+        }
         if !remote_updated_at.is_empty() {
             let local_updated_at = {
                 let conn = db_connection(state)?;
@@ -12814,7 +13038,11 @@ async fn cloud_pull_projects_v2(
                     Err(error) => return Err(error),
                 }
             };
-            if !should_apply_cloud_update(local_updated_at, &remote_updated_at) {
+            let needs_update = match local_sync_status.as_ref().and_then(|value| value.2.as_ref()) {
+                Some(base) => base != &remote_updated_at,
+                None => should_apply_cloud_update(local_updated_at, &remote_updated_at),
+            };
+            if !needs_update {
                 skipped += 1;
                 continue;
             }
@@ -14571,6 +14799,8 @@ mod tests {
              CREATE TABLE video_tasks (id TEXT PRIMARY KEY);
              CREATE TABLE generated_videos (id TEXT PRIMARY KEY);
              CREATE TABLE video_import_tasks (id TEXT PRIMARY KEY);
+             CREATE TABLE video_enhance_tasks (id TEXT PRIMARY KEY);
+             CREATE TABLE subtitle_erasure_tasks (id TEXT PRIMARY KEY);
              CREATE TABLE model_debug_logs (id TEXT PRIMARY KEY);
              CREATE TABLE douyin_history (id TEXT PRIMARY KEY);
              INSERT INTO projects (id, owner_user_id) VALUES
@@ -14598,6 +14828,8 @@ mod tests {
             .unwrap();
         assert_eq!(legacy_status, "legacy");
         assert!(table_has_column(&conn, "projects", "cloud_sync_error").unwrap());
+        assert!(table_has_column(&conn, "projects", "cloud_base_updated_at").unwrap());
+        assert!(table_has_column(&conn, "cloud_project_deletions", "requested_by_user_id").unwrap());
     }
 
     #[test]

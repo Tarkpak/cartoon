@@ -2189,7 +2189,7 @@ onBeforeRouteLeave(async () => {
   await waitUntilProjectSaveIdle()
   await persistNovelTextIfNeeded()
   await waitUntilProjectSaveIdle()
-  if (!loading.value) await saveProject()
+  if (!loading.value && canEditProject.value) await saveProject()
 })
 
 const environmentCropTarget = computed(() => {

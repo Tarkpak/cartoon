@@ -1,5 +1,5 @@
 import { useDebounceFn } from '@vueuse/core'
-import type { Ref } from 'vue'
+import { nextTick, type Ref } from 'vue'
 import type { CharacterVoiceAsset } from '#shared/types/character'
 import type {
   AssetImageHistoryEntry,
@@ -281,6 +281,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
 
   async function loadWorkflowMeta(rawMetaInput?: unknown): Promise<boolean> {
     hydratingWorkflowMeta.value = true
+    workflowMetaReady.value = false
     let hasMeta = false
 
     try {
@@ -493,14 +494,11 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         options.environmentPanoramaStates.value = {}
         options.environmentMotherAssetSelections.value = {}
       }
-
-      if (options.projectAssetWorkflow) {
-        options.projectAssetWorkflow.value = buildWorkflowMetaPayload()
-      }
     } catch (error) {
       console.error('[useAssetWorkflowMeta] 读取工作流元数据失败:', error)
     } finally {
       options.onHydrated?.()
+      await nextTick()
       workflowMetaReady.value = true
       hydratingWorkflowMeta.value = false
     }

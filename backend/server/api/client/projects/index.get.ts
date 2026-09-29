@@ -22,7 +22,7 @@ export default defineEventHandler((event) => {
     SELECT p.id, p.user_id, u.account AS owner_account, u.display_name AS owner_display_name,
            p.local_project_id, p.name, p.description, p.script_parse_mode, p.style_id,
            p.aspect_ratio, p.status, p.local_created_at, p.local_updated_at,
-           p.last_synced_at, p.updated_at, pm.role AS member_role, pm.permissions_json
+           p.last_synced_at, p.updated_at, p.deleted_at, pm.role AS member_role, pm.permissions_json
     FROM user_projects p
     JOIN users u ON u.id = p.user_id
     LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?
@@ -50,6 +50,7 @@ export default defineEventHandler((event) => {
         localUpdatedAt: project.local_updated_at,
         lastSyncedAt: project.last_synced_at,
         updatedAt: project.updated_at,
+        deletedAt: project.deleted_at,
         accessRole: project.user_id === auth.user.id ? 'owner' : (project.member_role || (auth.user.role === 'admin' ? 'admin' : 'viewer')),
         accessPermissions: project.user_id === auth.user.id || auth.user.role === 'admin'
           ? ['view', 'edit', 'generate', 'export', 'delete', 'manage_members']

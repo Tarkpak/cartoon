@@ -27,6 +27,7 @@ describe('useAssetWorkbenchAutoFlow', () => {
       scenes.value = [createScene(`scene_${id}`)]
     })
     const router = { push: vi.fn(async () => undefined) }
+    const persistAutomaticAssetPlan = vi.fn(async () => undefined)
 
     useAssetWorkbenchAutoFlow({
       route: route as never,
@@ -45,7 +46,7 @@ describe('useAssetWorkbenchAutoFlow', () => {
       loadProject,
       loadWorkflowMeta: vi.fn(async () => false),
       saveWorkflowMeta: vi.fn(async () => undefined),
-      persistAutomaticAssetPlan: vi.fn(async () => undefined),
+      persistAutomaticAssetPlan,
       synchronizeSceneConfigs: vi.fn(),
       synchronizeQueueItems: vi.fn(),
       ensureCharacterAssetsReady: vi.fn(async () => undefined),
@@ -56,6 +57,7 @@ describe('useAssetWorkbenchAutoFlow', () => {
 
     await nextTick()
     expect(loadProject).toHaveBeenCalledWith('aaa')
+    expect(persistAutomaticAssetPlan).not.toHaveBeenCalled()
 
     route.path = '/projects'
     route.query.project = undefined as never
@@ -69,5 +71,6 @@ describe('useAssetWorkbenchAutoFlow', () => {
     await Promise.resolve()
     expect(loadProject).toHaveBeenCalledWith('project_new')
     expect(scenes.value[0]?.id).toBe('scene_project_new')
+    expect(persistAutomaticAssetPlan).not.toHaveBeenCalled()
   })
 })

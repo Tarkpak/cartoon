@@ -81,6 +81,12 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
               <Badge v-if="project.access && !project.access.isOwner" variant="outline" class="mt-1">
                 {{ PROJECT_ROLE_LABELS[project.access.role] }}
               </Badge>
+              <Badge v-if="project.cloudSyncStatus === 'conflict'" variant="destructive" class="mt-1" :title="`${project.cloudSyncError || '云端项目版本冲突'}。本地修改已保留，请备份项目并联系管理员处理。`">
+                云同步冲突
+              </Badge>
+              <Badge v-else-if="project.cloudSyncStatus === 'pending' && project.cloudSyncError" variant="outline" class="mt-1" :title="`云同步待重试：${project.cloudSyncError}`">
+                云同步待重试
+              </Badge>
               <p class="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
                 {{ project.description || '暂无描述' }}
               </p>
@@ -252,6 +258,12 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
               <span>{{ project.title }}</span>
               <Badge v-if="project.access && !project.access.isOwner" variant="outline">
                 {{ PROJECT_ROLE_LABELS[project.access.role] }}
+              </Badge>
+              <Badge v-if="project.cloudSyncStatus === 'conflict'" variant="destructive" :title="`${project.cloudSyncError || '云端项目版本冲突'}。本地修改已保留，请备份项目并联系管理员处理。`">
+                云同步冲突
+              </Badge>
+              <Badge v-else-if="project.cloudSyncStatus === 'pending' && project.cloudSyncError" variant="outline" :title="`云同步待重试：${project.cloudSyncError}`">
+                云同步待重试
               </Badge>
             </div>
           </TableCell>
