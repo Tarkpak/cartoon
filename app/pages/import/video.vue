@@ -44,6 +44,8 @@ const selectedSeriesPreview = ref<VideoImportSeriesPreview | null>(null)
 const previewingSeriesFolder = ref(false)
 const uploadMode = ref<'single' | 'series'>('series')
 const contentType = ref<'story' | 'origin_explainer'>('story')
+const historySearch = ref('')
+const historyStatus = ref('all')
 const contentTypeOptions = [
   {
     value: 'story',
@@ -70,8 +72,22 @@ const completedTasks = computed(() => tasks.value.filter(task => task.status ===
 
 watch(hasRunningTasks, syncRefreshTimer)
 
+const loadHistory = async () => {
+  await fetchTasks({
+    search: historySearch.value,
+    status: historyStatus.value === 'all' ? undefined : historyStatus.value,
+    limit: 50
+  })
+}
+
+let historySearchTimer: number | null = null
+watch([historySearch, historyStatus], () => {
+  if (historySearchTimer) window.clearTimeout(historySearchTimer)
+  historySearchTimer = window.setTimeout(() => { void loadHistory() }, 250)
+})
+
 onMounted(async () => {
-  await fetchTasks()
+  await loadHistory()
   syncRefreshTimer(hasRunningTasks.value)
 })
 
@@ -86,7 +102,7 @@ function syncRefreshTimer(running: boolean) {
   if (typeof window === 'undefined') return
   if (running && !refreshTimer) {
     refreshTimer = window.setInterval(() => {
-      void fetchTasks()
+      void loadHistory()
     }, 2500)
   }
   if (!running && refreshTimer) {
@@ -286,7 +302,7 @@ function formatSeconds(value?: number | null) {
         variant="outline"
         class="gap-2"
         :disabled="loading"
-        @click="fetchTasks"
+        @click="loadHistory"
       >
         <RefreshCw
           class="h-4 w-4"
@@ -461,6 +477,19 @@ function formatSeconds(value?: number | null) {
               <CardDescription>
                 进入详情页确认字幕、生成剧本并创建项目
               </CardDescription>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <Input v-model="historySearch" class="h-8 w-48 text-xs" placeholder="搜索文件名" />
+              <Select v-model="historyStatus">
+                <SelectTrigger class="h-8 w-32 text-xs"><SelectValue placeholder="全部状态" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部状态</SelectItem>
+                  <SelectItem value="imported">已完成</SelectItem>
+                  <SelectItem value="failed">失败</SelectItem>
+                  <SelectItem value="cancelled">已取消</SelectItem>
+                  <SelectItem value="subtitle_ready">待确认字幕</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div class="flex flex-wrap gap-2">
               <Button

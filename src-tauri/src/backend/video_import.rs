@@ -25,6 +25,11 @@ const ASR_POLL_INTERVAL_MS: u64 = 2_000;
 const ASR_TIMEOUT_MS: u64 = 600_000;
 const BCUT_UPLOAD_MAX_ATTEMPTS: usize = 3;
 const BCUT_UPLOAD_RETRY_BASE_DELAY_MS: u64 = 1_000;
+// Bcut applies rate limits per client/IP. Keep this global so separate import
+// tasks and retry actions cannot flood the service at the same time.
+const BCUT_MAX_CONCURRENT_TRANSCRIPTIONS: usize = 2;
+static BCUT_TRANSCRIPTION_GATE: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> =
+    std::sync::OnceLock::new();
 const SERIES_IMPORT_MAX_CONCURRENT_TASKS: usize = 2;
 const SHORT_CLIP_MAX_SECONDS: f64 = 60.0;
 const SHORT_CLIP_MIN_RATIO: f64 = 0.6;
@@ -57,6 +62,7 @@ fn normalize_video_import_script_parse_mode(value: Option<&str>) -> &'static str
 #[derive(Debug, Deserialize)]
 pub(super) struct VideoImportTasksQuery {
     status: Option<String>,
+    search: Option<String>,
     limit: Option<usize>,
     offset: Option<usize>,
 }
@@ -773,6 +779,17 @@ pub(super) async fn api_video_import_tasks(
     {
         sql.push_str(" AND status = ?1");
         args.push(status.to_string());
+    }
+    if let Some(search) = query
+        .search
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        sql.push_str(" AND (original_filename LIKE ? OR source_path LIKE ?)");
+        let pattern = format!("%{}%", search.replace('%', "\\%").replace('_', "\\_"));
+        args.push(pattern.clone());
+        args.push(pattern);
     }
     sql.push_str(" ORDER BY updated_at DESC LIMIT ? OFFSET ?");
     args.push(limit.to_string());
@@ -2720,7 +2737,20 @@ async fn run_initial_video_import_task(state: BackendState, task_id: &str) -> Re
 }
 
 async fn extract_audio(video_path: PathBuf, audio_path: PathBuf) -> Result<(), ApiError> {
+    if !video_path.exists() {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            format!("SOURCE_FILE_NOT_FOUND: 找不到源视频文件：{}，文件可能已被移动或删除", video_path.display()),
+        ));
+    }
+    if !video_path.is_file() {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("SOURCE_FILE_INVALID: 源视频路径不是文件：{}", video_path.display()),
+        ));
+    }
     let ffmpeg = std::env::var("FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".to_string());
+    let ffmpeg_label = ffmpeg.clone();
     tokio::task::spawn_blocking(move || {
         let output = hidden_command(ffmpeg)
             .arg("-hide_banner")
@@ -2739,9 +2769,14 @@ async fn extract_audio(video_path: PathBuf, audio_path: PathBuf) -> Result<(), A
             .arg(audio_path)
             .output()
             .map_err(|error| {
+                let message = if error.kind() == std::io::ErrorKind::NotFound {
+                    format!("FFMPEG_NOT_FOUND: 未找到 ffmpeg 可执行文件（当前配置：{}），请安装 ffmpeg 或设置 FFMPEG_PATH", ffmpeg_label)
+                } else {
+                    format!("启动 ffmpeg 失败: {error}")
+                };
                 ApiError::new(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("启动 ffmpeg 失败: {error}"),
+                    message,
                 )
             })?;
         if output.status.success() {
@@ -2750,7 +2785,7 @@ async fn extract_audio(video_path: PathBuf, audio_path: PathBuf) -> Result<(), A
             let stderr = String::from_utf8_lossy(&output.stderr);
             Err(ApiError::new(
                 StatusCode::BAD_GATEWAY,
-                format!("ffmpeg 提取音频失败: {}", stderr.trim()),
+                format!("FFMPEG_FAILED: ffmpeg 提取音频失败: {}", stderr.trim()),
             ))
         }
     })
@@ -2774,9 +2809,28 @@ async fn transcribe_bcut_inner(
     audio_path: PathBuf,
     cancellation: Option<(&BackendState, &str)>,
 ) -> Result<BcutOutput, ApiError> {
+    let gate = BCUT_TRANSCRIPTION_GATE
+        .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(BCUT_MAX_CONCURRENT_TRANSCRIPTIONS)))
+        .clone();
+    // Hold the permit for the complete upload + polling lifecycle. This caps
+    // the number of active Bcut tasks across all imports and retries.
+    let _permit = gate.acquire_owned().await.map_err(|_| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "BCUT_RATE_LIMITER_UNAVAILABLE: 语音识别并发限制器不可用，请稍后重试",
+        )
+    })?;
     ensure_video_import_cancellation_state(cancellation)?;
-    let mut file = File::open(&audio_path)
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let mut file = File::open(&audio_path).map_err(|error| {
+        let message = if error.kind() == std::io::ErrorKind::NotFound {
+            format!("SOURCE_FILE_NOT_FOUND: 找不到待识别的音频文件：{}，可能是源视频已被移动或音频提取失败", audio_path.display())
+        } else if error.kind() == std::io::ErrorKind::PermissionDenied {
+            format!("SOURCE_FILE_PERMISSION_DENIED: 无权读取音频文件：{}", audio_path.display())
+        } else {
+            format!("读取音频文件失败：{error}")
+        };
+        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, message)
+    })?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -3002,14 +3056,21 @@ async fn bcut_api<T: serde::de::DeserializeOwned>(
         .await
         .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
     let status = response.status();
-    let payload = response
-        .json::<Value>()
-        .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    let response_text = response.text().await.map_err(|error| {
+        ApiError::new(StatusCode::BAD_GATEWAY, format!("BCUT_RESPONSE_READ_FAILED: 无法读取语音识别服务响应：{error}"))
+    })?;
+    let payload = serde_json::from_str::<Value>(&response_text).map_err(|error| {
+        let preview = response_text.trim().chars().take(160).collect::<String>();
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("BCUT_INVALID_RESPONSE: 语音识别服务返回了无法解析的数据（HTTP {status}）：{error}；响应片段：{preview}"),
+        )
+    })?;
     if !status.is_success() {
+        let message = payload.get("message").and_then(Value::as_str).unwrap_or("服务暂时不可用");
         return Err(ApiError::new(
             StatusCode::BAD_GATEWAY,
-            format!("Bcut ASR 请求失败: HTTP {status}"),
+            format!("BCUT_HTTP_ERROR: 语音识别服务请求失败（HTTP {status}）：{message}"),
         ));
     }
     if payload.get("code").and_then(Value::as_i64) != Some(0) {

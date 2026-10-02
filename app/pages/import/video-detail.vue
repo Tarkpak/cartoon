@@ -374,6 +374,27 @@ function statusLabel(status: string) {
 
 function friendlyErrorMessage(message?: string | null) {
   const raw = message || ''
+  if (/FFMPEG_NOT_FOUND/i.test(raw)) {
+    return '未找到 ffmpeg，无法从视频提取音频。请安装 ffmpeg，或配置 FFMPEG_PATH 后重试。'
+  }
+  if (/FFMPEG_FAILED/i.test(raw)) {
+    return '视频音频提取失败，请确认视频可以正常播放且包含音轨。'
+  }
+  if (/SOURCE_FILE_NOT_FOUND|os error 2|系统找不到指定的文件/i.test(raw)) {
+    return '找不到源视频或临时音频文件，请重新选择原视频导入。'
+  }
+  if (/SOURCE_FILE_PERMISSION_DENIED|permission denied|operation not permitted/i.test(raw)) {
+    return '没有权限读取视频文件，请授予应用访问文件夹的权限后重试。'
+  }
+  if (/BCUT_INVALID_RESPONSE|BCUT_RESPONSE_READ_FAILED/i.test(raw)) {
+    return '语音识别服务返回异常，可能是网络中断或服务暂时不可用，请稍后重试。'
+  }
+  if (/BCUT_HTTP_ERROR/i.test(raw)) {
+    return '语音识别服务暂时不可用或请求被限流，请稍后重试。'
+  }
+  if (/BCUT_RATE_LIMITER_UNAVAILABLE/i.test(raw)) {
+    return '语音识别任务调度器暂时不可用，请稍后重试。'
+  }
   if (/FOREIGN KEY constraint failed/i.test(raw)) {
     return '创建转换任务失败，任务数据关联异常。请重试；如果仍失败，请删除失败记录后再导入。'
   }

@@ -103,7 +103,7 @@ export function useVideoImport() {
 
   const activeTaskId = computed(() => activeTask.value?.task.id || null)
 
-  async function fetchTasks() {
+  async function fetchTasks(options?: { status?: string, search?: string, limit?: number, offset?: number }) {
     loading.value = true
     error.value = null
     try {
@@ -111,7 +111,12 @@ export function useVideoImport() {
         success: boolean
         data?: { tasks: VideoImportTask[] }
         message?: string
-      }>('/api/import/video/tasks')
+      }>(`/api/import/video/tasks?${new URLSearchParams({
+        ...(options?.status ? { status: options.status } : {}),
+        ...(options?.search ? { search: options.search } : {}),
+        ...(options?.limit ? { limit: String(options.limit) } : {}),
+        ...(options?.offset ? { offset: String(options.offset) } : {})
+      }).toString()}`)
       tasks.value = response.data?.tasks || []
       if (activeTaskId.value) {
         const stillExists = tasks.value.some(task => task.id === activeTaskId.value)
@@ -366,6 +371,27 @@ export function useVideoImport() {
 
 function getVideoImportErrorMessage(error: unknown): string {
   const raw = getRawVideoImportErrorMessage(error)
+  if (/FFMPEG_NOT_FOUND/i.test(raw)) {
+    return '未找到 ffmpeg，无法从视频提取音频。请安装 ffmpeg，或在环境变量 FFMPEG_PATH 中配置可执行文件路径。'
+  }
+  if (/FFMPEG_FAILED/i.test(raw)) {
+    return '视频音频提取失败，文件可能损坏、没有音轨，或当前编码格式不受支持。请确认视频可以正常播放后重试。'
+  }
+  if (/SOURCE_FILE_NOT_FOUND|os error 2|系统找不到指定的文件/i.test(raw)) {
+    return '找不到源视频或临时音频文件，文件可能已被移动、删除，或任务目录已被清理。请重新选择原视频导入。'
+  }
+  if (/SOURCE_FILE_PERMISSION_DENIED|permission denied|operation not permitted/i.test(raw)) {
+    return '没有权限读取视频文件。请授予应用访问该文件夹的权限后重试。'
+  }
+  if (/BCUT_INVALID_RESPONSE|BCUT_RESPONSE_READ_FAILED/i.test(raw)) {
+    return '语音识别服务返回了异常响应，可能是网络中断、服务暂时不可用或被网关拦截。请稍后重试。'
+  }
+  if (/BCUT_HTTP_ERROR/i.test(raw)) {
+    return '语音识别服务暂时不可用或请求被限流，请稍后重试。'
+  }
+  if (/BCUT_RATE_LIMITER_UNAVAILABLE/i.test(raw)) {
+    return '语音识别任务调度器暂时不可用，请稍后重试。'
+  }
   if (/FOREIGN KEY constraint failed/i.test(raw)) {
     return '创建转换任务失败，任务数据关联异常。请重试；如果仍失败，请删除失败记录后再导入。'
   }
