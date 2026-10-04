@@ -5131,8 +5131,74 @@ fn extract_json_from_text(raw: &str) -> Result<Value, String> {
         return Err("模型返回 JSON 范围无效".to_string());
     }
 
-    serde_json::from_str::<Value>(&without_fence[start..=end])
-        .map_err(|error| format!("解析模型 JSON 失败: {}", error))
+    let candidate = &without_fence[start..=end];
+    if let Ok(value) = serde_json::from_str::<Value>(candidate) {
+        return Ok(value);
+    }
+    let repaired = quote_unquoted_json_keys(candidate);
+    serde_json::from_str::<Value>(&repaired).map_err(|error| {
+        format!("解析模型 JSON 失败: {}（模型返回可能包含未加引号的键名，请检查解析模型或提示词）", error)
+    })
+}
+
+fn quote_unquoted_json_keys(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut output = String::with_capacity(input.len());
+    let mut index = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    while index < chars.len() {
+        let current = chars[index];
+        if in_string {
+            output.push(current);
+            if escaped { escaped = false; }
+            else if current == '\\' { escaped = true; }
+            else if current == '"' { in_string = false; }
+            index += 1;
+            continue;
+        }
+        if current == '"' {
+            in_string = true;
+            output.push(current);
+            index += 1;
+            continue;
+        }
+        if current.is_alphanumeric() || current == '_' {
+            let start = index;
+            index += 1;
+            while index < chars.len() && (chars[index].is_alphanumeric() || chars[index] == '_' || chars[index] == '-') { index += 1; }
+            let mut lookahead = index;
+            while lookahead < chars.len() && chars[lookahead].is_whitespace() { lookahead += 1; }
+            let previous = output.chars().rev().find(|value| !value.is_whitespace());
+            if chars.get(lookahead) == Some(&':') && matches!(previous, Some('{') | Some(',')) {
+                output.push('"');
+                output.extend(chars[start..index].iter());
+                output.push('"');
+            } else { output.extend(chars[start..index].iter()); }
+            continue;
+        }
+        output.push(current);
+        index += 1;
+    }
+    output
+}
+
+#[cfg(test)]
+mod json_extraction_tests {
+    use super::*;
+
+    #[test]
+    fn repairs_unquoted_object_keys() {
+        let value = extract_json_from_text("{ title: \"测试\", scenes: [{ id: \"scene_001\" }] }").unwrap();
+        assert_eq!(value["title"], "测试");
+        assert_eq!(value["scenes"][0]["id"], "scene_001");
+    }
+
+    #[test]
+    fn does_not_modify_text_inside_strings() {
+        let value = extract_json_from_text(r#"{"description":"title: keep"}"#).unwrap();
+        assert_eq!(value["description"], "title: keep");
+    }
 }
 
 fn normalize_model_scene_characters(value: Option<Value>) -> Value {
