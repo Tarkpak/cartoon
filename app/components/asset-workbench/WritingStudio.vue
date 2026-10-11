@@ -50,6 +50,7 @@ import {
   buildScriptWritingDocx,
   buildScriptWritingExportFileName,
   buildScriptWritingExportText,
+  buildScriptWritingOutlineText,
   downloadScriptWritingBlob
 } from '~/lib/script-writing-export'
 
@@ -299,6 +300,16 @@ function exportCurrentScriptTxt() {
   const fileName = buildScriptWritingExportFileName(title, 'txt')
   downloadScriptWritingBlob(blob, fileName)
   toast.success('TXT 剧本已导出', { description: fileName })
+}
+
+function exportCurrentOutline() {
+  if (!studio.value.episodes.length) return
+  const title = props.documentTitle?.trim() || studio.value.brief.idea.trim().slice(0, 30) || 'AI创作剧本'
+  const text = `${title} · 分集大纲\n\n${buildScriptWritingOutlineText(studio.value)}`
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+  const fileName = buildScriptWritingExportFileName(title, 'txt', '大纲')
+  downloadScriptWritingBlob(blob, fileName)
+  toast.success('分集大纲已导出', { description: fileName })
 }
 
 async function exportCurrentScriptDocx() {
@@ -962,7 +973,7 @@ function formatVersionTime(value: string) {
               variant="outline"
               class="w-full justify-between gap-2"
               size="sm"
-              :disabled="!publication.text || isBusy || exportingDocx"
+              :disabled="(!publication.text && !studio.episodes.length) || isBusy || exportingDocx"
             >
               <span class="inline-flex items-center gap-2">
                 <Loader2 v-if="exportingDocx" class="h-4 w-4 animate-spin" />
@@ -973,9 +984,11 @@ function formatVersionTime(value: string) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" class="w-48">
-            <DropdownMenuItem @select="copyCurrentScript"><Copy />复制完整剧本</DropdownMenuItem>
-            <DropdownMenuItem @select="exportCurrentScriptTxt"><Type />导出 TXT</DropdownMenuItem>
-            <DropdownMenuItem @select="exportCurrentScriptDocx"><FileText />导出 DOCX</DropdownMenuItem>
+            <DropdownMenuItem :disabled="!publication.text" @select="copyCurrentScript"><Copy />复制完整剧本</DropdownMenuItem>
+            <DropdownMenuItem :disabled="!publication.text" @select="exportCurrentScriptTxt"><Type />导出 TXT</DropdownMenuItem>
+            <DropdownMenuItem :disabled="!publication.text" @select="exportCurrentScriptDocx"><FileText />导出 DOCX</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem :disabled="!studio.episodes.length" @select="exportCurrentOutline"><ListTree />导出大纲（TXT）</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <Button

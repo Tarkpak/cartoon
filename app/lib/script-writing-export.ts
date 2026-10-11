@@ -9,12 +9,24 @@ function sanitizeFileName(value: string): string {
   return normalized || 'AI创作剧本'
 }
 
-export function buildScriptWritingExportFileName(title: string, extension: 'txt' | 'docx'): string {
-  return `${sanitizeFileName(title)}-剧本.${extension}`
+export function buildScriptWritingExportFileName(title: string, extension: 'txt' | 'docx', content: '剧本' | '大纲' = '剧本'): string {
+  return `${sanitizeFileName(title)}-${content}.${extension}`
 }
 
 export function buildScriptWritingExportText(studio: ScriptWritingStudio): string {
   return buildScriptWritingPublication(studio).text
+}
+
+export function buildScriptWritingOutlineText(studio: ScriptWritingStudio): string {
+  return [...studio.episodes]
+    .sort((left, right) => left.index - right.index)
+    .map(episode => [
+      `第${episode.index}集 ${episode.title}`,
+      `剧情概要：${episode.summary.trim() || '未填写'}`,
+      `剧情节拍：\n${episode.beats.length ? episode.beats.map((beat, index) => `${index + 1}. ${beat}`).join('\n') : '未填写'}`,
+      `结尾钩子：${episode.hook.trim() || '未填写'}`
+    ].join('\n\n'))
+    .join('\n\n')
 }
 
 export async function buildScriptWritingDocx(

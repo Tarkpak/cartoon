@@ -3,7 +3,8 @@ import { createEmptyScriptWritingStudio } from '#shared/types/script-writing'
 import {
   buildScriptWritingDocx,
   buildScriptWritingExportFileName,
-  buildScriptWritingExportText
+  buildScriptWritingExportText,
+  buildScriptWritingOutlineText
 } from './script-writing-export'
 
 describe('script writing export', () => {
@@ -17,6 +18,27 @@ describe('script writing export', () => {
 
     expect(buildScriptWritingExportText(studio))
       .toBe('第1集 开局\n\n第一集正文\n\n第2集 反转\n\n第二集正文')
+  })
+
+  it('exports outline fields in order even when episodes have no drafts', () => {
+    const studio = createEmptyScriptWritingStudio()
+    studio.episodes = [
+      { id: '2', index: 2, title: '反转', summary: '查到证据', hook: '幕后黑手现身', beats: ['追踪', '对峙'], draft: '不导出正文', review: '' },
+      { id: '1', index: 1, title: '开局', summary: '主角登场', hook: '', beats: [], draft: '', review: '' }
+    ]
+    const text = buildScriptWritingOutlineText(studio)
+    expect(text.indexOf('第1集 开局')).toBeLessThan(text.indexOf('第2集 反转'))
+    expect(text).toContain('剧情概要：查到证据')
+    expect(text).toContain('1. 追踪\n2. 对峙')
+    expect(text).toContain('结尾钩子：幕后黑手现身')
+    expect(text).toContain('结尾钩子：未填写')
+    expect(text).not.toContain('不导出正文')
+    expect(studio.episodes[0]?.id).toBe('2')
+    expect(buildScriptWritingExportFileName('升学宴', 'txt', '大纲')).toBe('升学宴-大纲.txt')
+  })
+
+  it('returns an empty outline for an empty project', () => {
+    expect(buildScriptWritingOutlineText(createEmptyScriptWritingStudio())).toBe('')
   })
 
   it('sanitizes file names for browser downloads', () => {
