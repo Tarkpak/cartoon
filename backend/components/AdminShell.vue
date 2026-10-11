@@ -218,14 +218,8 @@ const menuOptions = [
 ]
 
 const selectedKey = computed(() => {
-  if (route.path.startsWith('/users')) return '/users'
-  if (route.path.startsWith('/providers')) return '/providers'
-  if (route.path.startsWith('/tos-files')) return '/tos-files'
-  if (route.path.startsWith('/library-assets')) return '/library-assets'
-  if (route.path.startsWith('/client-versions')) return '/client-versions'
-  if (route.path.startsWith('/logs')) return '/logs'
-  if (route.path.startsWith('/settings')) return '/settings'
-  return '/'
+  return menuOptions.find(item => item.key === route.path
+    || (item.key !== '/' && route.path.startsWith(`${item.key}/`)))?.key ?? null
 })
 
 function handleNavigate(key: string) {
