@@ -412,6 +412,20 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
     return saveCurrent(true)
   }
 
+  async function confirmAllEpisodeDraftsCurrent() {
+    if (activeAction.value || isBatchGenerating.value) return false
+    const current = options.studio.value
+    const staleIds = new Set(resolveScriptWritingFreshness(current).staleDraftIds)
+    if (!staleIds.size) return true
+    options.studio.value = {
+      ...current,
+      episodes: current.episodes.map(episode => staleIds.has(episode.id) && episode.draft.trim()
+        ? { ...episode, draftSource: createScriptWritingDraftInputFingerprint(current, episode.id) }
+        : episode)
+    }
+    return saveCurrent(true)
+  }
+
   async function applyPendingGeneration() {
     const pending = pendingGeneration.value
     if (!pending) return false
@@ -675,6 +689,7 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
     generateOutline,
     generateEpisodeDraft,
     confirmEpisodeDraftCurrent,
+    confirmAllEpisodeDraftsCurrent,
     checkpointEpisode,
     saveEpisodeVersion,
     restoreEpisodeHistory,

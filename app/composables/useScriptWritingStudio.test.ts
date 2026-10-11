@@ -1,6 +1,6 @@
 import { nextTick, ref, type Ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createEmptyScriptWritingStudio, normalizeScriptWritingStudio } from '#shared/types/script-writing'
+import { createEmptyScriptWritingStudio, normalizeScriptWritingStudio, resolveScriptWritingFreshness } from '#shared/types/script-writing'
 import { useScriptWritingStudio } from './useScriptWritingStudio'
 
 describe('useScriptWritingStudio', () => {
@@ -322,6 +322,34 @@ describe('useScriptWritingStudio', () => {
     expect(await writing.restoreEpisodeHistory(versionId, 'episode_1')).toBe(false)
     expect(writing.autoSaveState.value).toBe('error')
     expect(studio.value.versions.some(version => version.snapshot.episodes[0]?.draft === '新正文')).toBe(true)
+  })
+
+  it('confirms all stale drafts with one save and leaves empty episodes and review unchanged', async () => {
+    const studio = ref(createEmptyScriptWritingStudio())
+    studio.value.episodes = [
+      { id: 'episode_1', index: 1, title: '开局', summary: '', hook: '', beats: [], draft: '正文一', review: '原审校', draftSource: 'old' },
+      { id: 'episode_2', index: 2, title: '后续', summary: '', hook: '', beats: [], draft: '正文二', review: '', draftSource: 'old' },
+      { id: 'episode_3', index: 3, title: '未成稿', summary: '', hook: '', beats: [], draft: '', review: '', draftSource: '' }
+    ]
+    const saveProject = vi.fn(async () => true)
+    const writing = useScriptWritingStudio({ studio, saveProject })
+    expect(await writing.confirmAllEpisodeDraftsCurrent()).toBe(true)
+    expect(resolveScriptWritingFreshness(studio.value).staleDraftIds).toEqual([])
+    expect(studio.value.episodes.map(episode => episode.draft)).toEqual(['正文一', '正文二', ''])
+    expect(studio.value.episodes[0]?.review).toBe('原审校')
+    expect(studio.value.episodes[2]?.draftSource).toBe('')
+    expect(saveProject).toHaveBeenCalledOnce()
+    expect(await writing.confirmAllEpisodeDraftsCurrent()).toBe(true)
+    expect(saveProject).toHaveBeenCalledOnce()
+  })
+
+  it('reports a failed save during bulk draft confirmation', async () => {
+    const studio = ref(createEmptyScriptWritingStudio())
+    studio.value.episodes = [{ id: 'episode_1', index: 1, title: '开局', summary: '', hook: '', beats: [], draft: '正文', review: '', draftSource: 'old' }]
+    const writing = useScriptWritingStudio({ studio, saveProject: vi.fn(async () => false) })
+    expect(await writing.confirmAllEpisodeDraftsCurrent()).toBe(false)
+    expect(writing.autoSaveState.value).toBe('error')
+    expect(studio.value.episodes[0]?.draft).toBe('正文')
   })
 
   it('resumes a paused batch without resetting progress', async () => {

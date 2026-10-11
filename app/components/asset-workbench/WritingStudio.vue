@@ -72,6 +72,7 @@ type WritingView = 'bible' | 'episodes' | 'review'
 const activeView = ref<WritingView>('bible')
 const selectedEpisodeId = ref('')
 const exportingDocx = ref(false)
+const confirmingAllEpisodes = ref(false)
 const episodeHistoryOpen = ref(false)
 const selectedEpisodeHistoryId = ref('')
 const restoringEpisodeHistory = ref(false)
@@ -120,6 +121,7 @@ const {
   generateOutline,
   generateEpisodeDraft,
   confirmEpisodeDraftCurrent,
+  confirmAllEpisodeDraftsCurrent,
   checkpointEpisode,
   saveEpisodeVersion,
   restoreEpisodeHistory,
@@ -149,7 +151,7 @@ const selectedEpisode = computed(() => {
 const draftedCount = computed(() => studio.value.episodes.filter(item => item.draft.trim()).length)
 const remainingDraftCount = computed(() => studio.value.episodes.length - draftedCount.value)
 const publication = computed(() => buildScriptWritingPublication(studio.value))
-const isBusy = computed(() => activeAction.value !== null || isBatchGenerating.value || batchReviewBusy.value)
+const isBusy = computed(() => activeAction.value !== null || isBatchGenerating.value || batchReviewBusy.value || confirmingAllEpisodes.value)
 const freshness = computed(() => resolveScriptWritingFreshness(studio.value))
 const isComplete = computed(() => studio.value.episodes.length > 0 && remainingDraftCount.value === 0)
 const hasStaleDrafts = computed(() => freshness.value.staleDraftIds.length > 0)
@@ -457,6 +459,18 @@ async function restoreSelectedEpisodeHistory() {
     } else toast.error('恢复未能保存，请重试')
   } finally {
     restoringEpisodeHistory.value = false
+  }
+}
+
+async function confirmAllEpisodesCurrent() {
+  if (isBusy.value || !hasStaleDrafts.value) return
+  const count = freshness.value.staleDraftIds.length
+  confirmingAllEpisodes.value = true
+  try {
+    if (await confirmAllEpisodeDraftsCurrent()) toast.success(`已确认 ${count} 集正文适配当前大纲`)
+    else toast.error('批量确认未能保存，请重试保存')
+  } finally {
+    confirmingAllEpisodes.value = false
   }
 }
 
@@ -1324,6 +1338,17 @@ function formatVersionTime(value: string) {
             <span class="text-xs font-medium text-muted-foreground">分集</span>
             <Button size="icon" variant="ghost" class="h-7 w-7" title="新增分集" @click="addEpisode">
               <Plus class="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <div v-if="hasStaleDrafts || confirmingAllEpisodes" class="shrink-0 px-2.5 pb-2">
+            <Button
+              size="sm" variant="outline" class="h-8 w-full gap-1.5 text-xs"
+              :disabled="isBusy" title="将全部待确认正文标记为适配当前大纲，正文内容保持不变"
+              @click="confirmAllEpisodesCurrent"
+            >
+              <Loader2 v-if="confirmingAllEpisodes" class="h-3.5 w-3.5 animate-spin" />
+              <CheckCircle2 v-else class="h-3.5 w-3.5" />
+              {{ confirmingAllEpisodes ? '正在确认…' : `一键确认全部（${freshness.staleDraftIds.length}）` }}
             </Button>
           </div>
           <div class="flex min-h-0 gap-1 overflow-x-auto p-1.5 overscroll-contain lg:block lg:overflow-x-hidden lg:overflow-y-auto">
