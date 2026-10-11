@@ -6484,7 +6484,7 @@ async fn api_project_get(
     let owner = ensure_project_access(&conn, id.as_str())?;
     let project = conn
         .query_row(
-            "SELECT id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at
+            "SELECT id, name, description, script_parse_mode, style_id, aspect_ratio, status, created_at, updated_at, project_type
              FROM projects WHERE id = ?1 LIMIT 1",
             params![id],
             |row| {
@@ -6498,7 +6498,8 @@ async fn api_project_get(
                   "aspectRatio": row.get::<_, String>(5)?,
                   "status": row.get::<_, Option<String>>(6)?,
                   "createdAt": row.get::<_, String>(7)?,
-                  "updatedAt": row.get::<_, String>(8)?
+                  "updatedAt": row.get::<_, String>(8)?,
+                  "projectType": row.get::<_, String>(9)?
                 }))
             },
         )

@@ -443,6 +443,22 @@ onBeforeRouteLeave(async () => {
                 >
                   {{ project.status === 'completed' ? '已完成' : project.status === 'in_progress' ? '进行中' : '草稿' }}
                 </span>
+                <span
+                  v-if="project.cloudSyncStatus"
+                  class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  :class="project.cloudSyncStatus === 'conflict'
+                    ? 'bg-destructive/10 text-destructive'
+                    : 'bg-muted text-muted-foreground'"
+                  :title="project.cloudSyncError || undefined"
+                >
+                  {{ project.cloudSyncStatus === 'synced'
+                    ? '已同步云端'
+                    : project.cloudSyncStatus === 'conflict'
+                      ? '云同步冲突'
+                      : project.cloudSyncStatus === 'pending'
+                        ? (project.cloudSyncError ? '云同步待重试' : '等待云同步')
+                        : '尚未同步云端' }}
+                </span>
                 <span class="ml-auto inline-flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100">
                   打开
                   <ArrowUpRight class="h-3.5 w-3.5" />

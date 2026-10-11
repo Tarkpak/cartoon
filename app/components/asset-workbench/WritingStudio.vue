@@ -1901,152 +1901,154 @@ function formatVersionTime(value: string) {
     </main>
 
     <Dialog :open="!!pendingGeneration" @update:open="open => { if (!open) discardCandidate() }">
-      <DialogContent class="max-h-[90vh] max-w-6xl overflow-hidden">
-        <DialogHeader>
+      <DialogContent class="flex max-h-[90dvh] max-w-6xl flex-col overflow-hidden">
+        <DialogHeader class="shrink-0">
           <DialogTitle>{{ pendingGenerationSummary?.title }}</DialogTitle>
           <DialogDescription>
             候选稿尚未写入项目。确认内容方向后再替换当前内容。
           </DialogDescription>
         </DialogHeader>
-        <div v-if="pendingGenerationChanges.length" class="flex flex-wrap gap-2">
-          <Badge
-            v-for="change in pendingGenerationChanges"
-            :key="change"
-            variant="outline"
-            class="rounded-md bg-muted/30"
-          >
-            {{ change }}
-          </Badge>
-        </div>
-        <section
-          v-if="pendingGeneration?.kind === 'episode_draft'"
-          class="min-h-0 rounded-xl bg-muted/20 p-4"
-        >
-          <h3 class="text-xs font-medium text-muted-foreground">行级差异</h3>
-          <pre class="mt-3 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-sm leading-6"><span
-            v-for="(part, index) in pendingDraftDiff"
-            :key="index"
-            :class="part.added
-              ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
-              : part.removed
-                ? 'bg-destructive/10 text-destructive line-through'
-                : 'text-muted-foreground'"
-          >{{ part.added ? '+ ' : part.removed ? '- ' : '  ' }}{{ part.value }}</span></pre>
-        </section>
-        <div class="grid min-h-0 gap-3 md:grid-cols-2">
-          <section class="flex min-h-0 flex-col rounded-xl bg-muted/40 p-4">
-            <h3 class="text-xs font-medium text-muted-foreground">当前内容</h3>
-            <pre class="mt-3 max-h-[55vh] min-h-64 overflow-auto whitespace-pre-wrap font-sans text-sm leading-6">{{ pendingCurrentContent }}</pre>
-          </section>
-          <section class="flex min-h-0 flex-col rounded-xl bg-primary/5 p-4 ring-1 ring-inset ring-primary/15">
-            <div class="flex items-center justify-between gap-2">
-              <h3 class="text-xs font-medium text-primary">候选内容</h3>
-              <span class="text-xs text-muted-foreground">可编辑后采纳</span>
-            </div>
-            <Textarea
-              v-if="pendingGeneration?.kind === 'episode_draft'"
-              v-model="pendingCandidateContent"
-              class="mt-3 min-h-64 max-h-[55vh] flex-1 resize-none overflow-auto font-mono leading-6"
-            />
-            <div
-              v-else-if="pendingGeneration?.kind === 'story_bible'"
-              class="mt-3 max-h-[55vh] min-h-64 space-y-3 overflow-auto pr-1"
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain">
+          <div v-if="pendingGenerationChanges.length" class="flex flex-wrap gap-2">
+            <Badge
+              v-for="change in pendingGenerationChanges"
+              :key="change"
+              variant="outline"
+              class="rounded-md bg-muted/30"
             >
-              <div
-                v-for="field in ([['premise', '核心命题'], ['theme', '主题'], ['world', '世界设定'], ['tone', '基调']] as const)"
-                :key="field[0]"
-                class="space-y-1.5"
-              >
-                <label class="text-xs text-muted-foreground">{{ field[1] }}</label>
-                <Textarea
-                  :model-value="pendingGeneration.storyBible[field[0]]"
-                  rows="2"
-                  @update:model-value="updatePendingStoryBibleField(field[0], String($event))"
-                />
+              {{ change }}
+            </Badge>
+          </div>
+          <section
+            v-if="pendingGeneration?.kind === 'episode_draft'"
+            class="min-h-0 rounded-xl bg-muted/20 p-4"
+          >
+            <h3 class="text-xs font-medium text-muted-foreground">行级差异</h3>
+            <pre class="mt-3 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-sm leading-6"><span
+              v-for="(part, index) in pendingDraftDiff"
+              :key="index"
+              :class="part.added
+                ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                : part.removed
+                  ? 'bg-destructive/10 text-destructive line-through'
+                  : 'text-muted-foreground'"
+            >{{ part.added ? '+ ' : part.removed ? '- ' : '  ' }}{{ part.value }}</span></pre>
+          </section>
+          <div class="grid min-h-0 gap-3 md:grid-cols-2">
+            <section class="flex min-h-0 flex-col rounded-xl bg-muted/40 p-4">
+              <h3 class="text-xs font-medium text-muted-foreground">当前内容</h3>
+              <pre class="mt-3 max-h-[55vh] min-h-64 overflow-auto whitespace-pre-wrap font-sans text-sm leading-6">{{ pendingCurrentContent }}</pre>
+            </section>
+            <section class="flex min-h-0 flex-col rounded-xl bg-primary/5 p-4 ring-1 ring-inset ring-primary/15">
+              <div class="flex items-center justify-between gap-2">
+                <h3 class="text-xs font-medium text-primary">候选内容</h3>
+                <span class="text-xs text-muted-foreground">可编辑后采纳</span>
               </div>
-              <div class="space-y-1.5">
-                <label class="text-xs text-muted-foreground">角色</label>
-                <div class="space-y-2">
-                  <div
-                    v-for="character in pendingGeneration.storyBible.characters"
-                    :key="character.id"
-                    class="rounded-xl bg-background/70 p-3"
-                  >
-                    <div class="flex items-center gap-2">
-                      <Input v-model="character.name" placeholder="角色名" />
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        class="h-8 w-8 shrink-0 text-destructive"
-                        title="不采纳该角色"
-                        @click="removePendingCharacter(character.id)"
-                      >
-                        <Trash2 class="h-3.5 w-3.5" />
-                      </Button>
+              <Textarea
+                v-if="pendingGeneration?.kind === 'episode_draft'"
+                v-model="pendingCandidateContent"
+                class="mt-3 min-h-64 max-h-[55vh] flex-1 resize-none overflow-auto font-mono leading-6"
+              />
+              <div
+                v-else-if="pendingGeneration?.kind === 'story_bible'"
+                class="mt-3 max-h-[55vh] min-h-64 space-y-3 overflow-auto pr-1"
+              >
+                <div
+                  v-for="field in ([['premise', '核心命题'], ['theme', '主题'], ['world', '世界设定'], ['tone', '基调']] as const)"
+                  :key="field[0]"
+                  class="space-y-1.5"
+                >
+                  <label class="text-xs text-muted-foreground">{{ field[1] }}</label>
+                  <Textarea
+                    :model-value="pendingGeneration.storyBible[field[0]]"
+                    rows="2"
+                    @update:model-value="updatePendingStoryBibleField(field[0], String($event))"
+                  />
+                </div>
+                <div class="space-y-1.5">
+                  <label class="text-xs text-muted-foreground">角色</label>
+                  <div class="space-y-2">
+                    <div
+                      v-for="character in pendingGeneration.storyBible.characters"
+                      :key="character.id"
+                      class="rounded-xl bg-background/70 p-3"
+                    >
+                      <div class="flex items-center gap-2">
+                        <Input v-model="character.name" placeholder="角色名" />
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          class="h-8 w-8 shrink-0 text-destructive"
+                          title="不采纳该角色"
+                          @click="removePendingCharacter(character.id)"
+                        >
+                          <Trash2 class="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <Input v-model="character.role" class="mt-2" placeholder="角色定位" />
+                      <Textarea v-model="character.profile" class="mt-2" rows="2" placeholder="角色小传" />
+                      <Textarea v-model="character.motivation" class="mt-2" rows="2" placeholder="核心动机" />
+                      <Textarea v-model="character.arc" class="mt-2" rows="2" placeholder="人物成长弧" />
                     </div>
-                    <Input v-model="character.role" class="mt-2" placeholder="角色定位" />
-                    <Textarea v-model="character.profile" class="mt-2" rows="2" placeholder="角色小传" />
-                    <Textarea v-model="character.motivation" class="mt-2" rows="2" placeholder="核心动机" />
-                    <Textarea v-model="character.arc" class="mt-2" rows="2" placeholder="人物成长弧" />
                   </div>
                 </div>
-              </div>
-              <div class="space-y-1.5">
-                <label class="text-xs text-muted-foreground">创作规则</label>
-                <Textarea
-                  :model-value="pendingGeneration.storyBible.rules.join('\n')"
-                  rows="4"
-                  @update:model-value="updatePendingStoryRules(String($event))"
-                />
-              </div>
-            </div>
-            <div
-              v-else-if="pendingGeneration?.kind === 'outline'"
-              class="mt-3 max-h-[55vh] min-h-64 space-y-3 overflow-auto pr-1"
-            >
-              <section
-                v-for="episode in pendingGeneration.episodes"
-                :key="episode.id"
-                class="space-y-2 pb-3"
-              >
-                <div class="flex items-center gap-2">
-                  <span class="w-8 shrink-0 text-xs tabular-nums text-muted-foreground">{{ episode.index }}</span>
-                  <Input
-                    :model-value="episode.title"
-                    @update:model-value="updatePendingEpisodeField(episode.id, 'title', String($event))"
+                <div class="space-y-1.5">
+                  <label class="text-xs text-muted-foreground">创作规则</label>
+                  <Textarea
+                    :model-value="pendingGeneration.storyBible.rules.join('\n')"
+                    rows="4"
+                    @update:model-value="updatePendingStoryRules(String($event))"
                   />
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    class="h-8 w-8 shrink-0 text-destructive"
-                    title="不采纳该分集"
-                    @click="removePendingEpisode(episode.id)"
-                  >
-                    <Trash2 class="h-3.5 w-3.5" />
-                  </Button>
                 </div>
-                <Textarea
-                  :model-value="episode.summary"
-                  rows="2"
-                  @update:model-value="updatePendingEpisodeField(episode.id, 'summary', String($event))"
-                />
-                <Textarea
-                  :model-value="episode.hook"
-                  rows="2"
-                  placeholder="结尾钩子"
-                  @update:model-value="updatePendingEpisodeField(episode.id, 'hook', String($event))"
-                />
-                <Textarea
-                  :model-value="episode.beats.join('\n')"
-                  rows="4"
-                  placeholder="每行一个剧情节拍"
-                  @update:model-value="updatePendingEpisodeField(episode.id, 'beats', String($event))"
-                />
-              </section>
-            </div>
-          </section>
+              </div>
+              <div
+                v-else-if="pendingGeneration?.kind === 'outline'"
+                class="mt-3 max-h-[55vh] min-h-64 space-y-3 overflow-auto pr-1"
+              >
+                <section
+                  v-for="episode in pendingGeneration.episodes"
+                  :key="episode.id"
+                  class="space-y-2 pb-3"
+                >
+                  <div class="flex items-center gap-2">
+                    <span class="w-8 shrink-0 text-xs tabular-nums text-muted-foreground">{{ episode.index }}</span>
+                    <Input
+                      :model-value="episode.title"
+                      @update:model-value="updatePendingEpisodeField(episode.id, 'title', String($event))"
+                    />
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      class="h-8 w-8 shrink-0 text-destructive"
+                      title="不采纳该分集"
+                      @click="removePendingEpisode(episode.id)"
+                    >
+                      <Trash2 class="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <Textarea
+                    :model-value="episode.summary"
+                    rows="2"
+                    @update:model-value="updatePendingEpisodeField(episode.id, 'summary', String($event))"
+                  />
+                  <Textarea
+                    :model-value="episode.hook"
+                    rows="2"
+                    placeholder="结尾钩子"
+                    @update:model-value="updatePendingEpisodeField(episode.id, 'hook', String($event))"
+                  />
+                  <Textarea
+                    :model-value="episode.beats.join('\n')"
+                    rows="4"
+                    placeholder="每行一个剧情节拍"
+                    @update:model-value="updatePendingEpisodeField(episode.id, 'beats', String($event))"
+                  />
+                </section>
+              </div>
+            </section>
+          </div>
         </div>
-        <DialogFooter class="gap-2 sm:gap-2">
+        <DialogFooter class="shrink-0 gap-2 sm:gap-2">
           <Button variant="outline" @click="discardCandidate">保留当前内容</Button>
           <Button :disabled="!pendingCandidateContent.trim()" @click="acceptPendingGeneration">
             采用候选稿
