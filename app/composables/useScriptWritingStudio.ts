@@ -22,6 +22,7 @@ import {
   type ScriptWritingReview,
   type ScriptWritingStudio
 } from '#shared/types/script-writing'
+import { appendEpisodeHistory } from '~/lib/script-writing-episode-history'
 import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 
 interface UseScriptWritingStudioOptions {
@@ -276,6 +277,44 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
     return commitOutline(parsed.data)
   }
 
+  const lastManualCheckpoint = new Map<string, number>()
+
+  function checkpointEpisode(episodeId: string, label = '手动编辑前', coalesce = false) {
+    const episode = options.studio.value.episodes.find(item => item.id === episodeId)
+    if (!episode) return false
+    const now = Date.now()
+    if (coalesce && now - (lastManualCheckpoint.get(episodeId) || 0) < 30_000) return false
+    const next = appendEpisodeHistory(options.studio.value, episodeId, label)
+    if (coalesce) lastManualCheckpoint.set(episodeId, now)
+    if (next === options.studio.value) return false
+    options.studio.value = next
+    return true
+  }
+
+  async function saveEpisodeVersion(episodeId: string) {
+    checkpointEpisode(episodeId, '手动保存')
+    return saveCurrent(true)
+  }
+
+  async function restoreEpisodeHistory(versionId: string, episodeId: string) {
+    if (activeAction.value || isBatchGenerating.value) return false
+    const historical = options.studio.value.versions.find(version => version.id === versionId)
+      ?.snapshot.episodes.find(episode => episode.id === episodeId)
+    if (!historical || !options.studio.value.episodes.some(episode => episode.id === episodeId)) return false
+    checkpointEpisode(episodeId, '恢复历史前')
+    const current = options.studio.value
+    options.studio.value = {
+      ...current,
+      episodes: current.episodes.map(episode => episode.id === episodeId
+        ? { ...episode, draft: historical.draft, continuityNotes: historical.continuityNotes, draftSource: historical.draftSource || '', review: '' }
+        : episode),
+      provenance: { ...current.provenance, reviewInput: '' },
+      resolvedReviewItems: []
+    }
+    lastManualCheckpoint.delete(episodeId)
+    return saveCurrent(true)
+  }
+
   async function commitEpisodeDraft(
     episodeId: string,
     draft: string,
@@ -284,6 +323,8 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
   ) {
     const target = options.studio.value.episodes.find(item => item.id === episodeId)
     if (!target) return false
+    checkpointEpisode(episodeId, 'AI 改写前')
+    lastManualCheckpoint.delete(episodeId)
     const nextStudio = options.studio.value
     const draftSource = createScriptWritingDraftInputFingerprint(nextStudio, episodeId)
     options.studio.value = {
@@ -634,6 +675,9 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
     generateOutline,
     generateEpisodeDraft,
     confirmEpisodeDraftCurrent,
+    checkpointEpisode,
+    saveEpisodeVersion,
+    restoreEpisodeHistory,
     generateRemainingEpisodeDrafts,
     applyPendingGeneration,
     discardPendingGeneration,

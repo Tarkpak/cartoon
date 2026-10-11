@@ -288,6 +288,42 @@ describe('useScriptWritingStudio', () => {
     expect(studio.value.resolvedReviewItems).toEqual([])
   })
 
+  it('restores a deleted draft from persisted episode history and protects the replaced text', async () => {
+    const studio = ref(createEmptyScriptWritingStudio())
+    studio.value.episodes = [
+      { id: 'episode_1', index: 1, title: '开局', summary: '', hook: '', beats: [], draft: '删除前正文', review: '' },
+      { id: 'episode_2', index: 2, title: '后续', summary: '', hook: '', beats: [], draft: '其他集正文', review: '' }
+    ]
+    const saveProject = vi.fn(async () => true)
+    const writing = useScriptWritingStudio({ studio, saveProject })
+    writing.checkpointEpisode('episode_1', '清空正文前')
+    const versionId = studio.value.versions[0]!.id
+    studio.value.episodes[0]!.draft = ''
+    await writing.saveCurrent(true)
+    studio.value = normalizeScriptWritingStudio(JSON.parse(JSON.stringify(studio.value)))
+
+    expect(await writing.restoreEpisodeHistory(versionId, 'episode_1')).toBe(true)
+    expect(studio.value.episodes[0]?.draft).toBe('删除前正文')
+    expect(studio.value.episodes[1]?.draft).toBe('其他集正文')
+    expect(studio.value.versions[0]).toMatchObject({ label: '恢复历史前', snapshot: { episodes: [{ draft: '' }] } })
+    expect(saveProject).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects missing history and reports persistence failure without losing recovery records', async () => {
+    const studio = ref(createEmptyScriptWritingStudio())
+    studio.value.episodes = [{ id: 'episode_1', index: 1, title: '开局', summary: '', hook: '', beats: [], draft: '旧正文', review: '' }]
+    const saveProject = vi.fn(async () => false)
+    const writing = useScriptWritingStudio({ studio, saveProject })
+    expect(await writing.restoreEpisodeHistory('missing', 'episode_1')).toBe(false)
+    expect(saveProject).not.toHaveBeenCalled()
+    writing.checkpointEpisode('episode_1')
+    const versionId = studio.value.versions[0]!.id
+    studio.value.episodes[0]!.draft = '新正文'
+    expect(await writing.restoreEpisodeHistory(versionId, 'episode_1')).toBe(false)
+    expect(writing.autoSaveState.value).toBe('error')
+    expect(studio.value.versions.some(version => version.snapshot.episodes[0]?.draft === '新正文')).toBe(true)
+  })
+
   it('resumes a paused batch without resetting progress', async () => {
     const studio = ref(createEmptyScriptWritingStudio())
     studio.value.storyBible = {

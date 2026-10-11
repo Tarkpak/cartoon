@@ -12,6 +12,7 @@ import {
   Ellipsis,
   FileText,
   Focus,
+  History,
   ListPlus,
   ListTree,
   Lock,
@@ -70,6 +71,9 @@ type WritingView = 'bible' | 'episodes' | 'review'
 const activeView = ref<WritingView>('bible')
 const selectedEpisodeId = ref('')
 const exportingDocx = ref(false)
+const episodeHistoryOpen = ref(false)
+const selectedEpisodeHistoryId = ref('')
+const restoringEpisodeHistory = ref(false)
 const storyBibleInstruction = ref('')
 const outlineInstruction = ref('')
 const episodeInstruction = ref('')
@@ -115,6 +119,9 @@ const {
   generateOutline,
   generateEpisodeDraft,
   confirmEpisodeDraftCurrent,
+  checkpointEpisode,
+  saveEpisodeVersion,
+  restoreEpisodeHistory,
   generateRemainingEpisodeDrafts,
   applyPendingGeneration,
   discardPendingGeneration,
@@ -399,12 +406,47 @@ function updateBeats(episodeId: string, value: string) {
 }
 
 function updateEpisodeDraft(episodeId: string, value: string) {
-  const episode = studio.value.episodes.find(item => item.id === episodeId)
-  if (!episode) return
+  const current = studio.value.episodes.find(item => item.id === episodeId)
+  if (!current || current.draft === value) return
   const wasStale = freshness.value.staleDraftIds.includes(episodeId)
+  checkpointEpisode(episodeId, value.trim() ? '手动编辑前' : '清空正文前', !!value.trim())
+  const episode = studio.value.episodes.find(item => item.id === episodeId)!
   episode.draft = value
   if (!value.trim()) episode.draftSource = ''
   else if (!wasStale) episode.draftSource = createScriptWritingDraftInputFingerprint(studio.value, episodeId)
+}
+
+const episodeHistory = computed(() => studio.value.versions.filter(version =>
+  version.snapshot.episodes.some(episode => episode.id === selectedEpisodeId.value)
+))
+const selectedEpisodeHistory = computed(() => episodeHistory.value.find(version => version.id === selectedEpisodeHistoryId.value))
+const historicalEpisodeDraft = computed(() => selectedEpisodeHistory.value?.snapshot.episodes
+  .find(episode => episode.id === selectedEpisodeId.value)?.draft || '')
+
+function openEpisodeHistory() {
+  selectedEpisodeHistoryId.value = episodeHistory.value[0]?.id || ''
+  episodeHistoryOpen.value = true
+}
+
+async function saveSelectedEpisodeVersion() {
+  if (!selectedEpisode.value || isBusy.value) return
+  if (await saveEpisodeVersion(selectedEpisode.value.id)) {
+    selectedEpisodeHistoryId.value = episodeHistory.value[0]?.id || ''
+    toast.success('当前正文版本已保存')
+  } else toast.error('历史版本保存失败，请重试')
+}
+
+async function restoreSelectedEpisodeHistory() {
+  if (!selectedEpisodeHistory.value || !selectedEpisode.value || isBusy.value || restoringEpisodeHistory.value) return
+  restoringEpisodeHistory.value = true
+  try {
+    if (await restoreEpisodeHistory(selectedEpisodeHistory.value.id, selectedEpisode.value.id)) {
+      episodeHistoryOpen.value = false
+      toast.success('已恢复本集正文，请确认是否适配当前大纲；恢复前的内容也已保留')
+    } else toast.error('恢复未能保存，请重试')
+  } finally {
+    restoringEpisodeHistory.value = false
+  }
 }
 
 async function confirmSelectedEpisodeCurrent() {
@@ -1540,6 +1582,9 @@ function formatVersionTime(value: string) {
               <span v-if="selectedEpisodeStats.sceneCount">{{ selectedEpisodeStats.sceneCount }} 场</span>
             </span>
             <span class="flex items-center gap-1">
+              <Button size="sm" variant="ghost" class="h-7 gap-1.5 px-2 text-xs" :disabled="isBusy" @click="openEpisodeHistory">
+                <History class="h-3.5 w-3.5" />历史记录
+              </Button>
               <Button
                 size="sm"
                 variant="ghost"
@@ -2201,6 +2246,35 @@ function formatVersionTime(value: string) {
         <DialogFooter class="shrink-0 gap-2 sm:gap-2">
           <Button variant="outline" @click="batchReviewCandidates = []">保留当前内容</Button>
           <Button :disabled="batchReviewCandidates.some(candidate => !candidate.draft.trim())" @click="acceptBatchReviewCandidates">采用全部修订</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="episodeHistoryOpen">
+      <DialogContent class="flex max-h-[90dvh] max-w-5xl flex-col overflow-hidden">
+        <DialogHeader class="shrink-0">
+          <DialogTitle>第 {{ selectedEpisode?.index }} 集 · 正文历史记录</DialogTitle>
+          <DialogDescription>自动保留编辑、清空及 AI 改写前的正文，每集保留最近 30 条自动记录。恢复前也会保存当前正文。</DialogDescription>
+        </DialogHeader>
+        <div class="grid min-h-0 flex-1 gap-4 overflow-y-auto md:grid-cols-[15rem_minmax(0,1fr)]">
+          <div class="space-y-2 md:max-h-[55dvh] md:overflow-y-auto">
+            <button
+              v-for="version in episodeHistory" :key="version.id" type="button"
+              class="w-full rounded-lg p-3 text-left text-sm hover:bg-muted/50"
+              :class="selectedEpisodeHistoryId === version.id ? 'bg-primary/10' : 'bg-muted/20'"
+              @click="selectedEpisodeHistoryId = version.id"
+            >
+              <span class="block font-medium">{{ version.label }}</span>
+              <span class="mt-1 block text-xs text-muted-foreground">{{ formatVersionTime(version.createdAt) }}</span>
+            </button>
+            <p v-if="!episodeHistory.length" class="py-6 text-sm text-muted-foreground">暂无历史记录。编辑时会自动保留，也可保存当前版本。</p>
+          </div>
+          <pre class="min-h-48 whitespace-pre-wrap rounded-xl bg-muted/20 p-4 font-mono text-sm leading-7 md:max-h-[55dvh] md:overflow-y-auto">{{ selectedEpisodeHistory ? (historicalEpisodeDraft || '（空正文）') : '选择历史记录以预览正文' }}</pre>
+        </div>
+        <DialogFooter class="shrink-0 gap-2 sm:gap-2">
+          <Button variant="outline" :disabled="isBusy || restoringEpisodeHistory" @click="saveSelectedEpisodeVersion">保存当前版本</Button>
+          <Button variant="outline" :disabled="restoringEpisodeHistory" @click="episodeHistoryOpen = false">关闭</Button>
+          <Button :disabled="!selectedEpisodeHistory || isBusy || restoringEpisodeHistory" @click="restoreSelectedEpisodeHistory">{{ restoringEpisodeHistory ? '正在恢复…' : '恢复此版本' }}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
