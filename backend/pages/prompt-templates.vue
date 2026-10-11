@@ -16,6 +16,7 @@
                 <n-select
                   v-model:value="selectedKey"
                   :options="templateOptions"
+                  :disabled="pending || saving"
                   placeholder="选择要配置的提示词模板"
                 />
               </n-grid-item>
@@ -27,7 +28,8 @@
                   v-model:value="draftContent"
                   type="textarea"
                   :autosize="{ minRows: 14, maxRows: 32 }"
-                  placeholder="留空表示使用客户端内置默认提示词"
+                  placeholder="显示当前默认提示词，可直接编辑；清空并保存恢复内置默认"
+                  :disabled="pending || saving"
                 />
               </n-grid-item>
               <n-grid-item v-if="selectedKey">
@@ -35,7 +37,7 @@
                   <n-text v-if="currentOverride" depth="3">
                     已配置云端默认，更新于 {{ currentOverride.updatedAt }}
                   </n-text>
-                  <n-text v-else depth="3">当前使用客户端内置默认</n-text>
+                  <n-text v-else depth="3">当前使用客户端内置默认，内容已显示，可直接修改</n-text>
                   <n-space>
                     <n-button
                       v-if="currentOverride"
@@ -75,6 +77,7 @@ const saving = ref(false)
 const overrides = ref<PromptTemplateOverride[]>([])
 const selectedKey = ref<string>('')
 const draftContent = ref('')
+const builtinTemplates = ref<Array<{ templateKey: string, content: string }>>([])
 
 const templateOptions = PROMPT_TEMPLATE_METADATA.map(meta => ({
   label: `${meta.name}（${meta.id}）`,
@@ -89,21 +92,25 @@ const currentOverride = computed(() => {
   return overrides.value.find(item => item.templateKey === selectedKey.value) || null
 })
 
+const builtinContent = computed(() => builtinTemplates.value.find(item => item.templateKey === selectedKey.value)?.content || '')
+
 watch(selectedKey, () => {
-  draftContent.value = currentOverride.value?.content || ''
+  draftContent.value = currentOverride.value?.content ?? builtinContent.value
 })
 
 async function load() {
   pending.value = true
   try {
-    const response = await $fetch<{ data: { templates: Array<{ template_key: string, title: string | null, content: string, updated_at: string }> } }>('/api/admin/prompt-templates')
+    const response = await $fetch<{ data: { templates: Array<{ template_key: string, title: string | null, content: string, updated_at: string }>, builtinTemplates: Array<{ templateKey: string, content: string }> } }>('/api/admin/prompt-templates')
+    builtinTemplates.value = response.data.builtinTemplates
     overrides.value = response.data.templates.map(item => ({
       templateKey: item.template_key,
       title: item.title,
       content: item.content,
       updatedAt: item.updated_at
     }))
-    draftContent.value = currentOverride.value?.content || ''
+    if (!selectedKey.value) selectedKey.value = templateOptions[0]?.value || ''
+    draftContent.value = currentOverride.value?.content ?? builtinContent.value
   } catch {
     message.error('默认提示词加载失败')
   } finally {
@@ -137,7 +144,6 @@ function save() {
 }
 
 function reset() {
-  draftContent.value = ''
   submit('')
 }
 

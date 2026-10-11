@@ -1,7 +1,8 @@
 import { getDb } from '../../../utils/db'
 import { requireAdmin } from '../../../utils/auth'
+import { loadBuiltinPromptTemplates } from '../../../utils/default-prompt-templates'
 
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
   requireAdmin(event)
   const db = getDb()
   const templates = db
@@ -12,8 +13,12 @@ export default defineEventHandler((event) => {
     `)
     .all()
 
+  const builtinTemplates = await loadBuiltinPromptTemplates(fileName =>
+    useStorage('assets:default-prompts').getItem(fileName)
+  )
+
   return {
     success: true,
-    data: { templates }
+    data: { templates, builtinTemplates }
   }
 })

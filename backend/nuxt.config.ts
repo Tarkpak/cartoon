@@ -26,6 +26,10 @@ export default defineNuxtConfig({
     }
   },
   nitro: {
+    serverAssets: [{
+      baseName: 'default-prompts',
+      dir: fileURLToPath(new URL('../src-tauri/assets/default-prompts', import.meta.url))
+    }],
     experimental: {
       openAPI: false
     }
