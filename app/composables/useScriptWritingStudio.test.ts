@@ -255,6 +255,39 @@ describe('useScriptWritingStudio', () => {
     })
   })
 
+  it('keeps internal fingerprints out of revision requests for long series', async () => {
+    const studio = ref(createEmptyScriptWritingStudio())
+    studio.value.storyBible = { premise: '升学宴', theme: '', world: '', tone: '', characters: [], rules: [] }
+    studio.value.episodes = Array.from({ length: 60 }, (_, index) => ({
+      id: `episode_${index + 1}`, index: index + 1, title: `第${index + 1}集`,
+      summary: '分集大纲', hook: '', beats: [], draft: '原正文', review: '旧审校',
+      draftSource: '内部输入指纹'.repeat(10_000)
+    }))
+    fetchMock.mockResolvedValue({ success: true, data: { episodeId: 'episode_60', draft: '修订正文' } })
+    const writing = useScriptWritingStudio({ studio, saveProject: vi.fn(async () => true) })
+
+    expect(await writing.generateEpisodeDraft('episode_60', true, true, '同时修复两项整改')).toBe(true)
+    const context = fetchMock.mock.calls[0]?.[1]?.body.context
+    expect(JSON.stringify(context).length).toBeLessThan(120_000)
+    expect(context.targetEpisode).not.toHaveProperty('draftSource')
+    expect(context.episodes.every((episode: Record<string, unknown>) => !('draftSource' in episode))).toBe(true)
+    expect(writing.pendingGeneration.value).toMatchObject({ kind: 'episode_draft', draft: '修订正文' })
+    expect(studio.value.episodes[59]?.draft).toBe('原正文')
+  })
+
+  it('preserves the draft and task completion state when revision fails', async () => {
+    const studio = ref(createEmptyScriptWritingStudio())
+    studio.value.storyBible = { premise: '升学宴', theme: '', world: '', tone: '', characters: [], rules: [] }
+    studio.value.episodes = [{ id: 'episode_1', index: 1, title: '开局', summary: '', hook: '', beats: [], draft: '原正文', review: '' }]
+    fetchMock.mockRejectedValue(new Error('修订请求失败'))
+    const writing = useScriptWritingStudio({ studio, saveProject: vi.fn(async () => true) })
+
+    expect(await writing.generateEpisodeDraft('episode_1', true, true, '修复整改')).toBe(false)
+    expect(writing.pendingGeneration.value).toBeNull()
+    expect(studio.value.episodes[0]?.draft).toBe('原正文')
+    expect(studio.value.resolvedReviewItems).toEqual([])
+  })
+
   it('resumes a paused batch without resetting progress', async () => {
     const studio = ref(createEmptyScriptWritingStudio())
     studio.value.storyBible = {

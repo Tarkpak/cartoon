@@ -297,6 +297,11 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
     return saveCurrent(createVersion)
   }
 
+  function buildEpisodeContext(episode: ScriptWritingEpisode) {
+    const { draftSource: _draftSource, review: _review, ...context } = episode
+    return context
+  }
+
   async function generateEpisodeDraft(
     episodeId: string,
     createVersion = true,
@@ -322,12 +327,12 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
     const data = await request('episode_draft', {
       brief: buildBriefContext(),
       storyBible: options.studio.value.storyBible,
-      episodes: options.studio.value.episodes.map(({ draft: _draft, review: _review, ...episode }) => episode),
+      episodes: options.studio.value.episodes.map(({ draft: _draft, review: _review, draftSource: _draftSource, ...episode }) => episode),
       previousDrafts,
       continuityLedger: options.studio.value.episodes
         .filter(item => item.index < target.index && item.continuityNotes?.trim())
         .map(item => ({ episodeId: item.id, index: item.index, notes: item.continuityNotes })),
-      targetEpisode: target,
+      targetEpisode: buildEpisodeContext(target),
       instruction: instruction.trim()
     })
     if (!data
@@ -512,7 +517,7 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
       const excerpt = episode.draft.length <= excerptBudget
         ? episode.draft
         : `${episode.draft.slice(0, half)}\n...[中段省略]...\n${episode.draft.slice(-half)}`
-      return { ...episode, draft: excerpt }
+      return { ...buildEpisodeContext(episode), draft: excerpt }
     })
   }
 
@@ -535,7 +540,7 @@ export function useScriptWritingStudio(options: UseScriptWritingStudioOptions) {
       const data = await request('review', {
         brief: buildBriefContext(),
         storyBible: options.studio.value.storyBible,
-        episodes: chunk,
+        episodes: chunk.map(buildEpisodeContext),
         instruction: instruction.trim(),
         reviewScope: chunks.length > 1
           ? {

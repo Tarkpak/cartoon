@@ -75,6 +75,17 @@ const outlineInstruction = ref('')
 const episodeInstruction = ref('')
 const reviewInstruction = ref('')
 const pendingReviewTaskId = ref('')
+const selectedReviewTaskIds = ref<string[]>([])
+const batchReviewBusy = ref(false)
+const batchReviewProgress = ref('')
+const batchReviewCandidates = ref<{
+  episodeId: string
+  title: string
+  currentDraft: string
+  draft: string
+  continuityNotes: string
+  taskIds: string[]
+}[]>([])
 const episodeMetaOpen = ref(false)
 const episodeInstructionOpen = ref(false)
 const focusMode = ref(false)
@@ -130,7 +141,7 @@ const selectedEpisode = computed(() => {
 const draftedCount = computed(() => studio.value.episodes.filter(item => item.draft.trim()).length)
 const remainingDraftCount = computed(() => studio.value.episodes.length - draftedCount.value)
 const publication = computed(() => buildScriptWritingPublication(studio.value))
-const isBusy = computed(() => activeAction.value !== null || isBatchGenerating.value)
+const isBusy = computed(() => activeAction.value !== null || isBatchGenerating.value || batchReviewBusy.value)
 const freshness = computed(() => resolveScriptWritingFreshness(studio.value))
 const isComplete = computed(() => studio.value.episodes.length > 0 && remainingDraftCount.value === 0)
 const hasStaleDrafts = computed(() => freshness.value.staleDraftIds.length > 0)
@@ -486,6 +497,87 @@ function toggleReviewTask(task: ScriptWritingReviewTask) {
     return
   }
   studio.value.resolvedReviewItems.push(task.id)
+}
+
+const selectableReviewTasks = computed(() => reviewProgress.value.tasks.filter(task =>
+  !reviewTaskResolved(task) && task.episodeId && studio.value.episodes.some(episode => episode.id === task.episodeId)
+))
+const selectedReviewTasks = computed(() => selectableReviewTasks.value.filter(task => selectedReviewTaskIds.value.includes(task.id)))
+const allReviewTasksSelected = computed(() => selectableReviewTasks.value.length > 0
+  && selectedReviewTasks.value.length === selectableReviewTasks.value.length)
+
+function toggleReviewSelection(taskId: string) {
+  selectedReviewTaskIds.value = selectedReviewTaskIds.value.includes(taskId)
+    ? selectedReviewTaskIds.value.filter(id => id !== taskId)
+    : [...selectedReviewTaskIds.value, taskId]
+}
+
+async function fixSelectedReviewTasks() {
+  if (isBusy.value || !selectedReviewTasks.value.length) return
+  const groups = new Map<string, ScriptWritingReviewTask[]>()
+  for (const task of selectedReviewTasks.value) {
+    if (!task.episodeId) continue
+    groups.set(task.episodeId, [...(groups.get(task.episodeId) || []), task])
+  }
+  batchReviewBusy.value = true
+  batchReviewCandidates.value = []
+  try {
+    let completed = 0
+    for (const [episodeId, tasks] of groups) {
+      const episode = studio.value.episodes.find(item => item.id === episodeId)!
+      batchReviewProgress.value = `正在修订第 ${episode.index} 集（${completed + 1}/${groups.size}）`
+      const instruction = tasks.map(task => [
+        `落实审校任务：${task.issue}`,
+        task.location ? `定位：${task.location}` : '',
+        `修改建议：${task.suggestion}`
+      ].filter(Boolean).join('\n')).join('\n\n') + '\n保留未涉及的问题和已有有效内容。'
+      if (!await generateEpisodeDraft(episodeId, true, true, instruction)) {
+        toast.error(`第 ${episode.index} 集修订失败，已生成的候选稿可继续确认`)
+        break
+      }
+      const pending = pendingGeneration.value
+      if (pending?.kind === 'episode_draft') {
+        batchReviewCandidates.value.push({
+          episodeId, title: `第 ${episode.index} 集 · ${episode.title}`,
+          currentDraft: episode.draft, draft: pending.draft,
+          continuityNotes: pending.continuityNotes, taskIds: tasks.map(task => task.id)
+        })
+      }
+      discardPendingGeneration()
+      completed++
+    }
+  } finally {
+    batchReviewBusy.value = false
+    batchReviewProgress.value = ''
+  }
+}
+
+async function acceptBatchReviewCandidates() {
+  if (isBusy.value || batchReviewCandidates.value.some(candidate => !candidate.draft.trim())) return
+  batchReviewBusy.value = true
+  try {
+    while (batchReviewCandidates.value.length) {
+      const candidate = batchReviewCandidates.value[0]!
+      pendingGeneration.value = {
+        kind: 'episode_draft', episodeId: candidate.episodeId,
+        draft: candidate.draft, continuityNotes: candidate.continuityNotes
+      }
+      if (!await applyPendingGeneration()) return
+      const previousResolvedItems = [...studio.value.resolvedReviewItems]
+      studio.value.resolvedReviewItems = [...new Set([...previousResolvedItems, ...candidate.taskIds])]
+      if (!await saveCurrent(true)) {
+        studio.value.resolvedReviewItems = previousResolvedItems
+        toast.error('修订保存失败，请重试；剩余候选稿已保留')
+        return
+      }
+      selectedReviewTaskIds.value = selectedReviewTaskIds.value.filter(id => !candidate.taskIds.includes(id))
+      batchReviewCandidates.value.shift()
+    }
+    toast.success('已采用批量修订，请重新审校确认结果')
+  } finally {
+    discardPendingGeneration()
+    batchReviewBusy.value = false
+  }
 }
 
 function toggleStoryBibleLock(field: ScriptWritingLockedField) {
@@ -1574,17 +1666,36 @@ function formatVersionTime(value: string) {
               <h3 class="text-sm font-semibold">整改任务</h3>
               <span class="text-xs tabular-nums text-muted-foreground">剩余 {{ reviewProgress.remaining }} 项</span>
             </div>
+            <div class="mb-3 flex flex-wrap items-center gap-3">
+              <label class="flex items-center gap-2 text-sm">
+                <Checkbox
+                  :model-value="allReviewTasksSelected"
+                  :disabled="isBusy || !selectableReviewTasks.length"
+                  @update:model-value="selectedReviewTaskIds = allReviewTasksSelected ? [] : selectableReviewTasks.map(task => task.id)"
+                />
+                全选待整改
+              </label>
+              <Button size="sm" class="gap-1.5" :disabled="isBusy || !selectedReviewTasks.length" @click="fixSelectedReviewTasks">
+                <Sparkles class="h-3.5 w-3.5" />
+                AI 修订所选 {{ selectedReviewTasks.length ? `（${selectedReviewTasks.length} 项）` : '' }}
+              </Button>
+              <span class="text-xs text-muted-foreground">{{ batchReviewProgress || '同集任务合并修订，生成后统一确认；全局问题需单独处理。' }}</span>
+            </div>
             <div class="space-y-3">
               <article
                 v-for="task in reviewProgress.tasks"
                 :key="task.id"
                 class="flex items-start gap-3 rounded-2xl bg-muted/20 p-4"
               >
-                <Checkbox
-                  :model-value="reviewTaskResolved(task)"
-                  class="mt-1"
-                  @update:model-value="toggleReviewTask(task)"
-                />
+                <div class="flex shrink-0 flex-col items-center gap-1 pt-1">
+                  <Checkbox
+                    :model-value="selectedReviewTaskIds.includes(task.id)"
+                    :disabled="isBusy || !selectableReviewTasks.some(item => item.id === task.id)"
+                    :aria-label="`选择修订：${task.issue}`"
+                    @update:model-value="toggleReviewSelection(task.id)"
+                  />
+                  <span class="text-[10px] text-muted-foreground">选择</span>
+                </div>
                 <div class="min-w-0 flex-1" :class="reviewTaskResolved(task) ? 'opacity-60' : ''">
                   <div class="flex flex-wrap items-center gap-2">
                     <Badge
@@ -1609,6 +1720,15 @@ function formatVersionTime(value: string) {
                   <Sparkles class="h-3.5 w-3.5" />
                   AI 修订
                 </Button>
+                <label class="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                  <Checkbox
+                    :model-value="reviewTaskResolved(task)"
+                    :disabled="isBusy"
+                    :aria-label="`标记整改完成：${task.issue}`"
+                    @update:model-value="toggleReviewTask(task)"
+                  />
+                  已完成
+                </label>
               </article>
             </div>
           </div>
@@ -1900,7 +2020,7 @@ function formatVersionTime(value: string) {
       </section>-->
     </main>
 
-    <Dialog :open="!!pendingGeneration" @update:open="open => { if (!open) discardCandidate() }">
+    <Dialog :open="!!pendingGeneration && !batchReviewBusy" @update:open="open => { if (!open) discardCandidate() }">
       <DialogContent class="flex max-h-[90dvh] max-w-6xl flex-col overflow-hidden">
         <DialogHeader class="shrink-0">
           <DialogTitle>{{ pendingGenerationSummary?.title }}</DialogTitle>
@@ -2053,6 +2173,34 @@ function formatVersionTime(value: string) {
           <Button :disabled="!pendingCandidateContent.trim()" @click="acceptPendingGeneration">
             采用候选稿
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog :open="batchReviewCandidates.length > 0 && !batchReviewBusy" @update:open="open => { if (!open) batchReviewCandidates = [] }">
+      <DialogContent class="flex max-h-[90dvh] max-w-6xl flex-col overflow-hidden">
+        <DialogHeader class="shrink-0">
+          <DialogTitle>批量 AI 修订候选稿 · {{ batchReviewCandidates.length }} 集</DialogTitle>
+          <DialogDescription>可编辑后统一采用。采用成功的任务将标记完成，仍需重新审校确认结果。</DialogDescription>
+        </DialogHeader>
+        <div class="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain">
+          <section v-for="candidate in batchReviewCandidates" :key="candidate.episodeId" class="space-y-3">
+            <h3 class="text-sm font-semibold">{{ candidate.title }} · {{ candidate.taskIds.length }} 项整改</h3>
+            <div class="grid gap-3 md:grid-cols-2">
+              <div class="rounded-xl bg-muted/40 p-4">
+                <h4 class="mb-3 text-xs text-muted-foreground">当前内容</h4>
+                <pre class="max-h-80 overflow-auto whitespace-pre-wrap font-sans text-sm leading-6">{{ candidate.currentDraft }}</pre>
+              </div>
+              <div class="flex flex-col rounded-xl bg-primary/5 p-4">
+                <h4 class="mb-3 text-xs text-primary">候选内容</h4>
+                <Textarea v-model="candidate.draft" class="min-h-64 flex-1 resize-none font-mono leading-6" />
+              </div>
+            </div>
+          </section>
+        </div>
+        <DialogFooter class="shrink-0 gap-2 sm:gap-2">
+          <Button variant="outline" @click="batchReviewCandidates = []">保留当前内容</Button>
+          <Button :disabled="batchReviewCandidates.some(candidate => !candidate.draft.trim())" @click="acceptBatchReviewCandidates">采用全部修订</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
