@@ -35,7 +35,7 @@
               <n-grid-item v-if="selectedKey">
                 <n-space justify="space-between" align="center">
                   <n-text v-if="currentOverride" depth="3">
-                    已配置云端默认，更新于 {{ currentOverride.updatedAt }}
+                    已配置云端默认，更新于 {{ formatAdminDateTime(currentOverride.updatedAt) }}
                   </n-text>
                   <n-text v-else depth="3">当前使用客户端内置默认，内容已显示，可直接修改</n-text>
                   <n-space>
