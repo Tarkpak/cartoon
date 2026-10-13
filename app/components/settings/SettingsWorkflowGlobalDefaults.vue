@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsModelReasoningControl from '@/components/settings/SettingsModelReasoningControl.vue'
 import type { SettingsModelConfig } from '@/lib/settings-models'
 import type {
   AvailableModelsResponse,
@@ -232,6 +233,12 @@ function toCheckedBoolean(value: unknown): boolean {
           </SelectItem>
         </SelectContent>
       </Select>
+
+      <SettingsModelReasoningControl
+        v-if="props.activeCategory === 'text' && activeDefaultConfig.models.some(model => model.model === activeDefaultConfig.value)"
+        :model="activeDefaultConfig.value"
+        :provider="activeDefaultConfig.models.find(model => model.model === activeDefaultConfig.value)!.provider"
+      />
     </div>
 
     <div

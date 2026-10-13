@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsModelReasoningControl from '@/components/settings/SettingsModelReasoningControl.vue'
 import type {
   WorkflowStep
 } from '#shared/types/workflow-models'
@@ -118,6 +119,12 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
             </SelectItem>
           </SelectContent>
         </Select>
+
+        <SettingsModelReasoningControl
+          v-if="getSelectedModel(workflow)"
+          :model="workflow.selectedModel || ''"
+          :provider="getSelectedModel(workflow)!.provider"
+        />
 
         <div
           v-if="!workflow.selectedModel"
