@@ -330,13 +330,13 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       @click.stop
     >
       <div
-        v-if="voiceReferenceSummary.hasDialogue || hasNarration"
+        v-if="voiceReferenceSummary.hasDialogue || voiceReferenceSummary.characters.length > 0 || hasNarration"
         class="grid min-h-10 grid-cols-[64px_minmax(0,1fr)] items-center gap-2 px-2.5 py-1.5"
       >
         <span class="text-xs font-medium text-muted-foreground">音频参考</span>
         <div class="flex min-w-0 flex-wrap items-center gap-2">
           <AssetWorkbenchSceneVoiceReferenceSummary
-            v-if="voiceReferenceSummary.hasDialogue && voiceReferenceSummary.mode !== 'none'"
+            v-if="voiceReferenceSummary.mode !== 'none'"
             :summary="voiceReferenceSummary"
           />
           <div
@@ -395,7 +395,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
 
       <div
         class="grid min-h-10 grid-cols-[64px_minmax(0,1fr)] items-center gap-2 border-t px-2.5 py-1.5"
-        :class="voiceReferenceSummary.hasDialogue || hasNarration ? '' : 'border-t-0'"
+        :class="voiceReferenceSummary.hasDialogue || voiceReferenceSummary.characters.length > 0 || hasNarration ? '' : 'border-t-0'"
       >
         <span class="text-xs font-medium text-muted-foreground">环境引用</span>
         <div class="flex min-w-0 flex-wrap items-center gap-2">

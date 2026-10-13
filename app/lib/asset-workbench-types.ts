@@ -194,6 +194,7 @@ export interface SceneVideoBadge {
 export interface SceneVoiceReferenceCharacter {
   id: string
   name: string
+  audioUrl: string
   locked: boolean
   source: 'manual' | 'auto'
 }

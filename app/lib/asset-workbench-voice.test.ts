@@ -2,6 +2,45 @@ import { describe, expect, it } from 'vitest'
 import { resolveSceneVoiceReferenceSummary } from './asset-workbench-voice'
 
 describe('resolveSceneVoiceReferenceSummary', () => {
+  it('uses the linked character voice when prose has no speaker labels', () => {
+    const summary = resolveSceneVoiceReferenceSummary({
+      scene: {
+        description: '阿青走进房间，轻声询问发生了什么。',
+        characters: [{ name: '阿青', assetId: 'char:char_1' }]
+      },
+      characters: [{
+        id: 'char_1', name: '阿青·成年',
+        voiceAsset: { audioUrl: 'https://example.com/upload.mp3', updatedAt: '' }
+      }, {
+        id: 'char_2', name: '老周',
+        voiceAsset: { audioUrl: 'https://example.com/other.mp3', updatedAt: '' }
+      }]
+    })
+    expect(summary.hasDialogue).toBe(false)
+    expect(summary.mode).toBe('explicit_audio')
+    expect(summary.characters.map(item => item.audioUrl)).toEqual(['https://example.com/upload.mp3'])
+  })
+
+  it('does not attach unrelated voices to an empty scene', () => {
+    const summary = resolveSceneVoiceReferenceSummary({
+      scene: { description: '空镜', characters: [] },
+      characters: [{ id: 'char_1', name: '阿青', voiceAsset: { audioUrl: 'https://example.com/upload.mp3', updatedAt: '' } }]
+    })
+    expect(summary.mode).toBe('none')
+    expect(summary.characters).toEqual([])
+  })
+
+  it('excludes silent characters when the description identifies a speaker', () => {
+    const summary = resolveSceneVoiceReferenceSummary({
+      scene: { description: '阿青：你终于来了', characters: [{ name: '阿青' }, { name: '老周' }] },
+      characters: [
+        { id: 'char_1', name: '阿青', voiceAsset: { audioUrl: 'https://example.com/aqing.mp3', updatedAt: '' } },
+        { id: 'char_2', name: '老周', voiceAsset: { audioUrl: 'https://example.com/zhou.mp3', updatedAt: '' } }
+      ]
+    })
+    expect(summary.characters.map(item => item.id)).toEqual(['char_1'])
+  })
+
   it('returns explicit audio mode for a single-speaker scene with a voice asset', () => {
     const summary = resolveSceneVoiceReferenceSummary({
       scene: {
@@ -25,6 +64,7 @@ describe('resolveSceneVoiceReferenceSummary', () => {
       {
         id: 'char_1',
         name: '阿青',
+        audioUrl: 'https://example.com/aqing.mp3',
         locked: true,
         source: 'manual'
       }

@@ -2,7 +2,7 @@ import type { CharacterData, SceneData } from './asset-workbench-models'
 import type { SceneVoiceReferenceSummary } from './asset-workbench-types'
 
 type VoiceCharacterLike = Pick<CharacterData, 'id' | 'name' | 'voiceAsset'>
-type VoiceSceneLike = Pick<SceneData, 'description'>
+type VoiceSceneLike = Pick<SceneData, 'description'> & Partial<Pick<SceneData, 'characters'>>
 
 const NON_SPEAKER_LABELS = new Set([
   '场景功能',
@@ -80,23 +80,28 @@ export function resolveSceneVoiceReferenceSummary(options: {
   characters: VoiceCharacterLike[]
   supportsExplicitAudioReference?: boolean
 }): SceneVoiceReferenceSummary {
-  const speakerNames = new Set<string>()
   const seenCharacterIds = new Set<string>()
   const matchedCharacters: SceneVoiceReferenceSummary['characters'] = []
 
-  for (const speaker of extractDialogueSpeakers(options.scene.description)) {
-    const normalizedSpeaker = normalizeSpeakerName(speaker)
-    if (normalizedSpeaker) {
-      speakerNames.add(normalizedSpeaker)
-    }
+  const dialogueSpeakers = extractDialogueSpeakers(options.scene.description)
+  const sceneCharacters = options.scene.characters || []
+  const speakers = dialogueSpeakers.length > 0
+    ? dialogueSpeakers
+    : sceneCharacters.map(character => character.name)
 
-    const character = resolveCharacterBySpeakerName(speaker, options.characters)
-    if (!character || seenCharacterIds.has(character.id) || !character.voiceAsset?.audioUrl) continue
+  for (const speaker of speakers) {
+    const sceneCharacter = sceneCharacters.find(item => normalizeSpeakerName(item.name) === normalizeSpeakerName(speaker))
+    const assetId = sceneCharacter?.assetId?.replace(/^char:/, '')
+    const character = assetId
+      ? options.characters.find(item => item.id === assetId)
+      : resolveCharacterBySpeakerName(speaker, options.characters)
+    if (!character || seenCharacterIds.has(character.id) || !character.voiceAsset?.audioUrl?.trim()) continue
 
     seenCharacterIds.add(character.id)
     matchedCharacters.push({
       id: character.id,
       name: character.name,
+      audioUrl: character.voiceAsset.audioUrl.trim(),
       locked: character.voiceAsset.locked === true,
       source: resolveVoiceAssetSource(character)
     })
@@ -104,14 +109,14 @@ export function resolveSceneVoiceReferenceSummary(options: {
 
   if (matchedCharacters.length === 0) {
     return {
-      hasDialogue: speakerNames.size > 0,
+      hasDialogue: dialogueSpeakers.length > 0,
       mode: 'none',
       characters: []
     }
   }
 
   return {
-    hasDialogue: speakerNames.size > 0,
+    hasDialogue: dialogueSpeakers.length > 0,
     mode:
       matchedCharacters.length === 1
       && options.supportsExplicitAudioReference !== false

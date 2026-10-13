@@ -10140,10 +10140,10 @@ fn trigger_character_voice_asset_extraction(
 }
 
 fn scene_dialogue_speakers(scene: &Value) -> Vec<String> {
-    let Some(description) = scene.get("description").and_then(Value::as_str) else {
-        return Vec::new();
-    };
-
+    let description = scene
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let mut speakers = Vec::new();
     let mut seen = HashSet::<String>::new();
     for (speaker, _) in extract_description_dialogues(description) {
@@ -10153,6 +10153,55 @@ fn scene_dialogue_speakers(scene: &Value) -> Vec<String> {
         }
     }
     speakers
+}
+
+fn scene_character_matches_voice(scene: &Value, character_id: &str, character_name: &str) -> bool {
+    let speakers = scene_dialogue_speakers(scene);
+    let normalized_name = normalize_speaker_name(character_name);
+    let characters = scene.get("characters").and_then(Value::as_array);
+    if !speakers.is_empty() {
+        return speakers.iter().any(|speaker| {
+            let speaker = normalize_speaker_name(speaker);
+            if let Some(linked_character) = characters.and_then(|characters| {
+                characters.iter().find(|character| {
+                    character
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .is_some_and(|name| normalize_speaker_name(name) == speaker)
+                })
+            }) {
+                if let Some(asset_id) = linked_character
+                    .get("assetId")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                {
+                    return asset_id.strip_prefix("char:").unwrap_or(asset_id) == character_id;
+                }
+            }
+            !normalized_name.is_empty()
+                && (normalized_name.contains(&speaker) || speaker.contains(&normalized_name))
+        });
+    }
+    // Structured character references remain usable when prose has no speaker labels.
+    characters.is_some_and(|characters| {
+        characters.iter().any(|character| {
+            if let Some(asset_id) = character
+                .get("assetId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+            {
+                return asset_id.strip_prefix("char:").unwrap_or(asset_id) == character_id;
+            }
+            character
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| {
+                    !normalized_name.is_empty() && normalize_speaker_name(name) == normalized_name
+                })
+        })
+    })
 }
 
 fn voice_asset_audio_url(value: &Value) -> Option<String> {
@@ -10455,17 +10504,6 @@ fn inject_scene_voice_reference(
     }
 
     let speakers = scene_dialogue_speakers(scene);
-    if speakers.is_empty() {
-        return Ok(());
-    }
-    let normalized_speakers = speakers
-        .iter()
-        .map(|speaker| normalize_speaker_name(speaker))
-        .filter(|speaker| !speaker.is_empty())
-        .collect::<HashSet<_>>();
-    if normalized_speakers.is_empty() {
-        return Ok(());
-    }
 
     let conn = db_connection(state)?;
     let project_id = conn
@@ -10497,12 +10535,7 @@ fn inject_scene_voice_reference(
     for row in rows {
         let (character_id, character_name, raw_voice_asset) = row
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-        let normalized_name = normalize_speaker_name(&character_name);
-        if normalized_name.is_empty()
-            || !normalized_speakers.iter().any(|speaker| {
-                normalized_name.contains(speaker) || speaker.contains(&normalized_name)
-            })
-        {
+        if !scene_character_matches_voice(scene, &character_id, &character_name) {
             continue;
         }
         let Some(voice_asset) =
@@ -16595,6 +16628,27 @@ mod tests {
             "video_2aab34735d96434d8ef6839d46596f23",
             "scene_9bd3c6418b904f5d816e322863450496"
         ));
+    }
+
+    #[test]
+    fn scene_voice_matches_structured_characters_without_dialogue_labels() {
+        let scene = json!({
+            "description": "阿青走进房间，轻声询问发生了什么。",
+            "characters": [{"name": "阿青", "assetId": "char:char_1"}]
+        });
+        assert!(scene_character_matches_voice(&scene, "char_1", "阿青·成年"));
+        assert!(!scene_character_matches_voice(&scene, "char_2", "阿青"));
+        assert!(!scene_character_matches_voice(&json!({"description": "空镜"}), "char_1", "阿青"));
+    }
+
+    #[test]
+    fn scene_voice_prefers_dialogue_speakers_over_silent_characters() {
+        let scene = json!({
+            "description": "阿青：你终于来了",
+            "characters": [{"name": "阿青"}, {"name": "老周"}]
+        });
+        assert!(scene_character_matches_voice(&scene, "char_1", "阿青"));
+        assert!(!scene_character_matches_voice(&scene, "char_2", "老周"));
     }
 
     #[test]

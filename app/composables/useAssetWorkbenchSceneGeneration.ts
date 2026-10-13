@@ -1,3 +1,4 @@
+import { resolveSceneVoiceReferenceSummary } from '~/lib/asset-workbench-voice'
 import type { ComputedRef, Ref } from 'vue'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
@@ -408,6 +409,10 @@ export function useAssetWorkbenchSceneGeneration(
             locked: narrationVoiceReference.locked
           }
         : null,
+      characterVoiceAssets: resolveSceneVoiceReferenceSummary({
+        scene,
+        characters: options.characters.value
+      }).characters,
       characterImages,
       characterAssets: characterReferenceAssets.map(asset => ({
         assetId: asset.assetId,

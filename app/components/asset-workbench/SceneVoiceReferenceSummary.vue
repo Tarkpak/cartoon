@@ -14,7 +14,7 @@ const label = computed(() => {
 
 <template>
   <div
-    v-if="summary.hasDialogue"
+    v-if="summary.characters.length > 0"
     class="flex flex-wrap items-center gap-1.5"
   >
     <Badge
@@ -23,11 +23,10 @@ const label = computed(() => {
     >
       {{ label }}
     </Badge>
-    <Badge
+    <div
       v-for="character in summary.characters"
       :key="character.id"
-      variant="outline"
-      class="inline-flex max-w-[220px] items-center gap-1 text-xs"
+      class="flex min-w-0 flex-wrap items-center gap-1 text-xs"
     >
       <span class="truncate">
         {{ character.name }}
@@ -41,6 +40,13 @@ const label = computed(() => {
       >
         锁定
       </span>
-    </Badge>
+      <audio
+        :src="character.audioUrl"
+        :aria-label="`${character.name}声音参考`"
+        class="h-8 w-[220px] max-w-full"
+        controls
+        preload="none"
+      />
+    </div>
   </div>
 </template>
