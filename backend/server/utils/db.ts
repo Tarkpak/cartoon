@@ -1,3 +1,4 @@
+import { ensureProjectEditLeaseSchema } from './project-edit-leases'
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Database } from 'bun:sqlite'
@@ -471,6 +472,7 @@ function initSchema(conn: Database) {
     CREATE INDEX IF NOT EXISTS idx_voice_preset_previews_speaker
       ON voice_preset_previews(speaker_id, status);
   `)
+  ensureProjectEditLeaseSchema(conn)
   addColumnIfMissing(conn, 'user_projects', 'deleted_at TEXT')
 
   addColumnIfMissing(conn, 'model_call_logs', 'credits_charged REAL NOT NULL DEFAULT 0')

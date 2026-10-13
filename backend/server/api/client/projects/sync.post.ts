@@ -1,3 +1,4 @@
+import { requireProjectEditLease } from '../../../utils/project-edit-leases'
 import { createError } from 'h3'
 import { randomUUID } from 'node:crypto'
 import { getDb, jsonText, nowIso } from '../../../utils/db'
@@ -36,6 +37,7 @@ interface ProjectPayload {
   localUpdatedAt?: string
   local_updated_at?: string
   baseUpdatedAt?: string | null
+  editLeaseToken?: string | null
   deletedAt?: string | null
   summary?: unknown
   snapshot?: unknown
@@ -188,6 +190,7 @@ export default defineEventHandler(async (event) => {
       }
       const access = resolveProjectAccess(project, localProjectId)
       const { ownerUserId } = access
+      requireProjectEditLease(db, { ownerUserId, localProjectId, userId: auth.user.id, token: optionalString(project.editLeaseToken, 128) })
       const existing = selectProject.get(ownerUserId, localProjectId) as { id: string, local_updated_at: string | null, deleted_at: string | null } | undefined
       const projectId = existing?.id || randomUUID()
       const baseUpdatedAt = optionalString(project.baseUpdatedAt, 64)

@@ -1,4 +1,6 @@
-import { ref, type ComputedRef, type Ref } from 'vue'
+import { useProjectEditSession } from './useProjectEditSession'
+import { ref, getCurrentInstance, type ComputedRef, type Ref } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
 import {
   DEFAULT_SCRIPT_PARSE_MODE,
@@ -71,6 +73,13 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   const saveWarning = ref<string | null>(null)
   const loading = ref(false)
   const projectAccess = ref<ProjectAccess | null>(null)
+  const { editSession, projectEditable, acquiring: acquiringEditSession, openEditSession, releaseEditSession } = useProjectEditSession(async (id) => {
+    const body = buildProjectSaveBody()
+    if (buildProjectSaveSnapshot(id, body) === lastSavedProjectSnapshot) return undefined
+    const response = await $fetch<{ backupId: string }>(`/api/project/${encodeURIComponent(id)}/edit-session/backup`, { method: 'POST', body })
+    return response.backupId
+  })
+
   const activeProjectId = ref(options.projectId.value || '')
   let lastSavedProjectSnapshot: string | null = null
   let saveQueue: Promise<void> = Promise.resolve()
@@ -282,9 +291,11 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     }
   }
 
-  async function loadProject(id: string) {
+  async function loadProject(id: string, skipLease = false) {
     const requestSequence = ++loadRequestSequence
     loading.value = true
+    if (!skipLease) await openEditSession(id)
+    if (requestSequence !== loadRequestSequence) return
     activeProjectId.value = id
     lastSavedProjectSnapshot = null
     mergeStatus.value = { running: false, progress: 0 }
@@ -389,6 +400,10 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   }
 
   async function performSaveProject(expectedProjectId?: string) {
+    if ((activeProjectId.value || options.projectId.value) && !projectEditable.value) {
+      saveError.value = '当前没有项目编辑权，未同步修改已保留，请重新取得编辑权。'
+      return false
+    }
     if (projectAccess.value && !projectAccessCan(projectAccess.value, 'edit')) {
       return true
     }
@@ -437,6 +452,8 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
 
         id = createResponse.project.id
         activeProjectId.value = id
+        await openEditSession(id)
+        if (!projectEditable.value) throw new Error(editSession.value.reason || '未取得项目编辑权')
         await options.router.replace({ query: { ...options.route.query, project: id } })
       }
 
@@ -543,12 +560,63 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     }
   }
 
+  async function requestProjectEditing(takeover = false) {
+    loading.value = true
+    try {
+      const id = activeProjectId.value || options.projectId.value
+      if (!id) return
+      if (lastSavedProjectSnapshot !== null) {
+        const body = buildProjectSaveBody()
+        if (buildProjectSaveSnapshot(id, body) !== lastSavedProjectSnapshot) {
+          const response = await $fetch<{ backupId: string }>(`/api/project/${encodeURIComponent(id)}/edit-session/backup`, { method: 'POST', body })
+          editSession.value.backupId = response.backupId
+        }
+      }
+      await openEditSession(id, takeover)
+      if (projectEditable.value) await loadProject(id, true)
+    } finally { loading.value = false }
+  }
+
+  async function downloadEditBackup() {
+    const id = activeProjectId.value || options.projectId.value
+    if (!id || !editSession.value.backupId) return
+    const data = await $fetch(`/api/project/${encodeURIComponent(id)}/edit-session/backup/${editSession.value.backupId}`)
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `未同步修改-${editSession.value.backupId}.json`
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  if (getCurrentInstance()) onBeforeRouteLeave(async () => {
+    const id = activeProjectId.value || options.projectId.value
+    if (id && projectEditable.value) {
+      if (!await saveProject(id)) return false
+    } else if (id && lastSavedProjectSnapshot !== null) {
+      const body = buildProjectSaveBody()
+      if (buildProjectSaveSnapshot(id, body) !== lastSavedProjectSnapshot) {
+        try {
+          await $fetch(`/api/project/${encodeURIComponent(id)}/edit-session/backup`, { method: 'POST', body })
+        } catch { saveError.value = '未同步修改尚未备份，暂时不能离开项目。'; return false }
+      }
+    }
+    await releaseEditSession()
+    return true
+  })
+
   return {
     loading,
     saving,
     saveError,
     saveWarning,
     projectAccess,
+    projectEditable,
+    editSession,
+    acquiringEditSession,
+    requestProjectEditing,
+    downloadEditBackup,
+    releaseEditSession,
     saveProject,
     loadProject,
     refreshCharacterVoiceAssets,

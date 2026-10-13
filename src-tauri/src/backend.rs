@@ -119,6 +119,10 @@ mod douyin;
 mod library_api;
 #[path = "backend/model_constraints.rs"]
 mod model_constraints;
+#[path = "backend/project_edit_session.rs"]
+mod project_edit_session;
+#[path = "backend/project_conflict.rs"]
+mod project_conflict;
 #[path = "backend/prompts_api.rs"]
 mod prompts_api;
 #[path = "backend/runtime_api.rs"]
@@ -136,6 +140,8 @@ mod xiaohongshu;
 
 use library_api::*;
 use model_constraints::{build_available_model_entry, image_model_config, AvailableModelKind};
+use project_conflict::*;
+use project_edit_session::*;
 use prompts_api::*;
 use runtime_api::*;
 use short_video::*;
@@ -143,6 +149,7 @@ use video_import::*;
 use voice_api::*;
 
 tokio::task_local! {
+    static CURRENT_EDIT_SESSION: Option<String>;
     static CURRENT_REQUEST_ID: String;
     static CURRENT_MODEL_LOG_CONTEXT: ModelLogContext;
 }
@@ -698,6 +705,7 @@ async fn request_observability_middleware(
     mut request: Request,
     next: Next,
 ) -> Response {
+    let edit_session = request.headers().get("x-project-edit-session").and_then(|value| value.to_str().ok()).map(str::to_string);
     let request_id = request_id_from_headers(request.headers());
     let method = request.method().as_str().to_string();
     let path = request.uri().path().to_string();
@@ -712,7 +720,7 @@ async fn request_observability_middleware(
     request.extensions_mut().insert(request_id.clone());
 
     let mut response = CURRENT_REQUEST_ID
-        .scope(request_id.clone(), async move { next.run(request).await })
+        .scope(request_id.clone(), async move { CURRENT_EDIT_SESSION.scope(edit_session, next.run(request)).await })
         .await;
     let status = response.status();
     let duration_ms = started_at.elapsed().as_millis().min(i64::MAX as u128) as i64;
@@ -1858,6 +1866,8 @@ fn local_project_updated_at_for_owner(
 }
 
 fn reset_account_scoped_config(conn: &Connection) -> Result<(), ApiError> {
+    conn.execute("DELETE FROM system_config WHERE key LIKE 'project_edit_session:%'", [])
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     for key in [
         WORKFLOW_MODELS_KEY,
         WORKFLOW_MODEL_OPTIONS_KEY,
@@ -5198,6 +5208,21 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
     let router = Router::new()
         .route("/api/project/list", get(api_project_list))
         .route("/api/project/create", post(api_project_create))
+        .route("/api/project/{id}/edit-session", post(api_project_edit_session))
+        .route("/api/project/{id}/edit-session/backup", post(api_project_edit_backup))
+        .route("/api/project/{id}/edit-session/backup/{backup_id}", get(api_project_edit_backup_get))
+        .route(
+            "/api/project/{id}/sync-conflict/backup",
+            post(api_project_conflict_backup),
+        )
+        .route(
+            "/api/project/{id}/sync-conflict/backup/{backup_id}",
+            get(api_project_conflict_backup_get),
+        )
+        .route(
+            "/api/project/{id}/sync-conflict/resolve",
+            post(api_project_conflict_resolve),
+        )
         .route("/api/project/{id}/members", get(api_project_members))
         .route(
             "/api/project/{id}/members/{user_id}",
@@ -6328,6 +6353,8 @@ async fn api_project_member_put(
     if user_id.trim().is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少成员用户 ID"));
     }
+    ensure_project_permission(&db_connection(&state)?, &id, ProjectPermission::ManageMembers)?;
+    acquire_conflict_edit_session(&state, &id).await?;
     let conn = db_connection(&state)?;
     ensure_project_permission(&conn, &id, ProjectPermission::ManageMembers)?;
     let project_owner_id = conn
@@ -6388,6 +6415,8 @@ async fn api_project_member_delete(
     Path((id, user_id)): Path<(String, String)>,
     State(state): State<BackendState>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission(&db_connection(&state)?, &id, ProjectPermission::ManageMembers)?;
+    acquire_conflict_edit_session(&state, &id).await?;
     let conn = db_connection(&state)?;
     let current_user = ensure_project_permission(&conn, &id, ProjectPermission::ManageMembers)?;
     validate_project_member_removal(&current_user.user_id, &user_id)?;
@@ -6415,6 +6444,8 @@ async fn api_project_delete(
     if id.trim().is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少项目ID"));
     }
+    ensure_project_permission(&db_connection(&state)?, &id, ProjectPermission::Delete)?;
+    acquire_conflict_edit_session(&state, &id).await?;
     let mut conn = db_connection(&state)?;
     let requester = ensure_project_permission(&conn, id.as_str(), ProjectPermission::Delete)?;
     let owner_user_id: String = conn.query_row(
@@ -7556,6 +7587,8 @@ struct ProjectPutOptions {
     skip_cloud_sync: bool,
     skip_access_check: bool,
     preserve_updated_at: Option<String>,
+    // A reviewed conflict snapshot replaces content and commits its cloud revision atomically.
+    expected_updated_at: Option<String>,
 }
 
 async fn api_project_put(
@@ -7578,7 +7611,34 @@ async fn api_project_put_inner(
     Json(body): Json<Value>,
     options: ProjectPutOptions,
 ) -> Result<Json<Value>, ApiError> {
-    let conn = db_connection(&state)?;
+    if !options.skip_access_check && options.expected_updated_at.is_none() {
+        ensure_project_edit_session(&state, &id).await?;
+    }
+    let mut connection = db_connection(&state)?;
+    let conn = connection
+        .transaction()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if let Some(expected) = options.expected_updated_at.as_deref() {
+        let current: String = conn
+            .query_row(
+                "SELECT updated_at FROM projects WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        if current != expected {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "本地项目已变化，请重新打开冲突处理",
+            ));
+        }
+    }
+    if !options.skip_access_check && options.expected_updated_at.is_none() {
+        capture_project_edit_lease(&state, &id)?;
+        let status: String = conn.query_row("SELECT cloud_sync_status FROM projects WHERE id = ?1", params![id], |row| row.get(0))
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        if status == "conflict" { return Err(ApiError::new(StatusCode::CONFLICT, "请先处理项目同步冲突")); }
+    }
     if !options.skip_access_check {
         ensure_project_permission(&conn, id.as_str(), ProjectPermission::Edit)?;
     }
@@ -7629,6 +7689,7 @@ async fn api_project_put_inner(
         .trim()
         .to_string();
     if existing_project.6 != "script_writing"
+        && options.expected_updated_at.is_none()
         && body.get("styleId").is_some()
         && !is_style_id_enabled(&conn, &style_id)?
     {
@@ -7700,8 +7761,15 @@ async fn api_project_put_inner(
         }
     };
 
-    let script_payload =
-        merge_script_payload(existing_script_raw.as_deref(), &body, &script_parse_mode);
+    let script_payload = merge_script_payload(
+        if options.expected_updated_at.is_some() {
+            None
+        } else {
+            existing_script_raw.as_deref()
+        },
+        &body,
+        &script_parse_mode,
+    );
     conn.execute(
         "UPDATE scripts SET raw_text = ?1, updated_at = ?2 WHERE id = ?3",
         params![script_payload, save_updated_at, script_id],
@@ -8128,7 +8196,26 @@ async fn api_project_put_inner(
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     }
 
-    drop(conn);
+    if options.skip_cloud_sync && options.expected_updated_at.is_some() {
+        conn.execute(
+            "UPDATE projects SET cloud_sync_status = 'synced', cloud_sync_error = NULL, cloud_base_updated_at = ?1, cloud_synced_at = ?2 WHERE id = ?3",
+            params![save_updated_at, now_iso(), id],
+        ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        conn.execute(
+            "UPDATE scripts SET title = ?1, parsed_data = ?2 WHERE id = ?3",
+            params![
+                body.get("scriptTitle").and_then(Value::as_str),
+                body.get("parsedData")
+                    .filter(|value| !value.is_null())
+                    .map(Value::to_string),
+                script_id
+            ],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
+    conn.commit()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    drop(connection);
     let mut cloud_sync = json!({
       "status": if options.skip_cloud_sync { "skipped" } else { "disabled" }
     });
@@ -11944,11 +12031,13 @@ async fn sync_project_deletion_locked(state: &BackendState, project_id: &str) ->
                 }
             }
         }
+        acquire_deleted_project_lease(state, project_id, &owner_user_id).await?;
         let response = cloud_post_client_json(state, "/api/client/projects/sync", json!({
             "localProjectId": project_id,
             "ownerUserId": owner_user_id,
             "deletedAt": deleted_at,
             "localUpdatedAt": deleted_at,
+            "editLeaseToken": cached_project_edit_session(state, project_id)?.get("token"),
             "baseUpdatedAt": expected_version
         })).await?;
         match ensure_cloud_project_sync_accepted(&response, project_id) {
@@ -12095,6 +12184,7 @@ async fn cloud_sync_project_by_id_locked(
     let body = json!({
       "localProjectId": project_id,
       "baseUpdatedAt": cloud_base_updated_at,
+      "editLeaseToken": cached_project_edit_session(state, project_id)?.get("token"),
       "ownerUserId": owner_user_id,
       "name": project.get("name").and_then(Value::as_str).unwrap_or("未命名项目"),
       "description": project.get("description").cloned().unwrap_or(Value::Null),
@@ -12388,6 +12478,7 @@ async fn apply_cloud_project_snapshot(
         ProjectPutOptions {
             skip_cloud_sync: true,
             skip_access_check: true,
+            expected_updated_at: None,
             preserve_updated_at: (!remote_updated_at.trim().is_empty())
                 .then(|| remote_updated_at.trim().to_string()),
         },

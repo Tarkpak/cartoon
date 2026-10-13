@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ProjectEditSessionBanner from '@/components/projects/ProjectEditSessionBanner.vue'
+import { buildScriptWritingExportText } from '~/lib/script-writing-export'
 import { ArrowUpRight, FilePlus2, Loader2, PenLine, Search, Trash2 } from 'lucide-vue-next'
 import type { ScriptWritingPublication } from '#shared/types/script-writing'
 import { createProjectDraft, type Project, type ProjectDraft, type ProjectListResponse } from '~/lib/projects-page'
@@ -34,6 +36,12 @@ const {
   saveWarning,
   saveProject,
   loadProject,
+  projectEditable,
+  editSession,
+  acquiringEditSession,
+  requestProjectEditing,
+  downloadEditBackup,
+  releaseEditSession,
   finalVideo
 } = useAssetWorkbench()
 
@@ -73,11 +81,12 @@ function queryProjectId() {
 }
 
 function openProjectList() {
+  void releaseEditSession()
   return router.replace({ path: '/tools/script-writing', query: { list: '1' } })
 }
 
 async function saveCurrentStudio() {
-  if (!loadedProjectId.value || switchingProject.value) return true
+  if (!loadedProjectId.value || switchingProject.value || !projectEditable.value) return true
   const saved = await (writingStudioRef.value?.saveCurrent() || saveSelectedProject())
   if (!saved) toast.error('当前剧本未能保存，操作已取消')
   return saved
@@ -114,7 +123,7 @@ async function switchProject(nextProjectId: string, saveCurrent = true) {
   try {
     // Unmount the previous editor before replacing its project-backed state.
     await nextTick()
-    if (saveCurrent && previousProjectId) {
+    if (saveCurrent && previousProjectId && projectEditable.value) {
       const saved = await saveProject(previousProjectId)
       if (!saved) {
         selectedProjectId.value = previousProjectId
@@ -302,9 +311,14 @@ onBeforeRouteUpdate(async (to) => {
 })
 
 onBeforeRouteLeave(async () => {
-  if (!loadedProjectId.value || switchingProject.value) return true
+  if (!loadedProjectId.value || switchingProject.value || !projectEditable.value) return true
   return await saveCurrentStudio()
 })
+const { confirm } = useConfirm()
+async function confirmWritingTakeover() {
+  if (await confirm({ title: '接管项目编辑权', description: '当前编辑者将转为只读，未提交修改会保留。确定要接管吗？', confirmText: '接管编辑权' })) await requestProjectEditing(true)
+}
+
 </script>
 
 <template>
@@ -508,7 +522,19 @@ onBeforeRouteLeave(async () => {
       </div>
 
       <div v-else class="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+        <ProjectEditSessionBanner
+          :session="editSession"
+          :busy="acquiringEditSession"
+          @retry="requestProjectEditing()"
+          @takeover="confirmWritingTakeover"
+          @download-backup="downloadEditBackup()"
+        />
+        <div v-if="!projectEditable" class="min-h-0 flex-1 overflow-y-auto p-4">
+          <Button variant="outline" size="sm" @click="openProjectList">返回项目列表</Button>
+          <pre class="mt-4 whitespace-pre-wrap break-words font-sans text-sm leading-7">{{ buildScriptWritingExportText(writingStudio) }}</pre>
+        </div>
         <AssetWorkbenchWritingStudio
+          v-else
           ref="writingStudioRef"
           :key="loadedProjectId"
           v-model="writingStudio"

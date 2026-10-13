@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ProjectEditSessionBanner from '@/components/projects/ProjectEditSessionBanner.vue'
 import { useDebounceFn } from '@vueuse/core'
 import type { CharacterVoiceAsset } from '#shared/types/character'
 import type { LibraryAsset } from '#shared/types/library'
@@ -223,6 +224,11 @@ const {
   saveError,
   saveWarning,
   projectAccess,
+  projectEditable,
+  editSession,
+  acquiringEditSession,
+  requestProjectEditing,
+  downloadEditBackup,
   saveProject,
   loadProject,
   deleteScene,
@@ -237,7 +243,8 @@ const {
   finalVideo
 } = useAssetWorkbench()
 
-const canEditProject = computed(() => !projectAccess.value || projectAccessCan(projectAccess.value, 'edit'))
+const { confirm } = useConfirm()
+const canEditProject = computed(() => projectEditable.value && (!projectAccess.value || projectAccessCan(projectAccess.value, 'edit')))
 const canExportProject = computed(() => !projectAccess.value || projectAccessCan(projectAccess.value, 'export'))
 
 const selectedSceneId = ref<string>('')
@@ -3671,6 +3678,12 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
   }
 }
 
+async function confirmProjectTakeover() {
+  if (await confirm({ title: '接管项目编辑权', description: '当前编辑者将转为只读，未提交修改会保留。确定要接管吗？', confirmText: '接管编辑权' })) {
+    await requestProjectEditing(true)
+  }
+}
+
 </script>
 
 <template>
@@ -3689,6 +3702,14 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
       :save-warning="saveWarning"
       @back="router.push('/projects')"
       @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
+    />
+
+    <ProjectEditSessionBanner
+      :session="editSession"
+      :busy="acquiringEditSession"
+      @retry="requestProjectEditing()"
+      @takeover="confirmProjectTakeover"
+      @download-backup="downloadEditBackup()"
     />
 
     <div

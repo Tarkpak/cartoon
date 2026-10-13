@@ -9850,6 +9850,9 @@ fn apply_character_voice_asset(
     let transaction = conn
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if let Some(task_id) = next_asset.get("sourceTaskId").and_then(Value::as_str) {
+        if !super::task_matches_cached_edit_lease(&transaction, task_id)? { return Ok(false); }
+    }
     let raw_existing = transaction
         .query_row(
             "SELECT voice_asset FROM characters WHERE id = ?1 LIMIT 1",
@@ -9872,6 +9875,10 @@ fn apply_character_voice_asset(
             params![next_asset.to_string(), now_iso(), character_id],
         )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    transaction.execute(
+        "UPDATE projects SET updated_at = ?1, cloud_sync_status = 'pending', cloud_sync_error = NULL WHERE id = (SELECT project_id FROM characters WHERE id = ?2)",
+        params![now_iso(), character_id],
+    ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     transaction
         .commit()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -9887,6 +9894,9 @@ fn apply_narration_voice_asset(
     let transaction = conn
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if let Some(task_id) = next_asset.get("sourceTaskId").and_then(Value::as_str) {
+        if !super::task_matches_cached_edit_lease(&transaction, task_id)? { return Ok(false); }
+    }
     let raw_text = transaction
         .query_row(
             "SELECT raw_text FROM scripts WHERE id = ?1 LIMIT 1",
@@ -9928,6 +9938,10 @@ fn apply_narration_voice_asset(
             params![script_payload.to_string(), now_iso(), target.script_id],
         )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    transaction.execute(
+        "UPDATE projects SET updated_at = ?1, cloud_sync_status = 'pending', cloud_sync_error = NULL WHERE id = (SELECT project_id FROM scripts WHERE id = ?2)",
+        params![now_iso(), target.script_id],
+    ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     transaction
         .commit()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -9940,6 +9954,7 @@ async fn extract_character_voice_assets_from_scene_video(
     task_id: &str,
     video_url: &str,
 ) -> Result<(), ApiError> {
+    if !super::task_can_write_project(state, task_id, scene_id).await? { return Ok(()); }
     let Some(context) = load_scene_voice_context(state, scene_id)? else {
         return Ok(());
     };
@@ -10038,7 +10053,8 @@ async fn extract_character_voice_assets_from_scene_video(
                 "matchScore": (voice_match.match_score * 10_000.0).round() / 10_000.0,
                 "updatedAt": now_iso()
             });
-            if apply_character_voice_asset(state, &voice_match.character_id, next_asset)? {
+            if super::task_can_write_project(state, task_id, scene_id).await?
+                && apply_character_voice_asset(state, &voice_match.character_id, next_asset)? {
                 project_changed = true;
                 eprintln!(
                     "[VoiceAsset] 已更新角色声音资产: {} ({:.3})",
@@ -10090,7 +10106,8 @@ async fn extract_character_voice_assets_from_scene_video(
                 "matchScore": (voice_match.match_score * 10_000.0).round() / 10_000.0,
                 "updatedAt": now_iso()
             });
-            if apply_narration_voice_asset(state, target, next_asset)? {
+            if super::task_can_write_project(state, task_id, scene_id).await?
+                && apply_narration_voice_asset(state, target, next_asset)? {
                 project_changed = true;
                 eprintln!(
                     "[VoiceAsset] 已更新旁白声音资产: {} ({:.3})",
@@ -10699,6 +10716,11 @@ fn insert_pending_video_task(
     config: &Value,
     metadata: &Value,
 ) -> Result<(), ApiError> {
+    let mut config = config.clone();
+    if let Some(project_id) = resolve_project_id_for_scene(state, scene_id)? {
+        config["projectEditLease"] = super::capture_project_edit_lease(state, &project_id)?;
+        super::start_task_edit_lease_renewal(state, &project_id);
+    }
     let conn = db_connection(state)?;
     let now = now_iso();
     let metadata = video_task_metadata_with_model_log_context(metadata);
@@ -10797,16 +10819,24 @@ fn persist_last_frame_from_video_url(
     result
 }
 
-fn sync_scene_video_result(
+async fn sync_scene_video_result(
     state: &BackendState,
+    task_id: &str,
     scene_id: &str,
     video_url: &str,
 ) -> Result<Option<String>, ApiError> {
     if scene_id.trim().is_empty() || video_url.trim().is_empty() {
         return Ok(None);
     }
+    if !super::task_can_write_project(state, task_id, scene_id).await? {
+        eprintln!("[EditSession] video result kept in task {task_id}; project write skipped after lease loss");
+        return Ok(None);
+    }
     let last_frame = persist_last_frame_from_video_url(state, scene_id, video_url);
-    let conn = db_connection(state)?;
+    let mut connection = db_connection(state)?;
+    let conn = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if !super::task_matches_cached_edit_lease(&conn, task_id)? { return Ok(None); }
     if let Some(last_frame_url) = last_frame.as_deref() {
         conn.execute(
             "UPDATE scenes SET video_url = ?1, last_frame = ?2, status = 'video_ready', updated_at = ?3 WHERE id = ?4",
@@ -10820,6 +10850,11 @@ fn sync_scene_video_result(
         )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     }
+    conn.execute(
+        "UPDATE projects SET updated_at = ?1, cloud_sync_status = 'pending', cloud_sync_error = NULL WHERE id = (SELECT scripts.project_id FROM scenes JOIN scripts ON scenes.script_id = scripts.id WHERE scenes.id = ?2)",
+        params![now_iso(), scene_id],
+    ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    conn.commit().map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(last_frame)
 }
 
@@ -10888,7 +10923,7 @@ async fn complete_tracked_video_task(
 ) -> Result<(), ApiError> {
     let local_video_url =
         persist_video_source(state, remote_video_url, &format!("video_{}", scene_id)).await?;
-    let last_frame = sync_scene_video_result(state, scene_id, &local_video_url)?;
+    let last_frame = sync_scene_video_result(state, task_id, scene_id, &local_video_url).await?;
     let mut completed_metadata = json!({
       "provider": provider,
       "modelId": model_id.unwrap_or(""),
@@ -11092,7 +11127,7 @@ async fn refresh_tracked_video_task(
                         &format!("video_{}", scene_id),
                     )
                     .await?;
-                    let last_frame = sync_scene_video_result(state, scene_id, &local_video_url)?;
+                    let last_frame = sync_scene_video_result(state, task_id, scene_id, &local_video_url).await?;
                     let completed_metadata = json!({
                       "provider": "gemini",
                       "modelId": model_id.unwrap_or(""),
@@ -12746,7 +12781,7 @@ async fn run_grok_video_task_background(
         )?;
         let local_video_url =
             persist_video_source(&state, &remote_video_url, &format!("video_{}", scene_id)).await?;
-        let last_frame = sync_scene_video_result(&state, &scene_id, &local_video_url)?;
+        let last_frame = sync_scene_video_result(&state, &task_id, &scene_id, &local_video_url).await?;
         let completed_metadata = json!({
           "provider": "custom_openai",
           "modelId": model_id,
@@ -12847,7 +12882,7 @@ async fn run_qwen_video_task_background(
         )?;
         let local_video_url =
             persist_video_source(&state, &remote_video_url, &format!("video_{}", scene_id)).await?;
-        let last_frame = sync_scene_video_result(&state, &scene_id, &local_video_url)?;
+        let last_frame = sync_scene_video_result(&state, &task_id, &scene_id, &local_video_url).await?;
         let completed_metadata = json!({
           "provider": "qwen",
           "modelId": model_id,
@@ -13783,7 +13818,7 @@ async fn run_volcengine_video_task_background(
         )?;
         let local_video_url =
             persist_video_source(&state, &remote_video_url, &format!("video_{}", scene_id)).await?;
-        let last_frame = sync_scene_video_result(&state, &scene_id, &local_video_url)?;
+        let last_frame = sync_scene_video_result(&state, &task_id, &scene_id, &local_video_url).await?;
         let completed_metadata = json!({
           "provider": "volcengine",
           "modelId": model_id,
@@ -15107,7 +15142,7 @@ async fn run_kling_video_task_background(
         )?;
         let local_video_url =
             persist_video_source(&state, &remote_video_url, &format!("video_{}", scene_id)).await?;
-        let last_frame = sync_scene_video_result(&state, &scene_id, &local_video_url)?;
+        let last_frame = sync_scene_video_result(&state, &task_id, &scene_id, &local_video_url).await?;
         let completed_metadata = json!({
           "provider": "kling",
           "modelId": model_id,
@@ -15958,7 +15993,7 @@ async fn run_gemini_video_task_background(
             &format!("video_{}", scene_id),
         )
         .await?;
-        let last_frame = sync_scene_video_result(&state, &scene_id, &local_video_url)?;
+        let last_frame = sync_scene_video_result(&state, &task_id, &scene_id, &local_video_url).await?;
         let completed_metadata = json!({
           "provider": "gemini",
           "modelId": model_id,
@@ -19770,7 +19805,7 @@ pub(super) async fn api_script_write(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     let prompt = {
         let conn = db_connection(&state)?;
         build_script_writing_prompt(&conn, &body)?
@@ -19814,7 +19849,7 @@ pub(super) async fn api_script_episode_plan(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     validate_episode_plan_request(&body)?;
     let context = model_log_context_from_workflow_body(&body, None, None);
     let text = body
@@ -19858,7 +19893,7 @@ pub(super) async fn api_script_parse(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     validate_script_parse_request(&body)?;
     let context = model_log_context_from_workflow_body(&body, None, None);
     let prompt = {
@@ -20551,7 +20586,7 @@ pub(super) async fn api_script_export_docx(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Export)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Export).await?;
     let scenes = validate_script_docx_payload(&body)?.clone();
     let project_name = json_string(body.get("projectName"), "剧本检视稿");
     let include_dialogues_from_description = body
@@ -20646,7 +20681,7 @@ pub(super) async fn api_asset_upload_image(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Edit)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Edit).await?;
     let image_data = body
         .get("imageData")
         .and_then(Value::as_str)
@@ -21263,7 +21298,7 @@ pub(super) async fn api_character_voice_upload(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Edit)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Edit).await?;
     let audio_data = body
         .get("audioData")
         .and_then(Value::as_str)
@@ -21420,7 +21455,7 @@ pub(super) async fn api_character_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     let start = Utc::now().timestamp_millis();
     validate_character_generate_payload(&body)?;
     let character = body
@@ -22117,7 +22152,7 @@ pub(super) async fn api_asset_prop_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     let start = Utc::now().timestamp_millis();
     validate_prop_generate_payload(&body)?;
     let prop = body.get("prop").expect("validated prop object");
@@ -22178,7 +22213,7 @@ pub(super) async fn api_asset_reference_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     let start = Utc::now().timestamp_millis();
     validate_reference_generate_payload(&body)?;
     let scene = body.get("scene").cloned().expect("validated scene object");
@@ -22344,7 +22379,7 @@ pub(super) async fn api_asset_scene_description_refinement(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     validate_scene_refinement_payload(&body)?;
     let scene = body.get("scene").cloned().expect("validated scene object");
     let user_message = json_string(body.get("userMessage"), "");
@@ -22416,7 +22451,7 @@ pub(super) async fn api_asset_video_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     let start = Utc::now().timestamp_millis();
     validate_video_generate_payload(&body)?;
     let scene = body.get("scene").cloned().expect("validated scene object");
@@ -22617,7 +22652,7 @@ pub(super) async fn api_video_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     let start = Utc::now().timestamp_millis();
     let (scene_id, mut config) = parse_video_generate_request(&body)?;
     let project_id = body.get("projectId").and_then(trimmed_json_string);
@@ -23374,14 +23409,24 @@ fn parse_video_merge_request(body: &Value) -> Result<(String, Vec<Value>), ApiEr
     Ok((project_id, scenes.clone()))
 }
 
-fn ensure_project_permission_from_body(
+async fn ensure_project_permission_from_body(
     state: &BackendState,
     body: &Value,
     permission: super::ProjectPermission,
 ) -> Result<(), ApiError> {
     let project_id = required_permission_project_id(body)?;
-    let conn = db_connection(state)?;
-    super::ensure_project_permission(&conn, &project_id, permission)?;
+    {
+        let conn = db_connection(state)?;
+        super::ensure_project_permission(&conn, &project_id, permission)?;
+        if matches!(permission, super::ProjectPermission::Edit | super::ProjectPermission::Generate) {
+            let status: String = conn.query_row("SELECT cloud_sync_status FROM projects WHERE id = ?1", params![project_id], |row| row.get(0))
+                .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            if status == "conflict" { return Err(ApiError::new(StatusCode::CONFLICT, "请先处理项目同步冲突")); }
+        }
+    }
+    if matches!(permission, super::ProjectPermission::Edit | super::ProjectPermission::Generate) {
+        super::ensure_project_edit_session(state, &project_id).await?;
+    }
     Ok(())
 }
 
@@ -24605,7 +24650,7 @@ pub(super) async fn api_video_export_jianying(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Export)?;
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Export).await?;
     let project_name = json_string(body.get("projectName"), "资产工作台项目");
     let (draft_content, draft_info, draft_meta, manifest, warnings) =
         build_jianying_draft(&state, &body)?;

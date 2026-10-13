@@ -1,3 +1,4 @@
+import { projectEditSessionId, noteProjectLeaseLost } from './project-edit-session'
 import { ofetch } from 'ofetch'
 import type { App } from 'vue'
 
@@ -62,6 +63,7 @@ function isApiRequest(input: RequestInfo | URL | string) {
 function headersWithRequestId(headers: HeadersInit | undefined, requestId: string) {
   const nextHeaders = new Headers(headers)
   nextHeaders.set(REQUEST_ID_HEADER, requestId)
+  nextHeaders.set('x-project-edit-session', projectEditSessionId)
   return nextHeaders
 }
 
@@ -151,6 +153,7 @@ export async function observedFetch(input: RequestInfo | URL, init: RequestInit 
     const response = await fetch(input, nextInit)
     const responseRequestId = response.headers.get(REQUEST_ID_HEADER) || requestId
     if (!response.ok) {
+      noteProjectLeaseLost(response.status, path, init.body)
       const payload = await readErrorPayload(response.clone())
       recordFrontendLog({
         level: response.status >= 500 ? 'error' : 'warn',
@@ -204,6 +207,7 @@ export const $fetch = ofetch.create({
     if (!isApiRequest(request)) return
     const method = String(options.method || 'GET').toUpperCase()
     const path = apiPath(request)
+    noteProjectLeaseLost(response.status, path, options.body)
     recordFrontendLog({
       level: response.status >= 500 ? 'error' : 'warn',
       category: 'api_response_error',

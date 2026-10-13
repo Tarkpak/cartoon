@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { Plus } from 'lucide-vue-next'
+import type { Project } from '~/lib/projects-page'
+import ProjectSyncConflictDialog from '@/components/projects/ProjectSyncConflictDialog.vue'
 import { projectAspectRatioOptions } from '~/lib/projects-page'
 import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue'
 import ProjectDeleteDialog from '@/components/projects/ProjectDeleteDialog.vue'
@@ -21,6 +23,7 @@ const {
   styleConfigLoading,
   effectiveDefaultStyleId,
   projects,
+  fetchProjects,
   loading,
   error,
   searchKeyword,
@@ -58,6 +61,13 @@ const aspectRatioOptions = projectAspectRatioOptions
 const { currentUser } = useCloudAdmin()
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 const isWritingProject = isWritingWorkspace
+const conflictDialogOpen = ref(false)
+const conflictProject = ref<Project | null>(null)
+function openSyncConflict(project: Project) {
+  conflictProject.value = project
+  conflictDialogOpen.value = true
+}
+
 const projectMembersDialogOpen = ref(false)
 const projectMembersProjectId = ref('')
 
@@ -110,11 +120,18 @@ function openProjectMembers(project: { id: string }) {
         @open-create="openCreateDialog"
         @open-project="openProject"
         @manage-members="openProjectMembers"
+        @resolve-sync-conflict="openSyncConflict"
         @confirm-delete="confirmDelete"
         @page-change="goToPage"
         @page-size-change="handlePageSizeChange"
       />
     </AppPageContent>
+
+    <ProjectSyncConflictDialog
+      v-model:open="conflictDialogOpen"
+      :project="conflictProject"
+      @resolved="fetchProjects()"
+    />
 
     <ProjectDeleteDialog
       v-model:open="showDeleteDialog"

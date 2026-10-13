@@ -5,6 +5,14 @@ import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import { useAssetWorkbenchProjectIO } from './useAssetWorkbenchProjectIO'
 
+vi.mock('./useProjectEditSession', () => ({
+  useProjectEditSession: () => ({
+    editSession: ref({ editable: true, canTakeover: true }),
+    projectEditable: ref(true), acquiring: ref(false),
+    openEditSession: vi.fn(async () => {}), releaseEditSession: vi.fn(async () => {})
+  })
+}))
+
 interface FetchOptions {
   method?: string
   body?: unknown
