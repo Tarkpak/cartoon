@@ -17453,6 +17453,36 @@ mod tests {
     }
 
     #[test]
+    fn text_reasoning_defaults_low_and_respects_provider_overrides() {
+        let mut body = openai_compatible_text_request_body("gpt-5.6-sol", "parse");
+        apply_text_reasoning_effort(&mut body, "custom_openai", "gpt-5.6-sol", &json!({}));
+        assert_eq!(body["reasoning_effort"], json!("low"));
+        assert!(body.get("temperature").is_none());
+
+        let creds = json!({"modelReasoning": {"custom_openai:gpt-5.6-sol": "high"}});
+        apply_text_reasoning_effort(&mut body, "custom_openai", "gpt-5.6-sol", &creds);
+        assert_eq!(body["reasoning_effort"], json!("high"));
+        let mut other = openai_compatible_text_request_body("gpt-5.6-sol", "parse");
+        apply_text_reasoning_effort(&mut other, "qwen", "gpt-5.6-sol", &creds);
+        assert_eq!(other["reasoning_effort"], json!("low"));
+    }
+
+    #[test]
+    fn text_reasoning_omits_service_default_and_unsupported_models() {
+        let mut body = openai_compatible_text_request_body("o3-mini", "parse");
+        let creds = json!({"modelReasoning": {"custom_openai:o3-mini": "default"}});
+        apply_text_reasoning_effort(&mut body, "custom_openai", "o3-mini", &creds);
+        assert!(body.get("reasoning_effort").is_none());
+        for model in ["gpt-4o", "qwen3.6-plus", "o1-preview", "o1-mini", "gpt-5-pro", "gpt-5-chat-latest"] {
+            let mut body = openai_compatible_text_request_body(model, "parse");
+            apply_text_reasoning_effort(&mut body, "custom_openai", model, &json!({}));
+            assert!(body.get("reasoning_effort").is_none());
+            assert_eq!(body["temperature"], json!(0.7));
+        }
+        assert!(supports_text_reasoning_effort(" models/gpt-6.1-sol "));
+    }
+
+    #[test]
     fn openai_text_response_detects_json_length_truncation() {
         let body = r#"{"choices":[{"message":{"content":"半截内容"},"finish_reason":"length"}]}"#;
 
@@ -18311,6 +18341,32 @@ fn is_gpt_text_model(model_id: &str) -> bool {
     model_id.trim().to_ascii_lowercase().starts_with("gpt-")
 }
 
+fn supports_text_reasoning_effort(model_id: &str) -> bool {
+    let model = normalize_model_id_for_remote(model_id).to_ascii_lowercase();
+    if model.contains("-pro") || model.contains("-chat")
+        || model.starts_with("o1-mini") || model.starts_with("o1-preview")
+    {
+        return false;
+    }
+    ["gpt-5", "gpt-6", "o1", "o3", "o4-mini"].iter()
+        .any(|prefix| model == *prefix || model.strip_prefix(prefix)
+            .is_some_and(|suffix| suffix.starts_with('-') || suffix.starts_with('.')))
+}
+
+fn apply_text_reasoning_effort(body: &mut Value, provider: &str, model_id: &str, creds: &Value) {
+    if !supports_text_reasoning_effort(model_id) {
+        return;
+    }
+    let key = format!("{}:{}", provider, model_id.trim());
+    let effort = creds.get("modelReasoning").and_then(|config| config.get(&key))
+        .and_then(Value::as_str).unwrap_or("low");
+    if matches!(effort, "low" | "medium" | "high") {
+        body["reasoning_effort"] = json!(effort);
+    }
+    // Reasoning models can reject custom sampling temperatures.
+    body.as_object_mut().unwrap().remove("temperature");
+}
+
 fn openai_compatible_text_request_body(model_id: &str, prompt: &str) -> Value {
     let mut request_body = json!({
       "model": model_id,
@@ -18361,6 +18417,7 @@ async fn request_openai_compatible_text_completion(
     creds: &Value,
 ) -> Result<String, String> {
     let resolved_custom_openai;
+    let reasoning_creds = creds;
     let request_creds = if provider == "custom_openai" {
         resolved_custom_openai = custom_openai_entry_for_model(model_id, creds)
             .ok_or_else(|| "未配置自定义 OpenAI 供应商".to_string())?;
@@ -18400,7 +18457,8 @@ async fn request_openai_compatible_text_completion(
     );
 
     for api_key in api_keys {
-        let request_body = openai_compatible_text_request_body(model.as_str(), prompt);
+        let mut request_body = openai_compatible_text_request_body(model.as_str(), prompt);
+        apply_text_reasoning_effort(&mut request_body, provider, model_id, reasoning_creds);
         let response = llm_http_client()
             .post(&endpoint)
             .bearer_auth(api_key)

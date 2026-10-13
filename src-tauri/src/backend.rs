@@ -5258,6 +5258,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/model-providers", get(api_model_providers))
         .route("/api/model-providers/index", get(api_model_providers))
         .route(
+            "/api/model-providers/reasoning",
+            get(api_model_reasoning_get).put(api_model_reasoning_put),
+        )
+        .route(
             "/api/model-providers/config/export",
             get(api_model_providers_config_export),
         )
@@ -9199,6 +9203,8 @@ fn load_provider_creds(conn: &Connection) -> Value {
         obj.insert("custom_openai".to_string(), custom_openai);
     }
     overlay_cloud_provider_creds(conn, &mut creds);
+    creds["modelReasoning"] = get_config_json(conn, "model_reasoning")
+        .ok().flatten().unwrap_or_else(|| json!({}));
     creds
 }
 
@@ -10628,6 +10634,31 @@ async fn api_model_providers(State(state): State<BackendState>) -> Result<Json<V
       "success": true,
       "data": { "providers": providers }
     })))
+}
+
+async fn api_model_reasoning_get(State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let conn = db_connection(&state)?;
+    let data = get_config_json(&conn, "model_reasoning")?.unwrap_or_else(|| json!({}));
+    Ok(Json(json!({ "success": true, "data": data })))
+}
+
+async fn api_model_reasoning_put(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let provider = body.get("provider").and_then(Value::as_str).unwrap_or("");
+    let model = body.get("model").and_then(Value::as_str).unwrap_or("").trim();
+    let effort = body.get("effort").and_then(Value::as_str).unwrap_or("");
+    if !is_supported_provider(provider) || model.is_empty()
+        || !matches!(effort, "default" | "low" | "medium" | "high")
+    {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "无效的模型推理强度配置"));
+    }
+    let conn = db_connection(&state)?;
+    let mut data = get_config_json(&conn, "model_reasoning")?.unwrap_or_else(|| json!({}));
+    data[format!("{provider}:{model}")] = json!(effort);
+    set_config_json(&conn, "model_reasoning", &data)?;
+    Ok(Json(json!({ "success": true, "data": data })))
 }
 
 async fn api_model_provider_models_put(

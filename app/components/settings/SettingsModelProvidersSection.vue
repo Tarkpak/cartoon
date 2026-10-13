@@ -15,6 +15,7 @@ import SettingsProviderCredentials from '@/components/settings/SettingsProviderC
 import SettingsProviderLogo from '@/components/settings/SettingsProviderLogo.vue'
 import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.vue'
 import { useSettingsModelCatalog } from '@/composables/useSettingsModelCatalog'
+import { supportsTextReasoningEffort, type ReasoningEffort } from '#shared/utils/model-reasoning'
 
 type ProviderId = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'deepseek' | 'custom_openai' | 'autodl' | 'topaz'
 
@@ -82,6 +83,8 @@ const enabledModelsByProvider = ref<Partial<Record<ProviderId, string[]>>>({})
 const errorMessage = ref('')
 const activeProvider = ref<ProviderId | null>(null)
 const modelSearchKeyword = ref('')
+const modelReasoning = ref<Record<string, ReasoningEffort>>({})
+const savingReasoning = ref(false)
 const { loadModels } = useSettingsModelCatalog()
 
 const activeProviderSummary = computed(() => {
@@ -101,7 +104,11 @@ async function loadProviders() {
   errorMessage.value = ''
 
   try {
-    const response = await $fetch<ModelProvidersResponse>('/api/model-providers')
+    const [response, reasoning] = await Promise.all([
+      $fetch<ModelProvidersResponse>('/api/model-providers'),
+      $fetch<{ success: boolean, data: Record<string, ReasoningEffort> }>('/api/model-providers/reasoning')
+    ])
+    modelReasoning.value = reasoning.data
     if (response.success) {
       providers.value = response.data.providers
       enabledModelsByProvider.value = Object.fromEntries(
@@ -126,6 +133,28 @@ async function loadProviders() {
 
 function retryLoadProviders() {
   void loadProviders()
+}
+
+function reasoningEffort(model: string): ReasoningEffort {
+  return modelReasoning.value[`${activeProviderSummary.value?.provider}:${model}`] || 'low'
+}
+
+async function saveReasoningEffort(model: string, value: unknown) {
+  const provider = activeProviderSummary.value?.provider
+  if (!provider || !['default', 'low', 'medium', 'high'].includes(String(value))) return
+  savingReasoning.value = true
+  errorMessage.value = ''
+  try {
+    const response = await $fetch<{ success: boolean, data: Record<string, ReasoningEffort> }>('/api/model-providers/reasoning', {
+      method: 'PUT',
+      body: { provider, model, effort: value }
+    })
+    modelReasoning.value = response.data
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '保存推理强度失败'
+  } finally {
+    savingReasoning.value = false
+  }
 }
 
 async function refreshModelCatalog() {
@@ -632,18 +661,36 @@ onMounted(() => {
                       </div>
 
                       <div class="mt-2 grid grid-cols-1 gap-1 @lg:grid-cols-2">
-                        <label
+                        <div
                           v-for="model in group.models"
                           :key="`${activeProviderSummary.provider}_${group.key}_${model}`"
                           class="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted/60"
                         >
-                          <Checkbox
-                            :checked="isModelEnabled(activeProviderSummary.provider, model)"
-                            :disabled="savingProvider === activeProviderSummary.provider || syncingProvider !== null"
-                            @update:checked="(value: boolean | 'indeterminate') => updateActiveProviderModel(model, value)"
-                          />
-                          <span class="truncate">{{ model }}</span>
-                        </label>
+                          <label class="flex min-w-0 flex-1 items-center gap-2">
+                            <Checkbox
+                              :checked="isModelEnabled(activeProviderSummary.provider, model)"
+                              :disabled="savingProvider === activeProviderSummary.provider || syncingProvider !== null"
+                              @update:checked="(value: boolean | 'indeterminate') => updateActiveProviderModel(model, value)"
+                            />
+                            <span class="truncate">{{ model }}</span>
+                          </label>
+                          <Select
+                            v-if="group.key === 'text' && activeProviderSummary.provider !== 'gemini' && supportsTextReasoningEffort(model)"
+                            :model-value="reasoningEffort(model)"
+                            :disabled="savingReasoning"
+                            @update:model-value="value => saveReasoningEffort(model, value)"
+                          >
+                            <SelectTrigger class="h-7 w-28 shrink-0 text-xs" :aria-label="`${model} 推理强度`">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="low">推理：低</SelectItem>
+                              <SelectItem value="medium">推理：中</SelectItem>
+                              <SelectItem value="high">推理：高</SelectItem>
+                              <SelectItem value="default">服务默认</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     </section>
                   </div>
