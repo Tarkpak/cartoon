@@ -20175,22 +20175,27 @@ pub(super) async fn api_script_parse_stream(
 ) -> Result<Response, ApiError> {
     validate_script_parse_request(&body)?;
     let request_id = current_request_id();
+    // Response bodies are polled after the middleware's task-local scope ends.
+    let edit_session = CURRENT_EDIT_SESSION.try_with(Clone::clone).ok().flatten();
 
     enum ParseStreamState {
         Accepted {
             state: BackendState,
             body: Value,
             request_id: Option<String>,
+            edit_session: Option<String>,
         },
         Parsing {
             state: BackendState,
             body: Value,
             request_id: Option<String>,
+            edit_session: Option<String>,
         },
         Model {
             state: BackendState,
             body: Value,
             request_id: Option<String>,
+            edit_session: Option<String>,
         },
         Done,
     }
@@ -20204,6 +20209,7 @@ pub(super) async fn api_script_parse_stream(
             state,
             body,
             request_id,
+            edit_session,
         },
         |stream_state| async move {
             match stream_state {
@@ -20211,6 +20217,7 @@ pub(super) async fn api_script_parse_stream(
                     state,
                     body,
                     request_id,
+                    edit_session,
                 } => Some((
                     ndjson_line(json!({
                       "type": "progress",
@@ -20225,12 +20232,14 @@ pub(super) async fn api_script_parse_stream(
                         state,
                         body,
                         request_id,
+                        edit_session,
                     },
                 )),
                 ParseStreamState::Parsing {
                     state,
                     body,
                     request_id,
+                    edit_session,
                 } => Some((
                     ndjson_line(json!({
                       "type": "progress",
@@ -20245,23 +20254,20 @@ pub(super) async fn api_script_parse_stream(
                         state,
                         body,
                         request_id,
+                        edit_session,
                     },
                 )),
                 ParseStreamState::Model {
                     state,
                     body,
                     request_id,
+                    edit_session,
                 } => {
-                    let parse_result = match request_id {
-                        Some(request_id) => {
-                            CURRENT_REQUEST_ID
-                                .scope(request_id, async {
-                                    api_script_parse(State(state), Json(body)).await
-                                })
-                                .await
-                        }
-                        None => api_script_parse(State(state), Json(body)).await,
-                    };
+                    let parse_result = scope_script_parse_stream_context(
+                        edit_session,
+                        request_id,
+                        api_script_parse(State(state), Json(body)),
+                    ).await;
                     let event = match parse_result {
                         Ok(parsed) => json!({
                           "type": "result",
@@ -20294,6 +20300,50 @@ pub(super) async fn api_script_parse_stream(
         )
         .body(Body::from_stream(body_stream))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+async fn scope_script_parse_stream_context<F: std::future::Future>(
+    edit_session: Option<String>,
+    request_id: Option<String>,
+    future: F,
+) -> F::Output {
+    CURRENT_EDIT_SESSION.scope(edit_session, async move {
+        match request_id {
+            Some(request_id) => CURRENT_REQUEST_ID.scope(request_id, future).await,
+            None => future.await,
+        }
+    }).await
+}
+
+#[cfg(test)]
+mod script_parse_stream_context_tests {
+    use super::*;
+    use futures_util::StreamExt;
+
+    #[tokio::test]
+    async fn restores_session_when_body_is_polled_after_request_scope() {
+        for request_id in [Some("parse-request".to_string()), None] {
+            let stream = CURRENT_EDIT_SESSION.scope(Some("editor-window".to_string()), async {
+                let edit_session = CURRENT_EDIT_SESSION.try_with(Clone::clone).ok().flatten();
+                stream::once(scope_script_parse_stream_context(edit_session, request_id.clone(), async {
+                    (CURRENT_EDIT_SESSION.with(Clone::clone), current_request_id())
+                }))
+            }).await;
+            assert!(CURRENT_EDIT_SESSION.try_with(Clone::clone).is_err());
+            futures_util::pin_mut!(stream);
+            let (session, restored_request_id) = stream.next().await.unwrap();
+            assert_eq!(session.as_deref(), Some("editor-window"));
+            assert_eq!(restored_request_id, request_id);
+        }
+    }
+
+    #[tokio::test]
+    async fn does_not_grant_a_session_to_requests_without_one() {
+        let session = scope_script_parse_stream_context(None, None, async {
+            CURRENT_EDIT_SESSION.with(Clone::clone)
+        }).await;
+        assert_eq!(session, None);
+    }
 }
 
 fn xml_escape_text(raw: &str) -> String {
