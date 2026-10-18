@@ -20,6 +20,7 @@ export interface Project {
   totalScenes: number
   createdAt: string
   updatedAt: string
+  collaboration?: boolean
   cloudSyncStatus?: 'pending' | 'synced' | 'conflict' | 'legacy'
   cloudSyncError?: string | null
   ownerAccount?: string | null

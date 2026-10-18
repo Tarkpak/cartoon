@@ -2,6 +2,7 @@ import { createError } from 'h3'
 import { getDb, parseJsonText } from '../../../../../utils/db'
 import { requireAdmin } from '../../../../../utils/auth'
 import { requiredParam } from '../../../../../utils/http'
+import { collaborationSnapshot, projectUsesCollaboration } from '../../../../../utils/project-collaboration'
 
 export default defineEventHandler((event) => {
   requireAdmin(event)
@@ -42,7 +43,7 @@ export default defineEventHandler((event) => {
             id: snapshot.id,
             version: snapshot.snapshot_version,
             createdAt: snapshot.created_at,
-            data: parseJsonText(snapshot.snapshot_json, {})
+            data: projectUsesCollaboration(db, projectId) ? collaborationSnapshot(db, projectId) : parseJsonText(snapshot.snapshot_json, {})
           }
         : null
     }

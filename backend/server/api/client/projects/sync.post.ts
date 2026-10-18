@@ -1,4 +1,5 @@
 import { requireProjectEditLease } from '../../../utils/project-edit-leases'
+import { rejectLegacyProjectWrite } from '../../../utils/project-collaboration'
 import { createError } from 'h3'
 import { randomUUID } from 'node:crypto'
 import { getDb, jsonText, nowIso } from '../../../utils/db'
@@ -190,6 +191,7 @@ export default defineEventHandler(async (event) => {
       }
       const access = resolveProjectAccess(project, localProjectId)
       const { ownerUserId } = access
+      if (access.existing) rejectLegacyProjectWrite(db, access.existing.id)
       requireProjectEditLease(db, { ownerUserId, localProjectId, userId: auth.user.id, token: optionalString(project.editLeaseToken, 128) })
       const existing = selectProject.get(ownerUserId, localProjectId) as { id: string, local_updated_at: string | null, deleted_at: string | null } | undefined
       const projectId = existing?.id || randomUUID()

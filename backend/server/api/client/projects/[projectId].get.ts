@@ -2,6 +2,7 @@ import { createError } from 'h3'
 import { getDb, parseJsonText } from '../../../utils/db'
 import { requireAuth } from '../../../utils/auth'
 import { requiredParam } from '../../../utils/http'
+import { collaborationSnapshot, projectUsesCollaboration } from '../../../utils/project-collaboration'
 import {
   canonicalCloudProjectMembers,
   canonicalizeCloudProjectSnapshot,
@@ -33,7 +34,7 @@ export default defineEventHandler((event) => {
     throw createError({ statusCode: 404, statusMessage: 'Project not found' })
   }
   const snapshot = canonicalizeCloudProjectSnapshot(
-    parseJsonText(project.snapshot_json as string | null, null),
+    projectUsesCollaboration(db, projectId) ? collaborationSnapshot(db, projectId) : parseJsonText(project.snapshot_json as string | null, null),
     canonicalCloudProjectMembers(db, projectId)
   )
 
@@ -42,6 +43,7 @@ export default defineEventHandler((event) => {
     data: {
       project: {
         id: project.id,
+        collaboration: projectUsesCollaboration(db, projectId),
         ownerUserId: project.user_id,
         ownerAccount: project.owner_account,
         ownerDisplayName: project.owner_display_name,

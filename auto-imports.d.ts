@@ -120,6 +120,7 @@ declare global {
   const useModel: typeof import('vue')['useModel']
   const useModelDebugLogs: typeof import('./app/composables/useModelDebugLogs')['useModelDebugLogs']
   const useModelReasoningSettings: typeof import('./app/composables/useModelReasoningSettings')['useModelReasoningSettings']
+  const useProjectCollaboration: typeof import('./app/composables/useProjectCollaboration')['useProjectCollaboration']
   const useProjectEditSession: typeof import('./app/composables/useProjectEditSession')['useProjectEditSession']
   const useProjectSyncConflict: typeof import('./app/composables/useProjectSyncConflict')['useProjectSyncConflict']
   const useProjectsIndexPage: typeof import('./app/composables/useProjectsIndexPage')['useProjectsIndexPage']
@@ -191,6 +192,9 @@ declare global {
   // @ts-ignore
   export type { ModelDebugErrorInfo, ModelDebugMediaRef, ModelDebugLogEntry } from './app/composables/useModelDebugLogs'
   import('./app/composables/useModelDebugLogs')
+  // @ts-ignore
+  export type { CollaborationScope } from './app/composables/useProjectCollaboration'
+  import('./app/composables/useProjectCollaboration')
   // @ts-ignore
   export type { ProjectEditSessionState } from './app/composables/useProjectEditSession'
   import('./app/composables/useProjectEditSession')
@@ -330,6 +334,7 @@ declare module 'vue' {
     readonly useModel: UnwrapRef<typeof import('vue')['useModel']>
     readonly useModelDebugLogs: UnwrapRef<typeof import('./app/composables/useModelDebugLogs')['useModelDebugLogs']>
     readonly useModelReasoningSettings: UnwrapRef<typeof import('./app/composables/useModelReasoningSettings')['useModelReasoningSettings']>
+    readonly useProjectCollaboration: UnwrapRef<typeof import('./app/composables/useProjectCollaboration')['useProjectCollaboration']>
     readonly useProjectEditSession: UnwrapRef<typeof import('./app/composables/useProjectEditSession')['useProjectEditSession']>
     readonly useProjectSyncConflict: UnwrapRef<typeof import('./app/composables/useProjectSyncConflict')['useProjectSyncConflict']>
     readonly useProjectsIndexPage: UnwrapRef<typeof import('./app/composables/useProjectsIndexPage')['useProjectsIndexPage']>

@@ -129,6 +129,8 @@ mod model_constraints;
 mod project_edit_session;
 #[path = "backend/project_conflict.rs"]
 mod project_conflict;
+#[path = "backend/project_collaboration.rs"]
+mod project_collaboration;
 #[path = "backend/prompts_api.rs"]
 mod prompts_api;
 #[path = "backend/runtime_api.rs"]
@@ -147,6 +149,7 @@ mod xiaohongshu;
 use library_api::*;
 use model_constraints::{build_available_model_entry, image_model_config, AvailableModelKind};
 use project_conflict::*;
+use project_collaboration::*;
 use project_edit_session::*;
 use prompts_api::*;
 use runtime_api::*;
@@ -187,6 +190,7 @@ pub type XiaohongshuDynamicFetcher = Arc<
 pub struct ApiError {
     status: StatusCode,
     message: String,
+    data: Option<Value>,
 }
 
 impl ApiError {
@@ -194,6 +198,7 @@ impl ApiError {
         Self {
             status,
             message: message.into(),
+            data: None,
         }
     }
 }
@@ -204,6 +209,9 @@ impl IntoResponse for ApiError {
           "success": false,
           "message": self.message
         });
+        if let Some(data) = self.data {
+            body["data"] = data;
+        }
         if let Some(request_id) = current_request_id() {
             body["requestId"] = json!(request_id);
         }
@@ -1439,7 +1447,13 @@ async fn cloud_request_json_with_client(
         } else {
             StatusCode::BAD_GATEWAY
         };
-        return Err(ApiError::new(local_status, message));
+        let mut error = ApiError::new(local_status, message);
+        if path == "/api/client/project-collaboration"
+            && matches!(status, StatusCode::CONFLICT | StatusCode::LOCKED)
+        {
+            error.data = collaboration_error_details(&payload);
+        }
+        return Err(error);
     }
     Ok(payload)
 }
@@ -1872,7 +1886,7 @@ fn local_project_updated_at_for_owner(
 }
 
 fn reset_account_scoped_config(conn: &Connection) -> Result<(), ApiError> {
-    conn.execute("DELETE FROM system_config WHERE key LIKE 'project_edit_session:%'", [])
+    conn.execute("DELETE FROM system_config WHERE key LIKE 'project_edit_session:%' OR key LIKE 'project_collaboration_lease:%'", [])
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     for key in [
         WORKFLOW_MODELS_KEY,
@@ -5215,6 +5229,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/project/list", get(api_project_list))
         .route("/api/project/create", post(api_project_create))
         .route("/api/project/{id}/edit-session", post(api_project_edit_session))
+        .route("/api/project/{id}/collaboration", post(api_project_collaboration))
         .route("/api/project/{id}/edit-session/backup", post(api_project_edit_backup))
         .route("/api/project/{id}/edit-session/backup/{backup_id}", get(api_project_edit_backup_get))
         .route(
@@ -6100,7 +6115,8 @@ async fn api_project_list(
                 COALESCE(SUM(CASE WHEN s.status = 'video_ready' THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(s.duration), 0),
                 (SELECT role FROM project_members current_pm WHERE current_pm.project_id = p.id AND current_pm.user_id = ?),
-                (SELECT permissions_json FROM project_members current_pm WHERE current_pm.project_id = p.id AND current_pm.user_id = ?)
+                (SELECT permissions_json FROM project_members current_pm WHERE current_pm.project_id = p.id AND current_pm.user_id = ?),
+                EXISTS(SELECT 1 FROM system_config config WHERE config.key = 'project_collaboration_enabled:' || p.id AND config.value = 'true')
          FROM paged_projects p
          LEFT JOIN scripts sc ON sc.project_id = p.id
          LEFT JOIN scenes s ON s.script_id = sc.id
@@ -6153,6 +6169,7 @@ async fn api_project_list(
               "totalDuration": row.get::<_, i64>(17)?,
               "createdAt": row.get::<_, String>(8)?,
               "updatedAt": row.get::<_, String>(9)?,
+              "collaboration": row.get::<_, bool>(20)?,
               "cloudSyncStatus": row.get::<_, String>(13)?,
               "cloudSyncError": row.get::<_, Option<String>>(14)?,
               "ownerUserId": owner_user_id,
@@ -12432,6 +12449,7 @@ async fn apply_cloud_project_snapshot(
             return Ok(false);
         }
     }
+    remember_cloud_collaboration_mode(&db_connection(state)?, project)?;
     let snapshot = project.get("snapshot").filter(|value| value.is_object()).unwrap_or(&Value::Null);
     let remote_updated_at = cloud_project_remote_updated_at(project, snapshot);
     if !cloud_value_text(project, "deletedAt").is_empty() {
@@ -12506,6 +12524,7 @@ async fn apply_cloud_project_snapshot(
         params![now_iso(), remote_updated_at, local_project_id, owner_user_id],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    remember_cloud_collaboration_mode(&conn, project)?;
     Ok(true)
 }
 
@@ -13138,6 +13157,7 @@ async fn cloud_pull_projects_v2(
             params![local_project_id, owner_user_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?)),
         ).optional().map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        remember_cloud_collaboration_mode(&db_connection(state)?, &summary)?;
         if let Some((status, local_updated_at, base_updated_at)) = &local_sync_status {
             if status == "synced" && base_updated_at.is_none() && local_updated_at == &remote_updated_at {
                 db_connection(state)?.execute(
@@ -14977,6 +14997,9 @@ mod tests {
                ('workflow_models', '{}'),
                ('workflow_model_options', '{}'),
                ('prompt_profile_state_default', '{}'),
+               ('project_edit_session:p1', '{}'),
+               ('project_collaboration_lease:cached', '{}'),
+               ('project_collaboration_operation:pending', '{}'),
                ('style_preset_config', '{}');",
         )
         .unwrap();
@@ -14989,7 +15012,7 @@ mod tests {
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        assert_eq!(remaining, vec!["style_preset_config"]);
+        assert_eq!(remaining, vec!["project_collaboration_operation:pending", "style_preset_config"]);
     }
 
     #[test]

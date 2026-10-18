@@ -5,7 +5,7 @@ export const projectEditSessionId = globalThis.crypto?.randomUUID?.() || `sessio
 export const projectLeaseLost = ref<{ projectId?: string, sequence: number }>({ sequence: 0 })
 
 export function noteProjectLeaseLost(status: number, path: string, body?: unknown) {
-  if (status !== 423 || path.includes('/edit-session')) return
+  if (status !== 423 || path.includes('/edit-session') || /^\/api\/project\/[^/?]+\/collaboration(?:[?]|$)/u.test(path)) return
   let payload = body
   if (typeof body === 'string') {
     try { payload = JSON.parse(body) } catch { payload = null }

@@ -1,4 +1,5 @@
 import { ensureProjectEditLeaseSchema } from './project-edit-leases'
+import { ensureProjectCollaborationSchema } from './project-collaboration'
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Database } from 'bun:sqlite'
@@ -46,6 +47,7 @@ export function getDb() {
 
   db = new Database(target)
   db.exec('PRAGMA journal_mode = WAL')
+  db.exec('PRAGMA busy_timeout = 5000')
   db.exec('PRAGMA foreign_keys = ON')
   initSchema(db)
   return db
@@ -473,6 +475,7 @@ function initSchema(conn: Database) {
       ON voice_preset_previews(speaker_id, status);
   `)
   ensureProjectEditLeaseSchema(conn)
+  ensureProjectCollaborationSchema(conn)
   addColumnIfMissing(conn, 'user_projects', 'deleted_at TEXT')
 
   addColumnIfMissing(conn, 'model_call_logs', 'credits_charged REAL NOT NULL DEFAULT 0')

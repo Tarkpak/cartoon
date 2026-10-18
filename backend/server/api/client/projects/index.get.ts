@@ -22,7 +22,8 @@ export default defineEventHandler((event) => {
     SELECT p.id, p.user_id, u.account AS owner_account, u.display_name AS owner_display_name,
            p.local_project_id, p.name, p.description, p.script_parse_mode, p.style_id,
            p.aspect_ratio, p.status, p.local_created_at, p.local_updated_at,
-           p.last_synced_at, p.updated_at, p.deleted_at, pm.role AS member_role, pm.permissions_json
+           p.last_synced_at, p.updated_at, p.deleted_at, pm.role AS member_role, pm.permissions_json,
+           EXISTS(SELECT 1 FROM project_collaborations pc WHERE pc.project_id = p.id) AS collaboration
     FROM user_projects p
     JOIN users u ON u.id = p.user_id
     LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?
@@ -36,6 +37,7 @@ export default defineEventHandler((event) => {
     data: {
       projects: projects.map(project => ({
         id: project.id,
+        collaboration: !!project.collaboration,
         ownerUserId: project.user_id,
         ownerAccount: project.owner_account,
         ownerDisplayName: project.owner_display_name,

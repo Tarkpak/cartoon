@@ -1,0 +1,211 @@
+import { afterEach, describe, expect, it } from 'bun:test'
+import { Database } from 'bun:sqlite'
+import type { AuthContext } from './auth'
+import { handleProjectCollaboration } from './project-collaboration-api'
+import { ensureProjectEditLeaseSchema, operateProjectEditLease } from './project-edit-leases'
+import {
+  collaborationChanges, collaborationResources, collaborationSnapshot, enableProjectCollaboration,
+  ensureProjectCollaborationSchema, operateCollaborationLease, projectUsesCollaboration,
+  rejectLegacyProjectWrite, writeCollaboration
+} from './project-collaboration'
+import type { CollaborationMutation, CollaborationResourceType } from '../../../shared/types/project-collaboration'
+
+describe('per resource collaboration', () => {
+  const databases: Database[] = []
+  afterEach(() => databases.splice(0).forEach(db => db.close()))
+  function setup(migrate = true) {
+    const db = new Database(':memory:')
+    db.exec('PRAGMA foreign_keys = ON')
+    databases.push(db)
+    ensureProjectEditLeaseSchema(db)
+    ensureProjectCollaborationSchema(db)
+    db.exec(`
+      CREATE TABLE user_projects (id TEXT PRIMARY KEY, user_id TEXT, local_project_id TEXT, local_updated_at TEXT, deleted_at TEXT, updated_at TEXT, last_synced_at TEXT,
+        name TEXT, description TEXT, script_parse_mode TEXT, style_id TEXT, aspect_ratio TEXT, status TEXT, summary_json TEXT);
+      CREATE TABLE user_project_snapshots (project_id TEXT, snapshot_json TEXT, created_at TEXT);
+      CREATE TABLE project_members (project_id TEXT, user_id TEXT, role TEXT, permissions_json TEXT);
+      INSERT INTO user_projects (id, user_id, local_project_id, local_updated_at, updated_at, last_synced_at)
+        VALUES ('cloud-p1', 'owner', 'p1', 'v1', 'v1', 'v1');
+      INSERT INTO project_members VALUES ('cloud-p1', 'alice', 'editor', NULL), ('cloud-p1', 'bob', 'editor', NULL), ('cloud-p1', 'viewer', 'viewer', NULL);
+    `)
+    const snapshot = {
+      project: { id: 'p1', name: '协作项目' },
+      script: { episodePlan: [{ id: 'e1', index: 1, title: '第一集' }, { id: 'e2', index: 2, title: '第二集' }] },
+      scenes: [{ id: 's1', episodeId: 'e1', description: '第一集原内容' }, { id: 's2', episodeId: 'e2', description: '第二集原内容' }],
+      characters: [{ id: 'c1', name: '公共角色' }]
+    }
+    db.query('INSERT INTO user_project_snapshots VALUES (?, ?, ?)').run('cloud-p1', JSON.stringify(snapshot), 'v1')
+    const lease = operateProjectEditLease(db, { ownerUserId: 'owner', localProjectId: 'p1', userId: 'owner', deviceId: 'device', sessionId: 'window', action: 'acquire', canTakeover: true })
+    const migration = { projectId: 'cloud-p1', userId: 'owner', expectedUpdatedAt: 'v1', leaseToken: lease.lease!.token }
+    if (migrate) enableProjectCollaboration(db, migration)
+    return { db, migration, snapshot }
+  }
+  function actor(userId = 'alice') {
+    return { projectId: 'cloud-p1', userId, deviceId: `device-${userId}`, sessionId: `window-${userId}` }
+  }
+  function lease(db: Database, id: string, userId = 'alice', type: CollaborationResourceType = 'episode') {
+    return operateCollaborationLease(db, { ...actor(userId), type, id, action: 'acquire', canTakeover: userId === 'owner' })
+  }
+  function mutation(db: Database, id: string, userId = 'alice', label = userId): CollaborationMutation {
+    const token = lease(db, id, userId).token!
+    const resource = collaborationResources(db, 'cloud-p1').find(item => item.type === 'episode' && item.id === id)!
+    const body = structuredClone(resource.body!)
+    ;(body.scenes as Array<Record<string, unknown>>)[0]!.description = label
+    return { type: 'episode', id, expectedRevision: resource.revision, leaseToken: token, body }
+  }
+  function auth(userId: string): AuthContext {
+    return { user: { id: userId, account: userId, display_name: userId, role: 'user', status: 'active' }, sessionId: 'auth-session', deviceId: 'device' }
+  }
+
+  it('migrates once, preserves the original snapshot and disables legacy writes', () => {
+    const { db, migration, snapshot } = setup()
+    expect(projectUsesCollaboration(db, 'cloud-p1')).toBe(true)
+    expect(enableProjectCollaboration(db, migration).resources).toHaveLength(5)
+    expect(() => rejectLegacyProjectWrite(db, 'cloud-p1')).toThrow('整项目上传')
+    const backup = db.query('SELECT source_snapshot_json FROM project_collaborations').get() as { source_snapshot_json: string }
+    expect(JSON.parse(backup.source_snapshot_json)).toEqual(snapshot)
+    expect(db.query('SELECT * FROM project_edit_leases').all()).toHaveLength(0)
+  })
+
+  it('rolls back migration on an invalid snapshot or a changed cloud version', () => {
+    const { db, migration } = setup(false)
+    expect(() => enableProjectCollaboration(db, { ...migration, expectedUpdatedAt: 'stale' })).toThrow('版本已变化')
+    db.query('UPDATE user_project_snapshots SET snapshot_json = ?').run(JSON.stringify({ project: {}, scenes: [{ id: 's1', episodeId: 'missing' }] }))
+    expect(() => enableProjectCollaboration(db, migration)).toThrow('不存在')
+    expect(projectUsesCollaboration(db, 'cloud-p1')).toBe(false)
+    expect(collaborationResources(db, 'cloud-p1')).toHaveLength(0)
+  })
+
+  it('allows two members to save different episodes from the same initial project version', () => {
+    const { db } = setup()
+    const first = mutation(db, 'e1', 'alice')
+    const second = mutation(db, 'e2', 'bob')
+    writeCollaboration(db, { ...actor('alice'), operationId: 'op-a', mutations: [first] })
+    writeCollaboration(db, { ...actor('bob'), operationId: 'op-b', mutations: [second] })
+    const snapshot = collaborationSnapshot(db, 'cloud-p1')
+    expect((snapshot.scenes as Array<Record<string, unknown>>).map(item => item.description)).toEqual(['alice', 'bob'])
+    expect(snapshot.characters).toEqual([{ id: 'c1', name: '公共角色' }])
+  })
+
+  it('rejects a competing editor and fences old tokens and late releases after takeover', () => {
+    const { db } = setup()
+    const first = mutation(db, 'e1')
+    expect(lease(db, 'e1', 'bob').editable).toBe(false)
+    const taken = operateCollaborationLease(db, { ...actor('owner'), type: 'episode', id: 'e1', action: 'takeover', canTakeover: true })
+    expect(() => writeCollaboration(db, { ...actor(), operationId: 'old', mutations: [first] })).toThrow('编辑权已失效')
+    operateCollaborationLease(db, { ...actor(), type: 'episode', id: 'e1', token: first.leaseToken, action: 'release', canTakeover: false })
+    expect(operateCollaborationLease(db, { ...actor('owner'), type: 'episode', id: 'e1', token: taken.token, action: 'check', canTakeover: true }).editable).toBe(true)
+  })
+
+  it('rejects expired leases, stale object revisions and spoofed devices or windows', () => {
+    const { db } = setup()
+    const change = mutation(db, 'e1')
+    expect(() => writeCollaboration(db, { ...actor(), sessionId: 'other', operationId: 'wrong-window', mutations: [change] })).toThrow('编辑权已失效')
+    expect(() => writeCollaboration(db, { ...actor(), deviceId: 'other', operationId: 'wrong-device', mutations: [change] })).toThrow('编辑权已失效')
+    expect(() => writeCollaboration(db, { ...actor(), nowMs: Date.now() + 100_000, operationId: 'expired', mutations: [change] })).toThrow('编辑权已失效')
+    writeCollaboration(db, { ...actor(), operationId: 'valid', mutations: [change] })
+    expect(() => writeCollaboration(db, { ...actor(), operationId: 'stale', mutations: [change] })).toThrow('已变化')
+    const independent = mutation(db, 'e2', 'bob')
+    expect(writeCollaboration(db, { ...actor('bob'), operationId: 'independent', mutations: [independent] }).resources[0]?.revision).toBe(2)
+  })
+
+  it('replays a lost response once, even after the lease expires, and rejects reuse with different content', () => {
+    const { db } = setup()
+    const change = mutation(db, 'e1')
+    const request = { ...actor(), operationId: 'retryable', mutations: [change] }
+    const first = writeCollaboration(db, request)
+    expect(writeCollaboration(db, { ...request, nowMs: Date.now() + 100_000 })).toEqual(first)
+    const reorderedBody = Object.fromEntries(Object.entries(change.body!).reverse())
+    expect(writeCollaboration(db, { ...request, mutations: [{ ...change, body: reorderedBody }] })).toEqual(first)
+    expect(collaborationChanges(db, 'cloud-p1', 0).changes).toHaveLength(1)
+    expect(() => writeCollaboration(db, { ...request, mutations: [{ ...change, body: { ...change.body, extra: true } }] })).toThrow('操作 ID')
+  })
+
+  it('atomically deletes an episode with its directory entry and keeps a tombstone', () => {
+    const { db } = setup()
+    const episode = mutation(db, 'e1')
+    expect(() => writeCollaboration(db, { ...actor(), operationId: 'bad-delete', mutations: [{ ...episode, body: null }] })).toThrow('不存在')
+    const token = lease(db, 'directory', 'alice', 'directory').token!
+    writeCollaboration(db, { ...actor(), operationId: 'delete', mutations: [
+      { ...episode, body: null }, { type: 'directory', id: 'directory', expectedRevision: 1, leaseToken: token, body: { episodeIds: ['e2'] } }
+    ] })
+    expect(collaborationResources(db, 'cloud-p1').find(item => item.id === 'e1')?.deleted).toBe(true)
+    expect(() => writeCollaboration(db, { ...actor(), operationId: 'resurrect', mutations: [{ ...episode, expectedRevision: 2 }] })).toThrow('删除')
+    const page = collaborationChanges(db, 'cloud-p1', 0, 1)
+    expect(page.hasMore).toBe(true)
+    expect(page.changes[0]?.deleted).toBe(true)
+    expect(collaborationChanges(db, 'cloud-p1', page.cursor).changes[0]?.type).toBe('directory')
+  })
+
+  it('rolls back a batch if another episode lease is missing or scene identities collide', () => {
+    const { db } = setup()
+    const first = mutation(db, 'e1')
+    const second = mutation(db, 'e2', 'bob')
+    expect(() => writeCollaboration(db, { ...actor(), operationId: 'mixed', mutations: [first, second] })).toThrow('编辑权已失效')
+    expect(collaborationResources(db, 'cloud-p1').find(item => item.id === 'e1')?.revision).toBe(1)
+    const scenes = first.body!.scenes as Array<Record<string, unknown>>
+    scenes[0]!.id = 's2'
+    expect(() => writeCollaboration(db, { ...actor(), operationId: 'duplicate-scene', mutations: [first] })).toThrow('重复 ID')
+    expect(collaborationChanges(db, 'cloud-p1', 0).changes).toHaveLength(0)
+  })
+
+  it('creates an episode only with its directory entry in the same transaction', () => {
+    const { db } = setup()
+    const episodeToken = lease(db, 'e3').token!
+    const create: CollaborationMutation = {
+      type: 'episode', id: 'e3', expectedRevision: 0, leaseToken: episodeToken,
+      body: { plan: { id: 'e3', index: 3, title: '第三集' }, writing: null, scenes: [] }
+    }
+    expect(() => writeCollaboration(db, { ...actor(), operationId: 'orphan', mutations: [create] })).toThrow('目录不一致')
+    const directoryToken = lease(db, 'directory', 'alice', 'directory').token!
+    writeCollaboration(db, { ...actor(), operationId: 'create-episode', mutations: [create, {
+      type: 'directory', id: 'directory', expectedRevision: 1, leaseToken: directoryToken, body: { episodeIds: ['e1', 'e2', 'e3'] }
+    }] })
+    expect(collaborationResources(db, 'cloud-p1').find(item => item.id === 'e3')?.revision).toBe(1)
+    expect((collaborationSnapshot(db, 'cloud-p1').script as Record<string, unknown>).episodePlan).toHaveLength(3)
+  })
+
+  it('updates public characters independently and prevents changing project identity', () => {
+    const { db } = setup()
+    const episode = mutation(db, 'e1')
+    const characterToken = lease(db, 'c1', 'bob', 'character').token!
+    writeCollaboration(db, { ...actor('bob'), operationId: 'character', mutations: [{ type: 'character', id: 'c1', expectedRevision: 1, leaseToken: characterToken, body: { id: 'c1', name: '更新后的公共角色' } }] })
+    writeCollaboration(db, { ...actor(), operationId: 'episode', mutations: [episode] })
+    expect(collaborationSnapshot(db, 'cloud-p1').characters).toEqual([{ id: 'c1', name: '更新后的公共角色' }])
+    const settings = collaborationResources(db, 'cloud-p1').find(item => item.type === 'settings')!
+    const settingsToken = lease(db, 'settings', 'alice', 'settings').token!
+    const body = structuredClone(settings.body!)
+    ;(body.project as Record<string, unknown>).id = 'different-project'
+    expect(() => writeCollaboration(db, { ...actor(), operationId: 'identity', mutations: [{ type: 'settings', id: 'settings', expectedRevision: 1, leaseToken: settingsToken, body }] })).toThrow('项目身份')
+  })
+
+  it('enforces membership, view-only access, migration ownership and removed members at the request boundary', () => {
+    const { db } = setup()
+    const identity = { ownerUserId: 'owner', localProjectId: 'p1' }
+    expect(() => handleProjectCollaboration(db, auth('stranger'), { ...identity, action: 'read' })).toThrow('Project not found')
+    expect(handleProjectCollaboration(db, auth('viewer'), { ...identity, action: 'read' })).toHaveProperty('enabled', true)
+    expect(() => handleProjectCollaboration(db, auth('viewer'), { ...identity, action: 'lease' })).toThrow('Project not found')
+    expect(() => handleProjectCollaboration(db, auth('alice'), { ...identity, action: 'enable' })).toThrow('所有者')
+    expect(() => handleProjectCollaboration(db, auth('alice'), {
+      ...identity, ...actor(), action: 'lease', type: 'episode', id: 'e1', leaseAction: 'takeover', canTakeover: true
+    })).toThrow('所有者')
+    const change = mutation(db, 'e1')
+    db.query("DELETE FROM project_members WHERE user_id = 'alice'").run()
+    expect(() => handleProjectCollaboration(db, auth('alice'), { ...identity, ...actor(), action: 'write', operationId: 'removed', mutations: [change] })).toThrow('Project not found')
+    db.query("UPDATE user_projects SET deleted_at = 'deleted'").run()
+    expect(() => handleProjectCollaboration(db, auth('owner'), { ...identity, action: 'read' })).toThrow('已删除')
+  })
+
+  it('cleans collaboration records only when the project is physically removed', () => {
+    const { db } = setup()
+    writeCollaboration(db, { ...actor(), operationId: 'saved', mutations: [mutation(db, 'e1')] })
+    db.query("UPDATE user_projects SET deleted_at = 'deleted'").run()
+    expect(collaborationResources(db, 'cloud-p1')).toHaveLength(5)
+    db.query("DELETE FROM user_projects WHERE id = 'cloud-p1'").run()
+    expect(projectUsesCollaboration(db, 'cloud-p1')).toBe(false)
+    expect(collaborationResources(db, 'cloud-p1')).toHaveLength(0)
+    for (const table of ['project_collaboration_changes', 'project_collaboration_operations', 'project_collaboration_leases']) {
+      expect(db.query(`SELECT * FROM ${table}`).all()).toHaveLength(0)
+    }
+  })
+})

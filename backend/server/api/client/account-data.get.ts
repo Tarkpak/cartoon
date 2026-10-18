@@ -1,5 +1,7 @@
 import { getDb, parseJsonText } from '../../utils/db'
 import { requireAuth } from '../../utils/auth'
+import { collaborationSnapshot, projectUsesCollaboration } from '../../utils/project-collaboration'
+import { canonicalCloudProjectMembers, canonicalizeCloudProjectSnapshot } from '../../utils/project-permissions'
 import { projectOwnerScope } from '../../utils/admin-resource-scope'
 import {
   expandLibraryAssetBundleDependencies,
@@ -52,6 +54,7 @@ export default defineEventHandler((event) => {
     data: {
       projects: projects.map(project => ({
         id: project.id,
+        collaboration: projectUsesCollaboration(db, String(project.id)),
         ownerUserId: project.user_id,
         ownerAccount: project.owner_account,
         ownerDisplayName: project.owner_display_name,
@@ -69,7 +72,9 @@ export default defineEventHandler((event) => {
         updatedAt: project.updated_at,
         deletedAt: project.deleted_at,
         snapshotCreatedAt: project.snapshot_created_at,
-        snapshot: parseJsonText(project.snapshot_json as string | null, null)
+        snapshot: projectUsesCollaboration(db, String(project.id))
+          ? canonicalizeCloudProjectSnapshot(collaborationSnapshot(db, String(project.id)), canonicalCloudProjectMembers(db, String(project.id)))
+          : parseJsonText(project.snapshot_json as string | null, null)
       })),
       promptState: promptState
         ? { updatedAt: promptState.updated_at, snapshot: parseJsonText(promptState.snapshot_json, null) }

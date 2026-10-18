@@ -9,6 +9,7 @@ import LogsPage from './pages/logs.vue'
 import LibraryPage from './pages/library.vue'
 import ProjectRedirectPage from './pages/projects/[id].vue'
 import ProjectsPage from './pages/projects/index.vue'
+import ProjectCollaborationPage from './pages/projects/collaboration.vue'
 import SettingsPage from './pages/settings.vue'
 import TosFilesPage from './pages/tos-files.vue'
 import EnhancePage from './pages/tools/enhance.vue'
@@ -36,6 +37,11 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/library',
     component: LibraryPage,
+    meta: { layout: 'default' }
+  },
+  {
+    path: '/projects/:id/collaboration',
+    component: ProjectCollaborationPage,
     meta: { layout: 'default' }
   },
   {

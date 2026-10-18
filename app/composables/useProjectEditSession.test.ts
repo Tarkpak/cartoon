@@ -24,6 +24,15 @@ describe('useProjectEditSession', () => {
     await lease.releaseEditSession()
   })
 
+  it('preserves collaboration mode without offering a project-wide editing lease', async () => {
+    vi.stubGlobal('$fetch', vi.fn().mockResolvedValue({ data: { editable: false, canTakeover: false, collaboration: true } }))
+    const lease = useProjectEditSession(vi.fn())
+    await lease.openEditSession('p1')
+    expect(lease.editSession.value.collaboration).toBe(true)
+    expect(lease.projectEditable.value).toBe(false)
+    await lease.releaseEditSession()
+  })
+
   it('only stops editing for a rejected write to the active project', async () => {
     vi.stubGlobal('$fetch', vi.fn().mockResolvedValue({ data: { editable: true, canTakeover: false } }))
     const backup = vi.fn(async () => 'backup')
@@ -32,6 +41,10 @@ describe('useProjectEditSession', () => {
     noteProjectLeaseLost(423, '/api/project/p2')
     await nextTick()
     expect(lease.projectEditable.value).toBe(true)
+    noteProjectLeaseLost(423, '/api/project/p1/collaboration')
+    await nextTick()
+    expect(lease.projectEditable.value).toBe(true)
+    expect(backup).not.toHaveBeenCalled()
     noteProjectLeaseLost(423, '/api/video/generate', JSON.stringify({ projectId: 'p1' }))
     await nextTick()
     expect(lease.projectEditable.value).toBe(false)

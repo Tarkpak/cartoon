@@ -110,7 +110,7 @@ async fn operate_edit_session(
     Ok(data)
 }
 
-fn requested_session_id() -> Result<String, ApiError> {
+pub(super) fn requested_session_id() -> Result<String, ApiError> {
     CURRENT_EDIT_SESSION
         .try_with(Clone::clone)
         .ok()
@@ -123,6 +123,7 @@ pub(super) fn capture_project_edit_lease(
     state: &BackendState,
     id: &str,
 ) -> Result<Value, ApiError> {
+    require_legacy_project_mode(state, id)?;
     let session_id = requested_session_id()?;
     let cached = cached_project_edit_session(state, id)?;
     if cached.get("sessionId").and_then(Value::as_str) != Some(session_id.as_str())
@@ -142,6 +143,7 @@ pub(super) async fn ensure_project_edit_session(
     state: &BackendState,
     id: &str,
 ) -> Result<(), ApiError> {
+    require_legacy_project_mode(state, id)?;
     let session_id = requested_session_id()?;
     let data = operate_edit_session(state, id, &session_id, "check").await?;
     if data.get("editable").and_then(Value::as_bool) != Some(true) {
@@ -187,6 +189,18 @@ pub(super) async fn api_project_edit_session(
         .unwrap_or("acquire");
     if !matches!(action, "acquire" | "heartbeat" | "release" | "takeover") {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "编辑会话操作无效"));
+    }
+    if get_config_json(
+        &db_connection(&state)?,
+        &format!("project_collaboration_enabled:{id}"),
+    )?
+    .and_then(|value| value.as_bool())
+        == Some(true)
+    {
+        return Ok(Json(json!({"success": true, "data": {
+            "editable": false, "canTakeover": false, "collaboration": true,
+            "reason": "项目已启用按集协作，请使用协作入口"
+        }})));
     }
     if ensure_project_permission(&db_connection(&state)?, &id, ProjectPermission::Edit).is_err() {
         return Ok(Json(
