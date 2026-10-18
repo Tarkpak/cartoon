@@ -178,7 +178,7 @@ pub(super) async fn api_project_edit_session(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let _guard = cloud_session_operation_lock().lock().await;
+    let _guard = interactive_cloud_session_guard().await?;
     ensure_project_access(&db_connection(&state)?, &id)?;
     let session_id = requested_session_id()?;
     let action = body

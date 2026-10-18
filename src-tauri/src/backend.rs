@@ -95,6 +95,12 @@ fn cloud_session_operation_lock() -> &'static tokio::sync::Mutex<()> {
     CLOUD_SESSION_OPERATION_LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
+async fn interactive_cloud_session_guard() -> Result<tokio::sync::MutexGuard<'static, ()>, ApiError> {
+    tokio::time::timeout(Duration::from_secs(5), cloud_session_operation_lock().lock())
+        .await
+        .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "云同步繁忙，请稍后重试；本地修改已保留"))
+}
+
 const DEFAULT_STYLE_PRESETS_JSON: &str = include_str!("../assets/default-style-presets.json");
 const DEFAULT_STYLE_CATEGORIES_JSON: &str = include_str!("../assets/default-style-categories.json");
 const LEGACY_STYLE_PRESET_IDS_V1_JSON: &str =
@@ -12114,10 +12120,17 @@ fn spawn_project_sync_poller(state: BackendState) {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
             interval.tick().await;
-            let _session_guard = cloud_session_operation_lock().lock().await;
-            if let Err(error) = retry_pending_cloud_projects_locked(&state, 20).await {
-                eprintln!("[CloudSync] project retry poll failed: {}", error.message);
+            // Give interactive edits and lease renewals a turn between uploads.
+            if let Ok(ids) = pending_cloud_project_ids(&state, 20) {
+                for id in ids {
+                    let _session_guard = cloud_session_operation_lock().lock().await;
+                    if let Err(error) = cloud_sync_project_by_id_locked(&state, &id).await {
+                        eprintln!("[CloudSync] project retry failed: {}", error.message);
+                        if error.status == StatusCode::UNAUTHORIZED { break; }
+                    }
+                }
             }
+            let _session_guard = cloud_session_operation_lock().lock().await;
             if let Err(error) = retry_pending_project_deletions_locked(&state).await {
                 eprintln!("[CloudSync] project deletion retry failed: {}", error.message);
             }

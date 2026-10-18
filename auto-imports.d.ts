@@ -119,6 +119,9 @@ declare global {
   const useLink: typeof import('vue-router')['useLink']
   const useModel: typeof import('vue')['useModel']
   const useModelDebugLogs: typeof import('./app/composables/useModelDebugLogs')['useModelDebugLogs']
+  const useModelReasoningSettings: typeof import('./app/composables/useModelReasoningSettings')['useModelReasoningSettings']
+  const useProjectEditSession: typeof import('./app/composables/useProjectEditSession')['useProjectEditSession']
+  const useProjectSyncConflict: typeof import('./app/composables/useProjectSyncConflict')['useProjectSyncConflict']
   const useProjectsIndexPage: typeof import('./app/composables/useProjectsIndexPage')['useProjectsIndexPage']
   const usePromptTemplateEditor: typeof import('./app/composables/usePromptTemplateEditor')['usePromptTemplateEditor']
   const usePromptTemplateEditorActions: typeof import('./app/composables/usePromptTemplateEditorActions')['usePromptTemplateEditorActions']
@@ -188,6 +191,12 @@ declare global {
   // @ts-ignore
   export type { ModelDebugErrorInfo, ModelDebugMediaRef, ModelDebugLogEntry } from './app/composables/useModelDebugLogs'
   import('./app/composables/useModelDebugLogs')
+  // @ts-ignore
+  export type { ProjectEditSessionState } from './app/composables/useProjectEditSession'
+  import('./app/composables/useProjectEditSession')
+  // @ts-ignore
+  export type { ProjectConflictBackup } from './app/composables/useProjectSyncConflict'
+  import('./app/composables/useProjectSyncConflict')
   // @ts-ignore
   export type { PromptStageMeta, PromptTemplateGroup } from './app/composables/useSettingsPrompts'
   import('./app/composables/useSettingsPrompts')
@@ -320,6 +329,9 @@ declare module 'vue' {
     readonly useLink: UnwrapRef<typeof import('vue-router')['useLink']>
     readonly useModel: UnwrapRef<typeof import('vue')['useModel']>
     readonly useModelDebugLogs: UnwrapRef<typeof import('./app/composables/useModelDebugLogs')['useModelDebugLogs']>
+    readonly useModelReasoningSettings: UnwrapRef<typeof import('./app/composables/useModelReasoningSettings')['useModelReasoningSettings']>
+    readonly useProjectEditSession: UnwrapRef<typeof import('./app/composables/useProjectEditSession')['useProjectEditSession']>
+    readonly useProjectSyncConflict: UnwrapRef<typeof import('./app/composables/useProjectSyncConflict')['useProjectSyncConflict']>
     readonly useProjectsIndexPage: UnwrapRef<typeof import('./app/composables/useProjectsIndexPage')['useProjectsIndexPage']>
     readonly usePromptTemplateEditor: UnwrapRef<typeof import('./app/composables/usePromptTemplateEditor')['usePromptTemplateEditor']>
     readonly usePromptTemplateEditorActions: UnwrapRef<typeof import('./app/composables/usePromptTemplateEditorActions')['usePromptTemplateEditorActions']>

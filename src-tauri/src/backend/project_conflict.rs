@@ -20,6 +20,16 @@ pub(super) async fn fetch_conflict_remote(
     id: &str,
     owner: &str,
 ) -> Result<Value, ApiError> {
+    tokio::time::timeout(Duration::from_secs(45), fetch_conflict_remote_inner(state, id, owner))
+        .await
+        .map_err(|_| ApiError::new(StatusCode::GATEWAY_TIMEOUT, "读取云端项目超时，请稍后重新核对；本地内容已保留"))?
+}
+
+async fn fetch_conflict_remote_inner(
+    state: &BackendState,
+    id: &str,
+    owner: &str,
+) -> Result<Value, ApiError> {
     let (base_url, token) = {
         let conn = db_connection(state)?;
         let base_url = cloud_base_url(&conn)
@@ -94,10 +104,13 @@ pub(super) async fn api_project_conflict_backup(
     Path(id): Path<String>,
     State(state): State<BackendState>,
 ) -> Result<Json<Value>, ApiError> {
-    let _guard = cloud_session_operation_lock().lock().await;
+    let _guard = interactive_cloud_session_guard().await?;
     let (owner, _) = local_conflict_version(&state, &id)?;
     acquire_conflict_edit_session(&state, &id).await?;
     let remote = fetch_conflict_remote(&state, &id, &owner).await?;
+    // A large remote snapshot can take longer than the original lease lifetime.
+    // Reacquire before exposing a reviewed backup to the client.
+    acquire_conflict_edit_session(&state, &id).await?;
     let Json(local) = api_project_get(Path(id.clone()), State(state.clone())).await?;
     let local = local.get("data").cloned().unwrap_or(Value::Null);
     let (_, current_version) = local_conflict_version(&state, &id)?;
@@ -223,7 +236,7 @@ pub(super) async fn api_project_conflict_resolve(
         ));
     }
     let backup_id = body.get("backupId").and_then(Value::as_str).unwrap_or("");
-    let _guard = cloud_session_operation_lock().lock().await;
+    let _guard = interactive_cloud_session_guard().await?;
     let backup = read_backup(&state, &id, backup_id)?;
     ensure_project_edit_session(&state, &id).await?;
     let (owner, _) = local_conflict_version(&state, &id)?;
@@ -231,6 +244,8 @@ pub(super) async fn api_project_conflict_resolve(
     let (current_owner, local_version) = local_conflict_version(&state, &id)?;
     let remote_version = cloud_value_text(&remote, "localUpdatedAt");
     validate_conflict_versions(&backup, &current_owner, &local_version, &remote_version)?;
+    // Network reads must not let an expired or replaced lease mutate local data.
+    ensure_project_edit_session(&state, &id).await?;
     if strategy == "local" {
         let resolved_version = now_iso();
         let changed = db_connection(&state)?.execute(
@@ -271,6 +286,41 @@ pub(super) async fn api_project_conflict_resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn takeover_during_remote_read_cannot_replace_local_content() {
+        let test = TestProject::new();
+        let checks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let captured = checks.clone();
+        let remote = json!({"id": "cloud-p1", "localProjectId": "p1", "ownerUserId": "owner", "localUpdatedAt": "remote-v1", "snapshot": {
+            "project": {"name": "云端"}, "scenes": [], "characters": []
+        }});
+        let router = Router::new()
+            .route("/api/client/projects/edit-session", post(move |Json(body): Json<Value>| {
+                let editable = body["action"] != "check"
+                    || captured.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
+                async move { Json(json!({"success": true, "data": {"editable": editable, "token": "test-lease", "expiresAt": Utc::now().timestamp_millis() + 90_000}})) }
+            }))
+            .route("/api/client/projects", get(|| async { Json(json!({"data": {"projects": [{"id": "cloud-p1", "localProjectId": "p1", "ownerUserId": "owner"}], "pagination": {"totalPages": 1}}})) }))
+            .route("/api/client/projects/cloud-p1", get(move || { let remote = remote.clone(); async move { Json(json!({"data": {"project": remote}})) } }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap(); });
+        set_config_json(&db_connection(&test.0).unwrap(), CLOUD_ADMIN_CONFIG_KEY,
+            &json!({"baseUrl": format!("http://{addr}")})).unwrap();
+        let Json(prepared) = CURRENT_EDIT_SESSION.scope(Some("test-session".into()),
+            api_project_conflict_backup(Path("p1".into()), State(test.0.clone()))).await.unwrap();
+        let result = CURRENT_EDIT_SESSION.scope(Some("test-session".into()),
+            api_project_conflict_resolve(Path("p1".into()), State(test.0.clone()),
+                Json(json!({"strategy": "remote", "backupId": prepared["data"]["backupId"]})))).await;
+        assert_eq!(result.unwrap_err().status, StatusCode::LOCKED);
+        let local: (String, String) = db_connection(&test.0).unwrap().query_row(
+            "SELECT name, cloud_sync_status FROM projects WHERE id = 'p1'", [],
+            |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!(local, ("本地".into(), "conflict".into()));
+        assert_eq!(checks.load(std::sync::atomic::Ordering::SeqCst), 2);
+        server.abort();
+    }
 
     #[tokio::test]
     async fn keeping_local_uses_reviewed_cloud_version_and_preserves_conflict_on_rejection() {
