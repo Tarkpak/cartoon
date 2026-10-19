@@ -1,5 +1,56 @@
 use super::*;
 
+/// The default project entrance. Existing collaboration projects only require
+/// view permission; legacy projects are backed up and migrated by their owner.
+pub(super) async fn api_project_collaboration_prepare(
+    Path(id): Path<String>,
+    State(state): State<BackendState>,
+) -> Result<Json<Value>, ApiError> {
+    let (actor, owner, base) = {
+        let conn = db_connection(&state)?;
+        let actor = ensure_project_access(&conn, &id)?;
+        let (owner, base): (String, Option<String>) = conn.query_row(
+            "SELECT owner_user_id, cloud_base_updated_at FROM projects WHERE id = ?1",
+            params![id], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        (actor, owner, base)
+    };
+    match api_project_collaboration(Path(id.clone()), State(state.clone()), Json(json!({"action":"read"}))).await {
+        Ok(Json(response)) if response.pointer("/data/enabled").and_then(Value::as_bool) == Some(true) => return Ok(Json(response)),
+        Ok(_) => (),
+        // A newly created local project may not have reached the cloud yet.
+        Err(error) if error.status == StatusCode::NOT_FOUND && base.is_none() => (),
+        Err(error) => return Err(error),
+    }
+    if actor.user_id != owner && !actor.is_admin {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "请项目所有者或管理员先打开此项目，完成协作迁移"));
+    }
+    {
+        let _guard = interactive_cloud_session_guard().await?;
+        ensure_collaboration_account(&db_connection(&state)?, &actor.user_id)?;
+        let conn = db_connection(&state)?;
+        let status: String = conn.query_row("SELECT cloud_sync_status FROM projects WHERE id = ?1", params![id], |row| row.get(0))
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let active: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM video_tasks JOIN scenes ON video_tasks.scene_id = scenes.id JOIN scripts ON scenes.script_id = scripts.id WHERE scripts.project_id = ?1 AND video_tasks.status NOT IN ('completed', 'failed', 'cancelled'))",
+            params![id], |row| row.get(0),
+        ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        drop(conn);
+        if active { return Err(ApiError::new(StatusCode::CONFLICT, "请等待项目生成任务结束后重试协作迁移")); }
+        if status == "conflict" { return Err(ApiError::new(StatusCode::CONFLICT, "请先在项目列表处理同步冲突，再重试协作迁移")); }
+        if status == "pending" {
+            if base.is_some() { acquire_conflict_edit_session(&state, &id).await?; }
+            cloud_sync_project_by_id_locked(&state, &id).await?;
+        }
+    }
+    let Json(preview) = api_project_collaboration(Path(id.clone()), State(state.clone()), Json(json!({"action":"migrationPreview"}))).await?;
+    if preview.pointer("/data/enabled").and_then(Value::as_bool) == Some(true) { return Ok(Json(preview)); }
+    ensure_collaboration_account(&db_connection(&state)?, &actor.user_id)?;
+    api_project_collaboration(Path(id), State(state), Json(json!({
+        "action":"enable", "expectedUpdatedAt":preview["data"]["expectedUpdatedAt"], "snapshotHash":preview["data"]["snapshotHash"]
+    }))).await
+}
+
 fn collaboration_lease_key(id: &str, session_id: &str, kind: &str, resource_id: &str) -> String {
     // JSON tuples avoid collisions between IDs containing separators.
     format!(

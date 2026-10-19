@@ -5232,6 +5232,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/project/create", post(api_project_create))
         .route("/api/project/{id}/edit-session", post(api_project_edit_session))
         .route("/api/project/{id}/collaboration", post(api_project_collaboration))
+        .route("/api/project/{id}/collaboration/prepare", post(api_project_collaboration_prepare))
         .route("/api/project/{id}/collaboration/draft-results", get(api_project_collaboration_draft_results))
         .route("/api/project/{id}/collaboration/media-results", get(api_project_collaboration_media_results))
         .route("/api/project/{id}/collaboration/scene-image", post(api_collaboration_scene_image))

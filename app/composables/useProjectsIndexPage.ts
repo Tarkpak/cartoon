@@ -148,11 +148,6 @@ export function useProjectsIndexPage() {
 
       const createdId = response?.project?.id
       if (createdId) {
-        const returnTo = getReturnTo()
-        if (isWritingWorkspace.value || returnTo === 'script-writing') {
-          await router.push({ path: '/tools/script-writing', query: { project: createdId } })
-          return
-        }
         await router.push(resolveProjectDetailPath(createdId))
         return
       }
@@ -195,14 +190,6 @@ export function useProjectsIndexPage() {
     const storageKey = projectLastOpenedStorageKey(currentUser.value?.id)
     if (typeof window !== 'undefined' && storageKey) {
       window.localStorage.setItem(storageKey, project.id)
-    }
-    if (project.collaboration) {
-      router.push(`/projects/${encodeURIComponent(project.id)}/collaboration`)
-      return
-    }
-    if (isWritingWorkspace.value) {
-      router.push({ path: '/tools/script-writing', query: { project: project.id } })
-      return
     }
     router.push(resolveProjectDetailPath(project.id))
   }

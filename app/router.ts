@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-import AssetWorkbenchPage from './pages/asset-workbench.vue'
 import ArkAssetsPage from './pages/ark-assets.vue'
 import HomePage from './pages/index.vue'
 import ImportVideoDetailPage from './pages/import/video-detail.vue'
@@ -16,7 +15,6 @@ import EnhancePage from './pages/tools/enhance.vue'
 import AsrPage from './pages/tools/asr.vue'
 import VoicePage from './pages/tools/voice.vue'
 import ShortVideoDownloadPage from './pages/tools/short-video-download.vue'
-import ScriptWritingPage from './pages/tools/script-writing.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -61,7 +59,9 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/asset-workbench',
-    component: AssetWorkbenchPage,
+    redirect: to => typeof to.query.project === 'string'
+      ? { path: `/projects/${encodeURIComponent(to.query.project)}/collaboration`, query: { stage: to.query.stage } }
+      : '/projects',
     meta: { layout: 'default', hideSidebar: true }
   },
   {
@@ -106,7 +106,9 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/tools/script-writing',
-    component: ScriptWritingPage,
+    redirect: to => typeof to.query.project === 'string'
+      ? `/projects/${encodeURIComponent(to.query.project)}/collaboration`
+      : { path: '/projects', query: { returnTo: 'script-writing' } },
     meta: { layout: 'default' }
   },
   {

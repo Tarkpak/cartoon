@@ -18,6 +18,7 @@ import type { CollaborationResource } from '#shared/types/project-collaboration'
 import { collaborationRecord as record, collaborationText as text, collaborationReviewText, addCollaborationScene, removeCollaborationScene, moveCollaborationScene, patchCollaborationEpisode, patchCollaborationScene, patchCollaborationSettings } from '~/lib/project-collaboration-editor'
 import { adoptCollaborationDraft, generationInput, parseCollaborationDraftResult, type CollaborationDraftResult } from '~/lib/project-collaboration-generation'
 import { buildDirectoryChange, buildSceneTransfer, type DirectoryAction } from '~/lib/project-collaboration-directory'
+import { prepareProjectCollaboration } from '~/lib/project-collaboration-entry'
 import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 
 const route = useRoute()
@@ -91,7 +92,7 @@ async function run(action: () => Promise<unknown>) {
   finally { busy.value = false; revision.value++ }
 }
 
-watch(() => route.params.id, async raw => {
+async function openProject(raw: unknown) {
   const id = typeof raw === 'string' ? raw : ''
   const version = ++loadSequence
   loading.value = true
@@ -104,6 +105,8 @@ watch(() => route.params.id, async raw => {
     const status = await loadStatus()
     if (version !== loadSequence) return
     openedActor = status?.user?.id || ''
+    await prepareProjectCollaboration(id)
+    if (version !== loadSequence) return
     await session.open(id, openedActor)
     if (version !== loadSequence) return
     selected.value = episodes.value[0] ? keyOf(episodes.value[0].base) : characters.value[0] ? keyOf(characters.value[0].base) : client.value?.get('settings', 'settings') ? keyOf({ type: 'settings', id: 'settings' }) : ''
@@ -111,7 +114,8 @@ watch(() => route.params.id, async raw => {
   } catch (cause) {
     if (version === loadSequence) error.value = getDisplayErrorMessage(cause, '项目加载失败')
   } finally { if (version === loadSequence) loading.value = false }
-}, { immediate: true })
+}
+watch(() => route.params.id, openProject, { immediate: true })
 
 watch(() => currentUser.value?.id, id => {
   if (openedActor && id !== openedActor) {
@@ -383,8 +387,9 @@ onBeforeRouteLeave(() => {
       </template>
     </AppPageHeader>
     <AppPageContent scroll inner-class="space-y-4">
-      <p v-if="loading" class="flex items-center gap-2 py-8 text-sm text-muted-foreground" role="status"><Loader2 class="h-4 w-4 animate-spin" />正在读取云端协作项目…</p>
+      <p v-if="loading" class="flex items-center gap-2 py-8 text-sm text-muted-foreground" role="status"><Loader2 class="h-4 w-4 animate-spin" />正在准备协作项目，首次打开将同步、备份并迁移旧数据…</p>
       <p v-if="error" class="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">{{ error }}</p>
+      <Button v-if="!loading && !client" variant="outline" @click="openProject(route.params.id)">重试打开协作项目</Button>
       <p v-if="message" class="text-sm text-muted-foreground" role="status">{{ message }}</p>
       <template v-if="client && !loading">
         <div v-if="recovery !== undefined" class="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-3 text-sm">
