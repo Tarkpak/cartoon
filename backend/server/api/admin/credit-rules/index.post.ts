@@ -19,14 +19,14 @@ export default defineEventHandler(async (event) => {
   const modelId = optionalString(body.modelId, 256)
   const credits = Number(body.credits)
   if (!Number.isSafeInteger(credits) || credits < 0 || credits > 1_000_000) {
-    throw createError({ statusCode: 400, statusMessage: '积分规则不合法' })
+    throw createError({ statusCode: 400, message: '积分规则不合法' })
   }
   const db = getDb()
   const existing = db.prepare(`
     SELECT id FROM credit_rules WHERE operation = ? AND provider = ? AND model_id = ? LIMIT 1
   `).get(operation, provider, modelId)
   if (existing) {
-    throw createError({ statusCode: 409, statusMessage: '相同范围的积分规则已存在' })
+    throw createError({ statusCode: 409, message: '相同范围的积分规则已存在' })
   }
   const id = randomUUID()
   const timestamp = nowIso()

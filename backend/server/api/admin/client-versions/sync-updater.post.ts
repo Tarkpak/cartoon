@@ -510,13 +510,13 @@ function upsertCandidate(candidate: VersionCandidate) {
 
 function assertStorageUsable(config: TosStorageClientConfig) {
   if (!config.enabled) {
-    throw createError({ statusCode: 400, statusMessage: '请先在后台设置中启用云存储' })
+    throw createError({ statusCode: 400, message: '请先在后台设置中启用云存储' })
   }
   const missing: string[] = []
   if (!config.endpoint) missing.push('Endpoint')
   if (!config.bucket) missing.push('Bucket')
   if (missing.length > 0) {
-    throw createError({ statusCode: 400, statusMessage: `云存储配置不完整：${missing.join('、')}` })
+    throw createError({ statusCode: 400, message: `云存储配置不完整：${missing.join('、')}` })
   }
 }
 
@@ -574,7 +574,7 @@ export default defineEventHandler(async (event) => {
   } else if (manifestFetch.error && !files.length) {
     throw createError({
       statusCode: 502,
-      statusMessage: `读取云端更新清单失败：${manifestFetch.error}${listError ? `；${listError}` : ''}`
+      message: `读取云端更新清单失败：${manifestFetch.error}${listError ? `；${listError}` : ''}`
     })
   }
 
@@ -597,7 +597,7 @@ export default defineEventHandler(async (event) => {
   if (candidates.length === 0) {
     throw createError({
       statusCode: 404,
-      statusMessage: listError
+      message: listError
         ? `没有发现可同步的客户端版本；${listError}`
         : '没有发现可同步的客户端版本'
     })

@@ -5,11 +5,11 @@ export type SqlBinding = string | number | bigint | boolean | null | Uint8Array
 
 export function requiredString(value: unknown, name: string, maxLength = 512) {
   if (typeof value !== 'string' || !value.trim()) {
-    throw createError({ statusCode: 400, statusMessage: `${name} is required` })
+    throw createError({ statusCode: 400, message: `${name} is required` })
   }
   const trimmed = value.trim()
   if (trimmed.length > maxLength) {
-    throw createError({ statusCode: 400, statusMessage: `${name} is too long` })
+    throw createError({ statusCode: 400, message: `${name} is too long` })
   }
   return trimmed
 }
@@ -17,7 +17,7 @@ export function requiredString(value: unknown, name: string, maxLength = 512) {
 export function requiredParam(event: H3Event, name: string) {
   const value = getRouterParam(event, name)
   if (!value) {
-    throw createError({ statusCode: 400, statusMessage: `${name} is required` })
+    throw createError({ statusCode: 400, message: `${name} is required` })
   }
   return value
 }

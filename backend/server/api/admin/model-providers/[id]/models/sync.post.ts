@@ -174,6 +174,6 @@ export default defineEventHandler(async (event) => {
       timestamp
     )
     }
-    throw createError({ statusCode: 502, statusMessage: `Sync models failed: ${syncError}` })
+    throw createError({ statusCode: 502, message: `Sync models failed: ${syncError}` })
   }
 })

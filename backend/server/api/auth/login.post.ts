@@ -31,10 +31,10 @@ export default defineEventHandler(async (event) => {
     .get(account) as LoginUserRow | undefined
 
   if (!user || !verifyPassword(password, user.password_hash)) {
-    throw createError({ statusCode: 401, statusMessage: '账号或密码错误' })
+    throw createError({ statusCode: 401, message: '账号或密码错误' })
   }
   if (user.status !== 'active') {
-    throw createError({ statusCode: 403, statusMessage: '账号已被禁用' })
+    throw createError({ statusCode: 403, message: '账号已被禁用' })
   }
 
   const deviceId = optionalString(body.deviceId, 128)

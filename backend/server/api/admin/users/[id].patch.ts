@@ -34,14 +34,14 @@ export default defineEventHandler(async (event) => {
 
   if (body.role !== undefined) {
     if (!['user', 'admin'].includes(body.role)) {
-      throw createError({ statusCode: 400, statusMessage: '无效的角色' })
+      throw createError({ statusCode: 400, message: '无效的角色' })
     }
     updates.push('role = ?')
     params.push(body.role)
   }
 
   if (updates.length === 0) {
-    throw createError({ statusCode: 400, statusMessage: '没有可更新的字段' })
+    throw createError({ statusCode: 400, message: '没有可更新的字段' })
   }
 
   updates.push('updated_at = ?')

@@ -22,11 +22,11 @@ export default defineEventHandler(async (event) => {
     for (const rule of body.rules || []) {
       const credits = Number(rule.credits)
       if (!rule.id || !Number.isSafeInteger(credits) || credits < 0 || credits > 1_000_000) {
-        throw createError({ statusCode: 400, statusMessage: '积分规则不合法' })
+        throw createError({ statusCode: 400, message: '积分规则不合法' })
       }
       const result = update.run(credits, rule.enabled === false ? 0 : 1, nowIso(), rule.id)
       if (result.changes === 0) {
-        throw createError({ statusCode: 404, statusMessage: '积分规则不存在' })
+        throw createError({ statusCode: 404, message: '积分规则不存在' })
       }
     }
   })()

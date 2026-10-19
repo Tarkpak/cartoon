@@ -8,11 +8,11 @@ export default defineEventHandler((event) => {
   const auth = requireAdmin(event)
   const id = requiredParam(event, 'id')
   if (id.startsWith('credit_rule_')) {
-    throw createError({ statusCode: 400, statusMessage: '默认积分规则不能删除，可将其停用' })
+    throw createError({ statusCode: 400, message: '默认积分规则不能删除，可将其停用' })
   }
   const result = getDb().prepare('DELETE FROM credit_rules WHERE id = ?').run(id)
   if (result.changes === 0) {
-    throw createError({ statusCode: 404, statusMessage: '积分规则不存在' })
+    throw createError({ statusCode: 404, message: '积分规则不存在' })
   }
   writeAudit(event, {
     actorUserId: auth.user.id,

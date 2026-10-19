@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
   const body = await readJsonBody<{ password?: string }>(event)
 
   if (!body.password || body.password.length < 6) {
-    throw createError({ statusCode: 400, statusMessage: '密码长度至少为 6 位' })
+    throw createError({ statusCode: 400, message: '密码长度至少为 6 位' })
   }
 
   const passwordHash = await hash(body.password, 10)

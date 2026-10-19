@@ -41,7 +41,7 @@ export default defineEventHandler(async (event) => {
   if (invalidModels.length > 0) {
     throw createError({
       statusCode: 400,
-      statusMessage: `models contains unavailable item: ${invalidModels.slice(0, 3).join(', ')}`
+      message: `models contains unavailable item: ${invalidModels.slice(0, 3).join(', ')}`
     })
   }
 

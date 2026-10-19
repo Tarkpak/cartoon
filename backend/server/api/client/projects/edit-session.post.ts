@@ -15,20 +15,20 @@ export default defineEventHandler(async event => {
   const sessionId = optionalString(body.sessionId, 128)
   const action = optionalString(body.action, 32)
   if (!localProjectId || !deviceId || !sessionId || !['acquire', 'heartbeat', 'release', 'check', 'takeover'].includes(action || '')) {
-    throw createError({ statusCode: 400, statusMessage: '编辑会话参数无效' })
+    throw createError({ statusCode: 400, message: '编辑会话参数无效' })
   }
   const db = getDb()
   return db.transaction(() => {
     const project = db.query('SELECT id, deleted_at FROM user_projects WHERE user_id = ? AND local_project_id = ?')
       .get(ownerUserId, localProjectId) as { id: string, deleted_at: string | null } | null
-    if (project?.deleted_at) throw createError({ statusCode: 410, statusMessage: '云端项目已删除' })
+    if (project?.deleted_at) throw createError({ statusCode: 410, message: '云端项目已删除' })
     if (project) {
       try { requireCloudProjectPermission({ db, auth, projectId: project.id, permission: 'edit' }) }
       catch {
         try { requireCloudProjectPermission({ db, auth, projectId: project.id, permission: 'manage_members' }) }
         catch { requireCloudProjectPermission({ db, auth, projectId: project.id, permission: 'delete' }) }
       }
-    } else if (ownerUserId !== auth.user.id && auth.user.role !== 'admin') throw createError({ statusCode: 404, statusMessage: '项目不存在' })
+    } else if (ownerUserId !== auth.user.id && auth.user.role !== 'admin') throw createError({ statusCode: 404, message: '项目不存在' })
     const canTakeover = ownerUserId === auth.user.id || auth.user.role === 'admin'
     if (project && projectUsesCollaboration(db, project.id)) {
       return { success: true, data: { editable: false, canTakeover: false, reason: '项目已启用按集协作，请使用协作入口', collaboration: true } }

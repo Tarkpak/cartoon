@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
   const amount = Number(body.amount)
   const reason = optionalString(body.reason, 500)
   if (!reason) {
-    throw createError({ statusCode: 400, statusMessage: '请填写积分调整原因' })
+    throw createError({ statusCode: 400, message: '请填写积分调整原因' })
   }
   const account = adjustUserCredits({
     userId,

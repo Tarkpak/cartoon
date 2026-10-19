@@ -312,7 +312,7 @@ export function tosFileDownloadUrl(key: string, downloadName?: string) {
   assertConfigured(config)
   const normalizedKey = normalizeObjectPath(key)
   if (!normalizedKey) {
-    throw createError({ statusCode: 400, statusMessage: '文件 Key 不能为空' })
+    throw createError({ statusCode: 400, message: '文件 Key 不能为空' })
   }
   const { endpoint, secure } = normalizeEndpoint(config.endpoint)
   return buildPresignedUrl({
@@ -335,7 +335,7 @@ export function tosFileAccessUrl(key: string, expires = 3600) {
   assertConfigured(config)
   const normalizedKey = normalizeObjectPath(key)
   if (!normalizedKey) {
-    throw createError({ statusCode: 400, statusMessage: '文件 Key 不能为空' })
+    throw createError({ statusCode: 400, message: '文件 Key 不能为空' })
   }
   const { endpoint, secure } = normalizeEndpoint(config.endpoint)
   return buildPresignedUrl({
@@ -371,7 +371,7 @@ function buildPublicUrl(input: {
 
 function assertConfigured(config: ReturnType<typeof tosStorageClientConfig>) {
   if (!config.enabled) {
-    throw createError({ statusCode: 400, statusMessage: '云存储未启用' })
+    throw createError({ statusCode: 400, message: '云存储未启用' })
   }
   const missing: string[] = []
   if (!config.accessKeyId) missing.push('Access Key ID')
@@ -380,7 +380,7 @@ function assertConfigured(config: ReturnType<typeof tosStorageClientConfig>) {
   if (!config.endpoint) missing.push('Endpoint')
   if (!config.bucket) missing.push('Bucket')
   if (missing.length > 0) {
-    throw createError({ statusCode: 400, statusMessage: `云存储配置不完整：${missing.join('、')}` })
+    throw createError({ statusCode: 400, message: `云存储配置不完整：${missing.join('、')}` })
   }
 }
 
@@ -503,7 +503,7 @@ async function fetchTosList(input: {
     return parseTosList(text)
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      throw createError({ statusCode: 504, statusMessage: 'TOS 请求超时' })
+      throw createError({ statusCode: 504, message: 'TOS 请求超时' })
     }
     throw error
   } finally {
@@ -598,7 +598,7 @@ export async function copyTosObject(sourceKey: string, targetKey: string) {
   const source = normalizeObjectPath(sourceKey)
   const target = normalizeObjectPath(targetKey)
   if (!source || !target) {
-    throw createError({ statusCode: 400, statusMessage: '复制源 Key 和目标 Key 不能为空' })
+    throw createError({ statusCode: 400, message: '复制源 Key 和目标 Key 不能为空' })
   }
 
   const { endpoint, secure } = normalizeEndpoint(config.endpoint)
@@ -645,7 +645,7 @@ export async function putTosObject(
   assertConfigured(config)
   const normalizedKey = normalizeObjectPath(key)
   if (!normalizedKey) {
-    throw createError({ statusCode: 400, statusMessage: '文件 Key 不能为空' })
+    throw createError({ statusCode: 400, message: '文件 Key 不能为空' })
   }
 
   const { endpoint, secure } = normalizeEndpoint(config.endpoint)

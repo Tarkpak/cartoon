@@ -89,12 +89,12 @@ function normalizeProviderModels(provider: Record<string, unknown>, providerKey:
 function normalizeProvider(value: unknown, index: number): NormalizedProvider {
   const provider = asRecord(value)
   if (!provider) {
-    throw createError({ statusCode: 400, statusMessage: `providers[${index}] must be an object` })
+    throw createError({ statusCode: 400, message: `providers[${index}] must be an object` })
   }
 
   const providerKey = stringValue(provider.providerKey ?? provider.provider_key, 64).toLowerCase()
   if (!providerKey || !PROVIDER_KEY_PATTERN.test(providerKey)) {
-    throw createError({ statusCode: 400, statusMessage: `providers[${index}].providerKey is invalid` })
+    throw createError({ statusCode: 400, message: `providers[${index}].providerKey is invalid` })
   }
 
   const displayName = stringValue(provider.displayName ?? provider.display_name, 128) || providerKey

@@ -1034,7 +1034,7 @@ function auditQuery(page: number, pageSize: number) {
 function errorText(error: unknown, fallback: string) {
   if (error && typeof error === 'object') {
     const candidate = error as { data?: { statusMessage?: string, message?: string }, message?: string }
-    return candidate.data?.statusMessage || candidate.data?.message || candidate.message || fallback
+    return candidate.data?.message || candidate.data?.statusMessage || candidate.message || fallback
   }
   return fallback
 }

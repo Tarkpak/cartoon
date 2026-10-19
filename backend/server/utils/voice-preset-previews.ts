@@ -94,7 +94,7 @@ function speechApiKey() {
   )
   const key = decryptText(provider?.encrypted_speech_api_key)
   if (!key) {
-    throw createError({ statusCode: 400, statusMessage: '豆包语音 API Key 尚未配置' })
+    throw createError({ statusCode: 400, message: '豆包语音 API Key 尚未配置' })
   }
   return key
 }
@@ -126,7 +126,7 @@ async function generatePreviewAudio(speakerId: string) {
   const payload = await response.json().catch(() => ({})) as Record<string, unknown>
   if (!response.ok || (typeof payload.code === 'number' && payload.code !== 0)) {
     const message = typeof payload.message === 'string' ? payload.message : `HTTP ${response.status}`
-    throw createError({ statusCode: 502, statusMessage: `豆包音色试听生成失败：${message}` })
+    throw createError({ statusCode: 502, message: `豆包音色试听生成失败：${message}` })
   }
   if (typeof payload.audio === 'string' && payload.audio) {
     return Uint8Array.from(Buffer.from(payload.audio, 'base64'))
@@ -135,7 +135,7 @@ async function generatePreviewAudio(speakerId: string) {
     const audioResponse = await fetch(payload.url, { signal: AbortSignal.timeout(20000) })
     if (audioResponse.ok) return new Uint8Array(await audioResponse.arrayBuffer())
   }
-  throw createError({ statusCode: 502, statusMessage: '豆包语音未返回试听音频' })
+  throw createError({ statusCode: 502, message: '豆包语音未返回试听音频' })
 }
 
 function previewObjectKey(cacheKey: string) {
@@ -146,7 +146,7 @@ function previewObjectKey(cacheKey: string) {
 }
 
 export function readyVoicePreview(row: VoicePreviewRow) {
-  if (!row.object_key) throw createError({ statusCode: 500, statusMessage: '试听缓存文件无效' })
+  if (!row.object_key) throw createError({ statusCode: 500, message: '试听缓存文件无效' })
   return {
     status: 'ready' as const,
     speakerId: row.speaker_id,
@@ -157,7 +157,7 @@ export function readyVoicePreview(row: VoicePreviewRow) {
 
 export async function resolveVoicePreview(speakerId: string, userId: string) {
   if (!isChineseVoicePreset(speakerId)) {
-    throw createError({ statusCode: 400, statusMessage: '仅支持试听官方中文音色' })
+    throw createError({ statusCode: 400, message: '仅支持试听官方中文音色' })
   }
   const db = getDb()
   const claim = claimVoicePreview(db, speakerId, userId)

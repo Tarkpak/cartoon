@@ -140,7 +140,7 @@ export function saveTosStorageConfig(input: TosStorageConfigInput) {
     if (missing.length > 0) {
       throw createError({
         statusCode: 400,
-        statusMessage: `启用云存储前请补齐：${missing.join('、')}`
+        message: `启用云存储前请补齐：${missing.join('、')}`
       })
     }
   }

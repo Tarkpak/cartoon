@@ -412,7 +412,7 @@ function statusTagType(status: ClientVersionRow['status']) {
 
 function errorText(error: unknown, fallback: string) {
   const data = (error as { data?: { statusMessage?: string, message?: string } })?.data
-  return data?.statusMessage || data?.message || (error instanceof Error ? error.message : fallback)
+  return data?.message || data?.statusMessage || (error instanceof Error ? error.message : fallback)
 }
 
 function queryParams() {

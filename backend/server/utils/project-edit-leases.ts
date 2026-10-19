@@ -45,7 +45,7 @@ export function operateProjectEditLease(db: Database, input: {
     const active = current && current.expires_at > now ? current : null
     const sameSession = active?.user_id === input.userId && active.device_id === input.deviceId && active.session_id === input.sessionId
     const owns = sameSession && active?.token === input.token
-    if (input.action === 'takeover' && !input.canTakeover) throw createError({ statusCode: 403, statusMessage: '仅项目所有者或管理员可以接管编辑权' })
+    if (input.action === 'takeover' && !input.canTakeover) throw createError({ statusCode: 403, message: '仅项目所有者或管理员可以接管编辑权' })
     if (input.action === 'release') {
       if (owns) db.query('DELETE FROM project_edit_leases WHERE owner_user_id = ? AND local_project_id = ? AND token = ?')
         .run(input.ownerUserId, input.localProjectId, input.token!)
@@ -68,6 +68,6 @@ export function requireProjectEditLease(db: Database, input: {
 }) {
   const lease = projectEditLease(db, input.ownerUserId, input.localProjectId)
   if (!lease || lease.expires_at <= (input.nowMs ?? Date.now()) || lease.user_id !== input.userId || lease.token !== input.token) {
-    throw createError({ statusCode: 423, statusMessage: '项目编辑权已失效，请重新取得编辑权后同步' })
+    throw createError({ statusCode: 423, message: '项目编辑权已失效，请重新取得编辑权后同步' })
   }
 }

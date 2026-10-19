@@ -11,12 +11,12 @@ const TRANSPORT_AAD = Buffer.from('playlet.cloud-secret-response.v1', 'utf8')
 function decodeClientPublicKey(header: string) {
   const [version, publicKeyText] = header.trim().split(':', 2)
   if (version !== 'v1' || !publicKeyText) {
-    throw createError({ statusCode: 400, statusMessage: '加密通道协商失败' })
+    throw createError({ statusCode: 400, message: '加密通道协商失败' })
   }
 
   const publicKey = Buffer.from(publicKeyText, 'base64')
   if (publicKey.length !== 32) {
-    throw createError({ statusCode: 400, statusMessage: '加密通道协商失败' })
+    throw createError({ statusCode: 400, message: '加密通道协商失败' })
   }
   return publicKey
 }
@@ -45,7 +45,7 @@ function transportKey(sharedSecret: Buffer, clientPublicKey: Buffer, serverPubli
 export function encryptedClientResponse(event: H3Event, data: unknown) {
   const header = getRequestHeader(event, SECURE_REQUEST_HEADER)
   if (!header) {
-    throw createError({ statusCode: 426, statusMessage: '客户端版本过旧，请升级后重新登录' })
+    throw createError({ statusCode: 426, message: '客户端版本过旧，请升级后重新登录' })
   }
 
   try {
@@ -79,6 +79,6 @@ export function encryptedClientResponse(event: H3Event, data: unknown) {
     }
   } catch (error) {
     if (error && typeof error === 'object' && 'statusCode' in error) throw error
-    throw createError({ statusCode: 400, statusMessage: '加密通道协商失败' })
+    throw createError({ statusCode: 400, message: '加密通道协商失败' })
   }
 }

@@ -195,10 +195,10 @@ export function adjustUserCredits(input: {
   metadata?: unknown
 }) {
   if (!Number.isSafeInteger(input.amount) || input.amount === 0) {
-    throw createError({ statusCode: 400, statusMessage: '积分变动必须是非零整数' })
+    throw createError({ statusCode: 400, message: '积分变动必须是非零整数' })
   }
   if (Math.abs(input.amount) > 1_000_000_000) {
-    throw createError({ statusCode: 400, statusMessage: '单次积分变动不能超过 10 亿' })
+    throw createError({ statusCode: 400, message: '单次积分变动不能超过 10 亿' })
   }
 
   const db = getDb()

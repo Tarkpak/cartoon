@@ -26,6 +26,11 @@ export default defineNuxtConfig({
     }
   },
   nitro: {
+    // Nitro's dev error formatter uses source-map's WASM consumer, which can trap
+    // under Bun. Keep stack mapping with the API-compatible JavaScript consumer.
+    alias: {
+      'source-map': fileURLToPath(new URL('./node_modules/source-map-js/source-map.js', import.meta.url))
+    },
     serverAssets: [{
       baseName: 'default-prompts',
       dir: fileURLToPath(new URL('../src-tauri/assets/default-prompts', import.meta.url))
