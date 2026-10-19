@@ -87,6 +87,88 @@ const XIAOHONGSHU_CAPTURE_SCRIPT: &str = r#"
 })();
 "#;
 
+fn download_directory_config(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path().app_config_dir().map(|dir| dir.join("download-directory.json"))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_download_directory(app: AppHandle) -> Result<String, String> {
+    let config = download_directory_config(&app)?;
+    let directory = match fs_read_download_directory(&config)? {
+        Some(path) => PathBuf::from(path),
+        None => app.path().download_dir().map_err(|error| error.to_string())?,
+    };
+    Ok(directory.to_string_lossy().into_owned())
+}
+
+fn fs_read_download_directory(config: &std::path::Path) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(config) {
+        Ok(value) => serde_json::from_str(&value).map_err(|error| error.to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
+fn set_download_directory(app: AppHandle, directory: Option<String>) -> Result<String, String> {
+    if let Some(ref path) = directory {
+        if !std::path::Path::new(path).is_absolute() || !std::path::Path::new(path).is_dir() {
+            return Err("请选择有效的下载文件夹".to_string());
+        }
+    }
+    let config = download_directory_config(&app)?;
+    if let Some(parent) = config.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let value = serde_json::to_string(&directory).map_err(|error| error.to_string())?;
+    std::fs::write(config, value).map_err(|error| error.to_string())?;
+    get_download_directory(app)
+}
+
+#[tauri::command]
+async fn save_project_video(app: AppHandle, url: String, file_name: String) -> Result<String, String> {
+    if file_name.is_empty() || file_name.contains(['/', '\\']) || !file_name.ends_with(".mp4") {
+        return Err("无效的视频文件名".to_string());
+    }
+    let directory = PathBuf::from(get_download_directory(app)?);
+    let parsed = reqwest::Url::parse(&url).map_err(|error| error.to_string())?;
+    if parsed.scheme() != "http"
+        || parsed.host_str() != Some(DESKTOP_HOST)
+        || parsed.port() != Some(DESKTOP_PORT)
+        || !(parsed.path() == "/api/video/download" || parsed.path().starts_with("/api/video/file/"))
+    {
+        return Err("不支持的视频下载地址".to_string());
+    }
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(600))
+        .build().map_err(|error| error.to_string())?
+        .get(parsed).send().await.map_err(|error| error.to_string())?
+        .error_for_status().map_err(|error| error.to_string())?;
+    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+    tokio::fs::create_dir_all(&directory).await.map_err(|error| error.to_string())?;
+    let stem = file_name.trim_end_matches(".mp4");
+    for index in 0..10000 {
+        let name = if index == 0 { file_name.clone() } else { format!("{stem} ({index}).mp4") };
+        let path = directory.join(name);
+        match tokio::fs::OpenOptions::new().write(true).create_new(true).open(&path).await {
+            Ok(mut file) => {
+                use tokio::io::AsyncWriteExt;
+                if let Err(error) = file.write_all(&bytes).await {
+                    drop(file);
+                    let _ = tokio::fs::remove_file(&path).await;
+                    return Err(error.to_string());
+                }
+                return Ok(path.to_string_lossy().into_owned());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Err("同名文件过多，请清理下载目录后重试".to_string())
+}
+
 fn desktop_base_url() -> String {
     format!("http://{}:{}", DESKTOP_HOST, DESKTOP_PORT)
 }
@@ -527,6 +609,9 @@ pub fn run() {
 
     let app = builder
         .invoke_handler(tauri::generate_handler![
+            get_download_directory,
+            set_download_directory,
+            save_project_video,
             open_local_path,
             open_local_directory,
             open_external_url,
@@ -562,4 +647,28 @@ pub fn run() {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod download_directory_tests {
+    use super::*;
+
+    #[test]
+    fn reads_saved_directory_and_default() {
+        let config = std::env::temp_dir().join(format!("download-directory-{}.json", Uuid::new_v4()));
+        assert_eq!(fs_read_download_directory(&config).unwrap(), None);
+        std::fs::write(&config, serde_json::to_string(&Some("/tmp/视频下载")).unwrap()).unwrap();
+        assert_eq!(fs_read_download_directory(&config).unwrap().as_deref(), Some("/tmp/视频下载"));
+        std::fs::write(&config, "null").unwrap();
+        assert_eq!(fs_read_download_directory(&config).unwrap(), None);
+        std::fs::remove_file(config).unwrap();
+    }
+
+    #[test]
+    fn rejects_corrupt_directory_config() {
+        let config = std::env::temp_dir().join(format!("download-directory-{}.json", Uuid::new_v4()));
+        std::fs::write(&config, "invalid json").unwrap();
+        assert!(fs_read_download_directory(&config).is_err());
+        std::fs::remove_file(config).unwrap();
+    }
 }

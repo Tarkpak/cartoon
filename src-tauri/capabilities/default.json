@@ -20,6 +20,8 @@
     "allow-check-ffmpeg-status",
     "allow-install-ffmpeg",
     "allow-open-local-path",
+    "allow-save-project-video",
+    "allow-download-directory",
     "allow-open-local-directory",
     "allow-open-external-url",
     "allow-save-settings-config-export",

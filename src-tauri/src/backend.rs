@@ -5559,6 +5559,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         )
         .route("/api/image/file/{*filename}", get(api_image_file))
         .route("/api/image/proxy", get(api_image_proxy))
+        .route("/api/video/download", get(api_project_video_download))
         .route("/api/tos/files", get(api_tos_files))
         .route("/api/tos/members", get(api_tos_members))
         .route("/api/tos/download-url", get(api_tos_download_url))

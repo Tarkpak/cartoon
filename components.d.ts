@@ -123,6 +123,7 @@ declare module 'vue' {
     SettingsDesktopFfmpeg: typeof import('./app/components/settings/SettingsDesktopFfmpeg.vue')['default']
     SettingsDesktopUpdate: typeof import('./app/components/settings/SettingsDesktopUpdate.vue')['default']
     SettingsDirectorPreferencesEditor: typeof import('./app/components/settings/SettingsDirectorPreferencesEditor.vue')['default']
+    SettingsDownloadDirectory: typeof import('./app/components/settings/SettingsDownloadDirectory.vue')['default']
     SettingsGeneralSection: typeof import('./app/components/settings/SettingsGeneralSection.vue')['default']
     SettingsModelProvidersSection: typeof import('./app/components/settings/SettingsModelProvidersSection.vue')['default']
     SettingsModelReasoningControl: typeof import('./app/components/settings/SettingsModelReasoningControl.vue')['default']

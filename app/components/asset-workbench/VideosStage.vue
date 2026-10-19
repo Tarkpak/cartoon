@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight, FileDown, Loader2, Play } from 'lucide-vue-next'
+import { useIntervalFn, useStorage } from '@vueuse/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
+import { Check, ChevronLeft, ChevronRight, Download, Eraser, FileDown, FolderOpen, Loader2, Play } from 'lucide-vue-next'
 import type { ScriptParseMode } from '#shared/types/script'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
@@ -12,6 +14,7 @@ import type {
   SceneVideoBadge,
   SceneVoiceReferenceSummary
 } from '~/lib/asset-workbench-types'
+import { ensureVideoHistoryEntry } from '~/lib/asset-history'
 import { resolveVideoPreviewAspectRatio } from '~/lib/video-preview-aspect-ratio'
 
 interface SceneEpisodeGroup {
@@ -126,6 +129,7 @@ const props = defineProps<{
   onHandleDeleteScene: (scene: SceneData) => void
   onGenerateSceneBaseline: (sceneId: string) => void
   onRetryScene: (sceneId: string) => void
+  onApplySubtitleErasure: (scene: Partial<SceneData> & { id: string }) => Promise<void>
   onOpenSceneVideoHistory: (sceneId: string) => void
   onSetScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void
   onSetSceneEnvironmentCaptureMode: (sceneId: string, mode: '单视角' | '四视角') => void
@@ -166,6 +170,162 @@ function resolveSceneEpisodeMeta(scene: SceneData): { id: string, title: string,
     id: scene.episodeId?.trim() || `episode_${String(normalizedEpisodeIndex).padStart(3, '0')}`,
     title: scene.episodeTitle?.trim() || `第${normalizedEpisodeIndex}集`,
     index: normalizedEpisodeIndex
+  }
+}
+
+const downloadingVideo = ref(false)
+const downloadedVideos = useStorage<Record<string, string>>('project-downloaded-videos', {})
+const selectedVideoDownloaded = computed(() => {
+  const scene = props.selectedScene
+  return Boolean(scene?.videoUrl && downloadedVideos.value[scene.id] === scene.videoUrl)
+})
+const { toast } = useToast()
+const desktopRuntime = isTauri()
+const openingDownloadDirectory = ref(false)
+
+// Keep submitted tasks across navigation and desktop restarts.
+const erasureTasks = useStorage<Record<string, { taskId: string, sourceUrl: string }>>('scene-subtitle-erasure-tasks', {})
+const submittingErasure = ref<string[]>([])
+const checkingErasure = new Set<string>()
+const selectedSceneErasing = computed(() => !!props.selectedScene && (
+  submittingErasure.value.includes(props.selectedScene.id) || !!erasureTasks.value[props.selectedScene.id]
+))
+
+async function eraseSelectedVideo() {
+  const scene = props.selectedScene
+  if (!scene?.videoUrl || selectedSceneErasing.value || props.isSceneBusy(scene)) return
+  const sourceUrl = scene.videoUrl
+  submittingErasure.value.push(scene.id)
+  try {
+    const source = new URL(sourceUrl, window.location.href)
+    const downloadUrl = source.origin === window.location.origin
+      ? sourceUrl
+      : `/api/video/download?${new URLSearchParams({ url: source.href })}`
+    const response = await fetch(downloadUrl)
+    if (!response.ok) throw new Error('读取分镜视频失败')
+    const form = new FormData()
+    form.append('video', await response.blob(), `${scene.title || scene.id}.mp4`)
+    const upload = await $fetch<{ videoUrl: string, sourceObjectKey?: string }>('/api/tools/subtitle-erasure/upload-source', {
+      method: 'POST', body: form
+    })
+    const task = await $fetch<{ taskId: string }>('/api/tools/subtitle-erasure', {
+      method: 'POST',
+      body: { videoUrl: upload.videoUrl, sourceObjectKey: upload.sourceObjectKey, sourceFileName: `${scene.title}.mp4` }
+    })
+    erasureTasks.value = { ...erasureTasks.value, [scene.id]: { taskId: task.taskId, sourceUrl } }
+    toast.success('已开始去字幕，完成后自动更新分镜视频')
+  } catch (error) {
+    toast.error('提交去字幕失败', { description: error instanceof Error ? error.message : '请稍后重试' })
+  } finally {
+    submittingErasure.value = submittingErasure.value.filter(id => id !== scene.id)
+  }
+}
+
+async function checkErasureTasks() {
+  for (const scene of props.scenes) {
+    const task = erasureTasks.value[scene.id]
+    if (!task || checkingErasure.has(scene.id)) continue
+    checkingErasure.add(scene.id)
+    try {
+      const status = await $fetch<{ status: string, errorMessage?: string }>(
+        `/api/tools/subtitle-erasure/status/${encodeURIComponent(task.taskId)}`
+      )
+      if (status.status === 'failed') {
+        delete erasureTasks.value[scene.id]
+        toast.error(`${scene.title} 去字幕失败`, { description: status.errorMessage || '请重试' })
+      } else if (status.status === 'completed') {
+        const result = await $fetch<{ videoUrl: string }>('/api/tools/subtitle-erasure/save', {
+          method: 'POST', body: { taskId: task.taskId }
+        })
+        // A new generation may have replaced this scene while erasure was running.
+        const current = props.scenes.find(item => item.id === scene.id)
+        if (current?.videoUrl === task.sourceUrl && !props.isSceneBusy(current)) {
+          await props.onApplySubtitleErasure({
+            id: scene.id,
+            videoUrl: result.videoUrl,
+            videoHistory: ensureVideoHistoryEntry(current.videoHistory, task.sourceUrl, { source: 'legacy' }),
+            lastFrame: undefined
+          })
+          toast.success(`${scene.title} 去字幕完成`)
+        } else {
+          toast.success('去字幕已完成，可在字幕擦除任务中查看结果')
+        }
+        delete erasureTasks.value[scene.id]
+      }
+    } catch {
+      // Temporary network errors are retried on the next poll; the task stays recoverable.
+    } finally {
+      checkingErasure.delete(scene.id)
+    }
+  }
+}
+
+useIntervalFn(checkErasureTasks, 5000, { immediateCallback: true })
+
+async function openDownloadDirectory() {
+  if (openingDownloadDirectory.value) return
+  openingDownloadDirectory.value = true
+  try {
+    const path = await invoke<string>('get_download_directory')
+    await invoke('open_local_directory', { path })
+  } catch (error) {
+    toast.error('无法打开下载目录', {
+      description: error instanceof Error ? error.message : String(error)
+    })
+  } finally {
+    openingDownloadDirectory.value = false
+  }
+}
+
+async function downloadSelectedVideo() {
+  const scene = props.selectedScene
+  if (!scene?.videoUrl || downloadingVideo.value) return
+  const videoUrl = scene.videoUrl
+  const episode = resolveSceneEpisodeMeta(scene)
+  const sceneName = (scene.title?.trim() || `场景${props.scenes.findIndex(item => item.id === scene.id) + 1}`)
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    .replace(/[. ]+$/g, '') || '场景'
+  const fileName = `第${episode.index}集-${sceneName}.mp4`
+  downloadingVideo.value = true
+  try {
+    if (isTauri()) {
+      const source = new URL(videoUrl, window.location.href)
+      const url = source.origin === window.location.origin && source.pathname.startsWith('/api/video/file/')
+        ? `http://127.0.0.1:43127${source.pathname}`
+        : `http://127.0.0.1:43127/api/video/download?${new URLSearchParams({ url: source.href })}`
+      await invoke<string>('save_project_video', { url, fileName })
+      downloadedVideos.value = { ...downloadedVideos.value, [scene.id]: videoUrl }
+      toast.success('视频已保存到下载目录')
+      return
+    }
+    const source = new URL(videoUrl, window.location.href)
+    const downloadUrl = source.origin === window.location.origin || !['http:', 'https:'].includes(source.protocol)
+      ? videoUrl
+      : `/api/video/download?${new URLSearchParams({ url: source.href })}`
+    const response = await fetch(downloadUrl)
+    if (!response.ok) {
+      const error = await response.json().catch(() => null)
+      throw new Error(error?.message || `下载失败（${response.status}）`)
+    }
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = fileName
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    toast.success('已交给浏览器下载', {
+      description: `${fileName} · 保存位置请查看浏览器下载列表`,
+      duration: 8000
+    })
+  } catch (error) {
+    toast.error('视频下载失败', {
+      description: error instanceof Error ? error.message : String(error || '请稍后重试')
+    })
+  } finally {
+    downloadingVideo.value = false
   }
 }
 
@@ -797,12 +957,59 @@ watch(episodeDirectoryCollapsed, (value) => {
       <!-- Video preview panel -->
       <div class="order-3 min-h-0 flex flex-col rounded-xl bg-muted/10">
         <template v-if="selectedScene">
-          <div class="space-y-2 border-b px-4 py-3">
-            <div class="text-xs font-medium text-muted-foreground">
-              视频预览
-            </div>
-            <div class="text-sm font-medium">
-              {{ selectedScene.title }}
+          <div class="space-y-2 border-b border-border/60 px-4 py-3">
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0 space-y-1">
+                <div class="text-xs text-muted-foreground">视频预览</div>
+                <div class="truncate text-sm font-medium" :title="selectedScene.title">
+                  {{ selectedScene.title }}
+                </div>
+              </div>
+              <div class="flex shrink-0 items-center gap-1">
+                <Button
+                  v-if="selectedScene.videoUrl"
+                  variant="ghost"
+                  size="sm"
+                  class="h-8 shrink-0 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
+                  :disabled="selectedSceneErasing || isSceneBusy(selectedScene)"
+                  :aria-busy="selectedSceneErasing"
+                  @click="eraseSelectedVideo"
+                >
+                  <Loader2 v-if="selectedSceneErasing" class="h-3.5 w-3.5 animate-spin" />
+                  <Eraser v-else class="h-3.5 w-3.5" :stroke-width="1.5" />
+                  {{ selectedSceneErasing ? '去字幕中...' : '去字幕' }}
+                </Button>
+                <Button
+                  v-if="selectedScene.videoUrl"
+                  variant="ghost"
+                  size="sm"
+                  class="h-8 shrink-0 gap-1.5 px-2 text-xs font-normal"
+                  :class="selectedVideoDownloaded
+                    ? 'text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300'
+                    : 'text-muted-foreground hover:text-foreground'"
+                  :title="selectedVideoDownloaded ? '此视频已下载，点击可重新下载' : '下载视频'"
+                  :disabled="downloadingVideo"
+                  :aria-busy="downloadingVideo"
+                  @click="downloadSelectedVideo"
+                >
+                  <Loader2 v-if="downloadingVideo" class="h-3.5 w-3.5 animate-spin" />
+                  <Check v-else-if="selectedVideoDownloaded" class="h-3.5 w-3.5" :stroke-width="2" />
+                  <Download v-else class="h-3.5 w-3.5" :stroke-width="1.5" />
+                  {{ downloadingVideo ? '下载中...' : selectedVideoDownloaded ? '已下载' : '下载' }}
+                </Button>
+                <Button
+                  v-if="desktopRuntime"
+                  variant="ghost"
+                  size="icon"
+                  class="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                  title="打开下载目录"
+                  aria-label="打开下载目录"
+                  :disabled="openingDownloadDirectory"
+                  @click="openDownloadDirectory"
+                >
+                  <FolderOpen class="h-3.5 w-3.5" :stroke-width="1.5" />
+                </Button>
+              </div>
             </div>
             <div
               v-if="selectedSceneVoiceReferenceSummary?.hasDialogue"
@@ -821,6 +1028,7 @@ watch(episodeDirectoryCollapsed, (value) => {
                 v-if="selectedScene.videoUrl"
                 :src="selectedScene.videoUrl"
                 controls
+                controlslist="nodownload"
                 class="h-full w-full object-contain"
                 playsinline
               />

@@ -25691,6 +25691,49 @@ fn detect_image_proxy_mime_type(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
+// Fetch through the backend so media providers do not need browser CORS headers.
+pub(super) async fn api_project_video_download(
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Response, ApiError> {
+    let target = query.get("url").ok_or_else(|| {
+        ApiError::new(StatusCode::BAD_REQUEST, "视频地址不能为空")
+    })?;
+    let mut url = assert_safe_image_proxy_url(target)?;
+    let client = Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(600))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    for _ in 0..6 {
+        let response = client.get(url.clone()).send().await
+            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+        if response.status().is_redirection() {
+            let location = response.headers().get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "视频重定向地址无效"))?;
+            let next = url.join(location)
+                .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "视频重定向地址无效"))?;
+            url = assert_safe_image_proxy_url(next.as_str())?;
+            continue;
+        }
+        if !response.status().is_success() {
+            return Err(ApiError::new(StatusCode::BAD_GATEWAY,
+                format!("视频下载失败: {}", response.status())));
+        }
+        let content_type = response.headers().get(reqwest::header::CONTENT_TYPE).cloned()
+            .unwrap_or_else(|| HeaderValue::from_static("video/mp4"));
+        let stream = futures_util::stream::try_unfold(response, |mut upstream| async move {
+            upstream.chunk().await.map(|chunk| chunk.map(|bytes| (bytes, upstream)))
+        });
+        return Ok(([
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
+        ], axum::body::Body::from_stream(stream)).into_response());
+    }
+    Err(ApiError::new(StatusCode::BAD_GATEWAY, "视频重定向次数过多"))
+}
+
 pub(super) async fn api_image_proxy(
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<Response, ApiError> {

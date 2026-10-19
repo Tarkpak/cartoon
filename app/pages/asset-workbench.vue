@@ -3861,6 +3861,7 @@ async function confirmProjectTakeover() {
           :on-handle-delete-scene="handleDeleteScene"
           :on-generate-scene-baseline="handleGenerateSceneBaseline"
           :on-retry-scene="retryScene"
+          :on-apply-subtitle-erasure="async (scene) => { updateScene(scene); await saveProject() }"
           :on-open-scene-video-history="openSceneVideoHistory"
           :on-set-scene-previous-last-frame-reference="setScenePreviousLastFrameReference"
           :on-set-scene-environment-capture-mode="setSceneEnvironmentCaptureMode"
