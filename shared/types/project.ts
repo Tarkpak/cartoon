@@ -81,8 +81,13 @@ export function resolveProjectWorkbenchPath(
   projectId: string,
   stage?: ProjectWorkbenchStage
 ): string {
-  const path = `/projects/${encodeURIComponent(projectId)}/collaboration`
-  return stage ? `${path}?${new URLSearchParams({ stage })}` : path
+  const query = new URLSearchParams({
+    project: projectId
+  })
+  if (stage) {
+    query.set('stage', stage)
+  }
+  return `/asset-workbench?${query.toString()}`
 }
 
 export function resolveProjectDetailPath(projectId: string): string {

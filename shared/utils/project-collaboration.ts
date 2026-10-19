@@ -90,7 +90,31 @@ export function composeProjectSnapshot(resources: CollaborationResource[]): Coll
     if (!episode) throw new Error(`目录引用了不存在的集数 ${id}`)
     return episode
   })
-  const script = collaborationObject(settings.script, '剧本设置')
+  const script = { ...collaborationObject(settings.script, '剧本设置') }
+  const allScenes = ordered.flatMap(item => item.scenes as CollaborationBody[])
+  const workflow = { ...(script.assetWorkflow as CollaborationBody || {}) }
+  for (const field of ['sceneConfigs', 'sceneVideoHistories']) {
+    if (!ordered.some(item => item.workbench && field in (item.workbench as CollaborationBody))) continue
+    const entries = { ...(workflow[field] as CollaborationBody || {}) }
+    for (const episode of ordered) {
+      const metadata = episode.workbench as CollaborationBody | undefined
+      if (!metadata || !(field in metadata)) continue
+      for (const scene of episode.scenes as CollaborationBody[]) delete entries[String(scene.id)]
+      Object.assign(entries, metadata[field])
+    }
+    const ids = new Set(allScenes.map(scene => scene.id))
+    workflow[field] = Object.fromEntries(Object.entries(entries).filter(([id]) => ids.has(id)))
+  }
+  const characterBodies = active.filter(item => item.type === 'character').map(item => item.body!)
+  if (characterBodies.some(item => item.workbench && 'assetHistory' in (item.workbench as CollaborationBody))) {
+    const histories = { ...(workflow.characterHistories as CollaborationBody || {}) }
+    for (const character of characterBodies) {
+      const metadata = character.workbench as CollaborationBody | undefined
+      if (metadata && 'assetHistory' in metadata) histories[String(character.id)] = metadata.assetHistory
+    }
+    workflow.characterHistories = histories
+  }
+  if (Object.keys(workflow).length || script.assetWorkflow) script.assetWorkflow = workflow
   const writings = ordered.map(item => item.writing).filter(item => item != null)
   return {
     ...collaborationObject(settings.extra, '项目附加信息'),
@@ -102,7 +126,7 @@ export function composeProjectSnapshot(resources: CollaborationResource[]): Coll
         ? { ...(script.writingStudio as CollaborationBody || {}), episodes: writings }
         : null
     },
-    scenes: ordered.flatMap(item => item.scenes as CollaborationBody[]),
+    scenes: allScenes,
     characters: active.filter(item => item.type === 'character').map(item => item.body)
   }
 }

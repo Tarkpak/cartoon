@@ -5,6 +5,7 @@ import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 export interface ProjectEditSessionState {
   editable: boolean
   collaboration?: boolean
+  scopeConflict?: boolean
   canTakeover: boolean
   holderName?: string
   expiresAt?: number | null

@@ -120,7 +120,6 @@ declare global {
   const useModel: typeof import('vue')['useModel']
   const useModelDebugLogs: typeof import('./app/composables/useModelDebugLogs')['useModelDebugLogs']
   const useModelReasoningSettings: typeof import('./app/composables/useModelReasoningSettings')['useModelReasoningSettings']
-  const useProjectCollaboration: typeof import('./app/composables/useProjectCollaboration')['useProjectCollaboration']
   const useProjectEditSession: typeof import('./app/composables/useProjectEditSession')['useProjectEditSession']
   const useProjectSyncConflict: typeof import('./app/composables/useProjectSyncConflict')['useProjectSyncConflict']
   const useProjectsIndexPage: typeof import('./app/composables/useProjectsIndexPage')['useProjectsIndexPage']
@@ -146,6 +145,7 @@ declare global {
   const useTheme: typeof import('./app/composables/useTheme')['useTheme']
   const useToast: typeof import('./app/composables/useToast')['useToast']
   const useVideoImport: typeof import('./app/composables/useVideoImport')['useVideoImport']
+  const useWorkbenchCollaborationSession: typeof import('./app/composables/useWorkbenchCollaborationSession')['useWorkbenchCollaborationSession']
   const watch: typeof import('vue')['watch']
   const watchEffect: typeof import('vue')['watchEffect']
   const watchPostEffect: typeof import('vue')['watchPostEffect']
@@ -192,9 +192,6 @@ declare global {
   // @ts-ignore
   export type { ModelDebugErrorInfo, ModelDebugMediaRef, ModelDebugLogEntry } from './app/composables/useModelDebugLogs'
   import('./app/composables/useModelDebugLogs')
-  // @ts-ignore
-  export type { CollaborationScope } from './app/composables/useProjectCollaboration'
-  import('./app/composables/useProjectCollaboration')
   // @ts-ignore
   export type { ProjectEditSessionState } from './app/composables/useProjectEditSession'
   import('./app/composables/useProjectEditSession')
@@ -334,7 +331,6 @@ declare module 'vue' {
     readonly useModel: UnwrapRef<typeof import('vue')['useModel']>
     readonly useModelDebugLogs: UnwrapRef<typeof import('./app/composables/useModelDebugLogs')['useModelDebugLogs']>
     readonly useModelReasoningSettings: UnwrapRef<typeof import('./app/composables/useModelReasoningSettings')['useModelReasoningSettings']>
-    readonly useProjectCollaboration: UnwrapRef<typeof import('./app/composables/useProjectCollaboration')['useProjectCollaboration']>
     readonly useProjectEditSession: UnwrapRef<typeof import('./app/composables/useProjectEditSession')['useProjectEditSession']>
     readonly useProjectSyncConflict: UnwrapRef<typeof import('./app/composables/useProjectSyncConflict')['useProjectSyncConflict']>
     readonly useProjectsIndexPage: UnwrapRef<typeof import('./app/composables/useProjectsIndexPage')['useProjectsIndexPage']>
@@ -360,6 +356,7 @@ declare module 'vue' {
     readonly useTheme: UnwrapRef<typeof import('./app/composables/useTheme')['useTheme']>
     readonly useToast: UnwrapRef<typeof import('./app/composables/useToast')['useToast']>
     readonly useVideoImport: UnwrapRef<typeof import('./app/composables/useVideoImport')['useVideoImport']>
+    readonly useWorkbenchCollaborationSession: UnwrapRef<typeof import('./app/composables/useWorkbenchCollaborationSession')['useWorkbenchCollaborationSession']>
     readonly watch: UnwrapRef<typeof import('vue')['watch']>
     readonly watchEffect: UnwrapRef<typeof import('vue')['watchEffect']>
     readonly watchPostEffect: UnwrapRef<typeof import('vue')['watchPostEffect']>

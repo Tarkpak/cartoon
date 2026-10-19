@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import AssetWorkbenchPage from './pages/asset-workbench.vue'
 import ArkAssetsPage from './pages/ark-assets.vue'
 import HomePage from './pages/index.vue'
 import ImportVideoDetailPage from './pages/import/video-detail.vue'
@@ -8,13 +9,13 @@ import LogsPage from './pages/logs.vue'
 import LibraryPage from './pages/library.vue'
 import ProjectRedirectPage from './pages/projects/[id].vue'
 import ProjectsPage from './pages/projects/index.vue'
-import ProjectCollaborationPage from './pages/projects/collaboration.vue'
 import SettingsPage from './pages/settings.vue'
 import TosFilesPage from './pages/tos-files.vue'
 import EnhancePage from './pages/tools/enhance.vue'
 import AsrPage from './pages/tools/asr.vue'
 import VoicePage from './pages/tools/voice.vue'
 import ShortVideoDownloadPage from './pages/tools/short-video-download.vue'
+import ScriptWritingPage from './pages/tools/script-writing.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -39,7 +40,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/projects/:id/collaboration',
-    component: ProjectCollaborationPage,
+    redirect: to => ({ path: '/asset-workbench', query: { project: String(to.params.id), stage: to.query.stage } }),
     meta: { layout: 'default' }
   },
   {
@@ -59,9 +60,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/asset-workbench',
-    redirect: to => typeof to.query.project === 'string'
-      ? { path: `/projects/${encodeURIComponent(to.query.project)}/collaboration`, query: { stage: to.query.stage } }
-      : '/projects',
+    component: AssetWorkbenchPage,
     meta: { layout: 'default', hideSidebar: true }
   },
   {
@@ -106,9 +105,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/tools/script-writing',
-    redirect: to => typeof to.query.project === 'string'
-      ? `/projects/${encodeURIComponent(to.query.project)}/collaboration`
-      : { path: '/projects', query: { returnTo: 'script-writing' } },
+    component: ScriptWritingPage,
     meta: { layout: 'default' }
   },
   {

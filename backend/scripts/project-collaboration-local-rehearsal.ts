@@ -49,18 +49,18 @@ export async function rehearseLocalBackends(cloudUrl: string, directory: string)
     db.query("INSERT INTO scripts (id,project_id,raw_text,created_at,updated_at) VALUES ('script','p',?,'v1','v1')").run(JSON.stringify({ episodePlan: [{ id: 'a', index: 1 }, { id: 'b', index: 2 }] }))
     for (const [index, id] of ['a', 'b'].entries()) db.query('INSERT INTO scenes (id,script_id,order_index,episode_id,description,video_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)').run(`s${index + 1}`, 'script', index, id, id.toUpperCase(), index === 0 ? 'https://shared.example/keep.mp4' : null, 'v1', 'v1')
     db.query("INSERT INTO characters (id,project_id,name,appearance,created_at,updated_at) VALUES ('c','p','keep','','v1','v1')").run()
-    if (user !== 'owner') db.query("INSERT INTO project_members (project_id,user_id,role,created_at,updated_at) VALUES ('p',?,'editor','v1','v1')").run(user)
+    if (user !== 'owner') db.query("INSERT INTO project_members (project_id,user_id,role,created_at,updated_at) VALUES ('p',?,?,'v1','v1')").run(user, user === 'viewer' ? 'viewer' : 'editor')
     db.close()
     let session = `window-${user}`
     let discardReply = false
-    const request = async (body: Record<string, unknown>) => {
-      const response = await fetch(`${url}/api/project/p/collaboration`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-project-edit-session': session }, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) })
+    const request = async (body: Record<string, unknown>, suffix = '') => {
+      const response = await fetch(`${url}/api/project/p/collaboration${suffix}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-project-edit-session': session }, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) })
       const payload = await response.json() as { data: any, message?: string }
       if (!response.ok) throw Object.assign(new Error(payload.message || JSON.stringify(payload)), { statusCode: response.status })
       if (body.action === 'write' && discardReply) { discardReply = false; throw new Error('lost local response') }
       return payload.data
     }
-    return { dir, target, request, client: new ProjectCollaborationClient(request),
+    return { dir, target, request, prepare: () => request({}, '/prepare'), client: new ProjectCollaborationClient(request),
       acquire: (id: string) => request({ action: 'lease', leaseAction: 'acquire', type: 'episode', id }),
       newWindow: () => { session = `reloaded-${user}` }, loseNextResponse: () => { discardReply = true },
       restart: async () => { localProcess.kill(); await localProcess.exited; localProcess = spawn(); await ready() } }
@@ -69,9 +69,17 @@ export async function rehearseLocalBackends(cloudUrl: string, directory: string)
     const owner = await startDevice('owner')
     const alice = await startDevice('alice')
     const bob = await startDevice('bob')
-    const preview = await owner.request({ action: 'migrationPreview' })
-    assert.equal(preview.episodes, 2)
-    assert.equal((await owner.request({ action: 'enable', expectedUpdatedAt: preview.expectedUpdatedAt, snapshotHash: preview.snapshotHash })).enabled, true)
+    const viewer = await startDevice('viewer')
+    await assert.rejects(alice.prepare(), { statusCode: 403 })
+    const pending = new Database(owner.target)
+    pending.query("UPDATE projects SET cloud_sync_status = 'conflict' WHERE id = 'p'").run()
+    await assert.rejects(owner.prepare(), { statusCode: 409 })
+    pending.query("UPDATE projects SET cloud_sync_status = 'synced' WHERE id = 'p'").run()
+    pending.close()
+    assert.equal((await owner.prepare()).enabled, true)
+    assert.equal((await owner.prepare()).enabled, true)
+    assert.equal((await viewer.prepare()).enabled, true)
+    await assert.rejects(viewer.acquire('a'), (cause: any) => [403, 404].includes(cause.statusCode))
     assert.equal(readdirSync(join(owner.dir, 'project-collaboration-backups')).length, 1)
     const backup = JSON.parse(readFileSync(join(owner.dir, 'project-collaboration-backups', readdirSync(join(owner.dir, 'project-collaboration-backups'))[0]!), 'utf8'))
     assert.equal(backup.snapshot.data.project.id, 'p')

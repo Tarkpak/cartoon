@@ -43,6 +43,7 @@ interface LoadedProjectScene {
   duration: number
   firstFrame?: string | null
   lastFrame?: string | null
+  videoHistory?: SceneData['videoHistory']
   videoUrl?: string | null
   shotType?: SceneShotType | null
   cameraAngle?: SceneCameraAngle | null
@@ -114,6 +115,7 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
     firstFrame: scene.firstFrame || undefined,
     lastFrame: scene.lastFrame || undefined,
     videoUrl: normalizeProjectVideoUrl(scene.videoUrl) || undefined,
+    videoHistory: scene.videoHistory,
     referenceError: undefined,
     videoError: undefined,
     referenceStatus: scene.firstFrame ? 'done' : 'pending',

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Plus } from 'lucide-vue-next'
 import type { Project } from '~/lib/projects-page'
+import { resolveProjectDetailPath } from '#shared/types/project'
 import ProjectSyncConflictDialog from '@/components/projects/ProjectSyncConflictDialog.vue'
 import { projectAspectRatioOptions } from '~/lib/projects-page'
 import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue'
@@ -76,7 +77,7 @@ function openMigration(project: Project) { migrationProject.value = project; mig
 async function migrated(id: string) {
   migrationOpen.value = false
   await fetchProjects()
-  await router.push(`/projects/${encodeURIComponent(id)}/collaboration`)
+  await router.push(resolveProjectDetailPath(id))
 }
 const projectMembersDialogOpen = ref(false)
 const projectMembersProjectId = ref('')

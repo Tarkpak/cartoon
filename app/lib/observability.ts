@@ -1,5 +1,6 @@
 import { projectEditSessionId, noteProjectLeaseLost } from './project-edit-session'
 import { ofetch } from 'ofetch'
+import { prepareWorkbenchRequest } from './workbench-collaboration'
 import type { App } from 'vue'
 
 const REQUEST_ID_HEADER = 'x-request-id'
@@ -150,6 +151,7 @@ export async function observedFetch(input: RequestInfo | URL, init: RequestInit 
   }
 
   try {
+    nextInit.body = await prepareWorkbenchRequest(normalizeUrl(input)?.pathname || '', nextInit.body) as BodyInit | null | undefined
     const response = await fetch(input, nextInit)
     const responseRequestId = response.headers.get(REQUEST_ID_HEADER) || requestId
     if (!response.ok) {
@@ -184,10 +186,11 @@ export async function observedFetch(input: RequestInfo | URL, init: RequestInit 
 }
 
 export const $fetch = ofetch.create({
-  onRequest({ request, options }) {
+  async onRequest({ request, options }) {
     if (!isApiRequest(request)) return
     const requestId = requestIdFromHeaders(options.headers) || createRequestId()
     options.headers = headersWithRequestId(options.headers, requestId)
+    options.body = await prepareWorkbenchRequest(normalizeUrl(request)?.pathname || '', options.body) as typeof options.body
   },
   onRequestError({ request, options, error }) {
     if (!isApiRequest(request)) return

@@ -20089,10 +20089,11 @@ pub(super) async fn api_script_write(
     };
     let mut body = body;
     let mut collaboration = Value::Null;
-    if super::project_uses_collaboration(&state, &project_id)? {
-        if body.get("action").and_then(Value::as_str) != Some("episode_draft") {
-            return Err(ApiError::new(StatusCode::BAD_REQUEST, "协作页暂只支持单集正文生成"));
-        }
+    if super::project_uses_collaboration(&state, &project_id)? && body.get("action").and_then(Value::as_str) != Some("episode_draft") {
+        // The original writing studio also generates settings, outlines and reviews.
+        // These are previews; adoption is saved through resource revisions.
+        ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
+    } else if super::project_uses_collaboration(&state, &project_id)? {
         let input = body.get("collaborationInput").cloned().unwrap_or(Value::Null);
         let Json(verified) = super::api_project_collaboration(
             Path(project_id.clone()), State(state.clone()), Json(json!({
@@ -21838,8 +21839,11 @@ pub(super) async fn api_character_generate(
         .filter(|value| !value.is_empty());
     let mut reference_sources = Vec::new();
     if regeneration_prompt.is_some() {
-        if let Some(latest_base_image) = latest_character_base_image(&state, &character_id)? {
-            reference_sources.push(latest_base_image);
+        let project_id = required_permission_project_id(&body)?;
+        if !super::project_uses_collaboration(&state, &project_id)? {
+            if let Some(latest_base_image) = latest_character_base_image(&state, &character_id)? {
+                reference_sources.push(latest_base_image);
+            }
         }
         push_optional_reference_source(
             &mut reference_sources,
@@ -22814,6 +22818,13 @@ pub(super) async fn api_asset_video_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let project_id = required_permission_project_id(&body)?;
+    if super::project_uses_collaboration(&state, &project_id)? {
+        return api_video_generate(State(state), Json(json!({
+            "projectId":project_id, "sceneId":body["scene"]["id"],
+            "collaborationInput":body["collaborationInput"], "config":{}
+        }))).await;
+    }
     ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     let start = Utc::now().timestamp_millis();
     validate_video_generate_payload(&body)?;
@@ -23810,6 +23821,23 @@ async fn ensure_project_permission_from_body(
     permission: super::ProjectPermission,
 ) -> Result<(), ApiError> {
     let project_id = required_permission_project_id(body)?;
+    if super::project_uses_collaboration(state, &project_id)? && matches!(permission, super::ProjectPermission::Edit | super::ProjectPermission::Generate) {
+        let input = &body["collaborationInput"];
+        if matches!(permission, super::ProjectPermission::Generate) {
+            let _ = super::api_project_collaboration(Path(project_id), State(state.clone()), Json(json!({
+                "action":"generationCheck", "type":input["type"], "id":input["id"],
+                "expectedRevision":input["revision"], "settingsRevision":input["settingsRevision"]
+            }))).await?;
+        } else {
+            let Json(lease) = super::api_project_collaboration(Path(project_id), State(state.clone()), Json(json!({
+                "action":"lease", "leaseAction":"check", "type":input["type"], "id":input["id"]
+            }))).await?;
+            if lease.pointer("/data/editable").and_then(Value::as_bool) != Some(true) {
+                return Err(ApiError::new(StatusCode::LOCKED, "当前对象编辑权已失效，本地修改已保留"));
+            }
+        }
+        return Ok(());
+    }
     {
         let conn = db_connection(state)?;
         super::ensure_project_permission(&conn, &project_id, permission)?;

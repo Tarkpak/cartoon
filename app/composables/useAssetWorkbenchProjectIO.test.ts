@@ -5,9 +5,12 @@ import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import { useAssetWorkbenchProjectIO } from './useAssetWorkbenchProjectIO'
 
-vi.mock('./useProjectEditSession', () => ({
-  useProjectEditSession: () => ({
-    editSession: ref({ editable: true, canTakeover: true }),
+const collaborationMock = vi.hoisted(() => ({ enabled: false, snapshot: vi.fn(), saveSnapshot: vi.fn() }))
+
+vi.mock('./useWorkbenchCollaborationSession', () => ({
+  useWorkbenchCollaborationSession: () => ({
+    editSession: ref({ editable: true, canTakeover: false, collaboration: collaborationMock.enabled }),
+    snapshot: collaborationMock.snapshot, saveSnapshot: collaborationMock.saveSnapshot,
     projectEditable: ref(true), acquiring: ref(false),
     openEditSession: vi.fn(async () => {}), releaseEditSession: vi.fn(async () => {})
   })
@@ -149,6 +152,9 @@ describe('useAssetWorkbenchProjectIO', () => {
 
   beforeEach(() => {
     fetchMock.mockReset()
+    collaborationMock.enabled = false
+    collaborationMock.snapshot.mockReset()
+    collaborationMock.saveSnapshot.mockReset()
     hadOriginalFetch = Object.prototype.hasOwnProperty.call(testGlobal, '$fetch')
     originalFetch = testGlobal.$fetch
     testGlobal.$fetch = fetchMock
@@ -338,4 +344,41 @@ describe('useAssetWorkbenchProjectIO', () => {
     expect(createCalls).toHaveLength(0)
     expect(putCalls).toHaveLength(1)
   })
+  it('uses resource collaboration in the original workbench and keeps stable scene IDs', async () => {
+    collaborationMock.enabled = true
+    const loaded = createLoadResponse()
+    loaded.data.scenes[0]!.id = 'stable-scene-id'
+    collaborationMock.snapshot.mockReturnValue(loaded.data)
+    collaborationMock.saveSnapshot.mockResolvedValue(undefined)
+    fetchMock.mockResolvedValue(loaded)
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    state.scenes.value[0]!.description = '只修改本集画面'
+    expect(await io.saveProject()).toBe(true)
+    expect(state.scenes.value[0]!.id).toBe('stable-scene-id')
+    expect(collaborationMock.saveSnapshot).toHaveBeenCalledOnce()
+    expect(collaborationMock.saveSnapshot.mock.calls[0]![0].scenes[0].description).toBe('夜晚，主角推门进入。')
+    expect(collaborationMock.saveSnapshot.mock.calls[0]![1].scenes[0].description).toBe('只修改本集画面')
+    expect(fetchMock.mock.calls.some(([, options]) => (options as FetchOptions | undefined)?.method === 'PUT')).toBe(false)
+    expect(await io.saveProject()).toBe(true)
+    expect(collaborationMock.saveSnapshot).toHaveBeenCalledOnce()
+  })
+
+  it('retains the original UI draft and baseline after a resource conflict', async () => {
+    collaborationMock.enabled = true
+    collaborationMock.snapshot.mockReturnValue(createLoadResponse().data)
+    collaborationMock.saveSnapshot.mockRejectedValue(new Error('此集版本已变化'))
+    fetchMock.mockResolvedValue(createLoadResponse())
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    state.scenes.value[0]!.description = '未保存草稿'
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(await io.saveProject()).toBe(false)
+    expect(io.saveError.value).toBe('此集版本已变化')
+    expect(state.scenes.value[0]!.description).toBe('未保存草稿')
+    expect(await io.saveProject()).toBe(false)
+    expect(collaborationMock.saveSnapshot.mock.calls[1]![0].scenes[0].description).toBe('夜晚，主角推门进入。')
+    quiet.mockRestore()
+  })
+
 })

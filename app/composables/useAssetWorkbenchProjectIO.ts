@@ -1,5 +1,5 @@
-import { useProjectEditSession } from './useProjectEditSession'
-import { ref, getCurrentInstance, type ComputedRef, type Ref } from 'vue'
+import { useWorkbenchCollaborationSession } from './useWorkbenchCollaborationSession'
+import { ref, watch, onBeforeUnmount, getCurrentInstance, type ComputedRef, type Ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import type { CharacterView, CharacterVoiceAsset } from '#shared/types/character'
 import {
@@ -73,12 +73,10 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   const saveWarning = ref<string | null>(null)
   const loading = ref(false)
   const projectAccess = ref<ProjectAccess | null>(null)
-  const { editSession, projectEditable, acquiring: acquiringEditSession, openEditSession, releaseEditSession } = useProjectEditSession(async (id) => {
-    const body = buildProjectSaveBody()
-    if (buildProjectSaveSnapshot(id, body) === lastSavedProjectSnapshot) return undefined
-    const response = await $fetch<{ backupId: string }>(`/api/project/${encodeURIComponent(id)}/edit-session/backup`, { method: 'POST', body })
-    return response.backupId
-  })
+  const collaboration = useWorkbenchCollaborationSession(() => saveProject())
+  const { editSession, projectEditable, acquiring: acquiringEditSession, openEditSession, releaseEditSession } = collaboration
+  let lastSavedWorkbenchBody: Record<string, unknown> = {}
+
 
   const activeProjectId = ref(options.projectId.value || '')
   let lastSavedProjectSnapshot: string | null = null
@@ -126,7 +124,11 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       scriptParseMode: options.scriptParseMode.value,
       episodePlan: options.episodePlan.value,
       assetWorkflow: options.projectAssetWorkflow.value,
-      scenes: buildSaveScenesPayload(input?.scenes || options.scenes.value),
+      scenes: buildSaveScenesPayload(input?.scenes || options.scenes.value).map((scene, index) => editSession.value.collaboration
+        ? { ...scene, videoHistory: (input?.scenes || options.scenes.value)[index]?.videoHistory?.length
+          ? (input?.scenes || options.scenes.value)[index]?.videoHistory
+          : undefined }
+        : scene),
       characters: buildSaveCharactersPayload(input?.characters || options.characters.value)
     }
   }
@@ -141,7 +143,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   function buildNormalizedProjectSaveSnapshot(projectId: string): string {
     const scopedScenes = options.scenes.value.map(scene => ({ ...scene }))
     const scopedCharacters = options.characters.value.map(character => ({ ...character }))
-    applyScopedEntityIds(projectId, scopedScenes, scopedCharacters)
+    if (!editSession.value.collaboration) applyScopedEntityIds(projectId, scopedScenes, scopedCharacters)
 
     const body = buildProjectSaveBody({
       scenes: scopedScenes,
@@ -374,6 +376,10 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       if (requestSequence !== loadRequestSequence) return
       if (!response.success || !response.data) return
 
+      if (projectEditable.value && editSession.value.collaboration) {
+        response.data = { ...collaboration.snapshot(), access: response.data.access } as typeof response.data
+      }
+
       options.projectName.value = response.data.project.name
       options.projectDescription.value = response.data.project.description || ''
       options.projectStyleId.value = response.data.project.styleId || ''
@@ -389,8 +395,11 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       options.characters.value = buildLoadedCharacters(response.data.characters)
       projectAccess.value = response.data.access || null
       lastSavedProjectSnapshot = buildNormalizedProjectSaveSnapshot(id)
+      lastSavedWorkbenchBody = collaboration.restoredBaseline?.() ?? JSON.parse(JSON.stringify(buildProjectSaveBody()))
+      if (collaboration.restoredBaseline?.()) lastSavedProjectSnapshot = buildProjectSaveSnapshot(id, lastSavedWorkbenchBody as ReturnType<typeof buildProjectSaveBody>)
     } catch (error) {
       if (requestSequence !== loadRequestSequence) return
+      saveError.value = getDisplayErrorMessage(error, '协作项目加载失败')
       console.error('[useAssetWorkbenchProjectIO] 加载项目失败:', error)
     } finally {
       if (requestSequence === loadRequestSequence) {
@@ -461,10 +470,20 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         throw new Error('缺少项目ID')
       }
 
-      applyScopedEntityIds(id, options.scenes.value, options.characters.value)
+      if (!editSession.value.collaboration) applyScopedEntityIds(id, options.scenes.value, options.characters.value)
       const saveBody = buildProjectSaveBody()
       const nextSnapshot = buildProjectSaveSnapshot(id, saveBody)
       if (nextSnapshot === lastSavedProjectSnapshot) {
+        return true
+      }
+
+      if (editSession.value.collaboration) {
+        await collaboration.saveSnapshot(lastSavedWorkbenchBody, JSON.parse(JSON.stringify(saveBody)))
+        if ((activeProjectId.value || options.projectId.value) === id) {
+          lastSavedWorkbenchBody = JSON.parse(JSON.stringify(saveBody))
+          lastSavedProjectSnapshot = nextSnapshot
+          collaboration.stashDraft?.(lastSavedWorkbenchBody, JSON.parse(JSON.stringify(buildProjectSaveBody())))
+        }
         return true
       }
 
@@ -517,6 +536,9 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   } = {}) {
     const id = activeProjectId.value || options.projectId.value
     if (!id || options.characters.value.length === 0) return
+    // Collaboration voice candidates must be adopted through resource versions;
+    // the legacy local snapshot is not the shared source of truth.
+    if (editSession.value.collaboration) return
 
     const attempts = Math.max(1, input.attempts ?? 1)
     const delayMs = Math.max(200, input.delayMs ?? 1000)
@@ -565,6 +587,13 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     try {
       const id = activeProjectId.value || options.projectId.value
       if (!id) return
+      if (editSession.value.scopeConflict) {
+        const { confirm } = useConfirm()
+        if (!await confirm({ title: '读取最新协作内容', description: '本机草稿已保留。读取云端内容会替换当前页面，请先下载需要保留的草稿，之后可手动合并。', confirmText: '读取云端内容', cancelText: '保留当前草稿' })) return
+        collaboration.discardDraft?.()
+        await loadProject(id)
+        return
+      }
       if (lastSavedProjectSnapshot !== null) {
         const body = buildProjectSaveBody()
         if (buildProjectSaveSnapshot(id, body) !== lastSavedProjectSnapshot) {
@@ -572,14 +601,17 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           editSession.value.backupId = response.backupId
         }
       }
-      await openEditSession(id, takeover)
+      void takeover
+      await openEditSession(id)
       if (projectEditable.value) await loadProject(id, true)
     } finally { loading.value = false }
   }
 
   async function downloadEditBackup() {
     const id = activeProjectId.value || options.projectId.value
-    if (!id || !editSession.value.backupId) return
+    if (!id) return
+    if (editSession.value.collaboration && !editSession.value.backupId) { collaboration.downloadDraft?.(); return }
+    if (!editSession.value.backupId) return
     const data = await $fetch(`/api/project/${encodeURIComponent(id)}/edit-session/backup/${editSession.value.backupId}`)
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
     const link = document.createElement('a')
@@ -587,6 +619,19 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     link.download = `未同步修改-${editSession.value.backupId}.json`
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  if (getCurrentInstance()) {
+    let draftTimer: ReturnType<typeof setTimeout> | undefined
+    const stash = () => {
+      if (!loading.value && projectEditable.value && lastSavedProjectSnapshot !== null) {
+        try { collaboration.stashDraft?.(lastSavedWorkbenchBody, JSON.parse(JSON.stringify(buildProjectSaveBody()))) }
+        catch { saveWarning.value = '本机草稿备份失败，请保存修改后再关闭窗口。' }
+      }
+    }
+    watch(buildProjectSaveBody, () => { clearTimeout(draftTimer); draftTimer = setTimeout(stash, 500) }, { deep: true })
+    window.addEventListener('beforeunload', stash)
+    onBeforeUnmount(() => { clearTimeout(draftTimer); stash(); window.removeEventListener('beforeunload', stash) })
   }
 
   if (getCurrentInstance()) onBeforeRouteLeave(async () => {
