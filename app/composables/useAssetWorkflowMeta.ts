@@ -1,5 +1,5 @@
 import { useDebounceFn } from '@vueuse/core'
-import { nextTick, watch, type Ref } from 'vue'
+import { nextTick, ref, watch, type Ref } from 'vue'
 import type { CharacterVoiceAsset } from '#shared/types/character'
 import type {
   AssetImageHistoryEntry,
@@ -375,7 +375,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
       const loadedCharacterHistories = meta?.characterHistories || {}
       for (const character of options.characters.value) {
         character.assetHistory = normalizeAssetHistoryEntries(
-          loadedCharacterHistories[character.id],
+          loadedCharacterHistories[character.id] ?? character.assetHistory,
           character.baseImage
         )
       }
@@ -383,7 +383,7 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
       const loadedSceneVideoHistories = meta?.sceneVideoHistories || {}
       for (const scene of options.scenes.value) {
         scene.videoHistory = normalizeVideoHistoryEntries(
-          loadedSceneVideoHistories[scene.id],
+          loadedSceneVideoHistories[scene.id] ?? scene.videoHistory,
           scene.videoUrl
         )
       }

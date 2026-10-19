@@ -213,6 +213,30 @@ describe('collaboration in the original workbench', () => {
     expect(reopenedA.snapshot().scenes).toMatchObject([{ description: '窗口 A 草稿' }, { description: 'B' }])
     expect(reopenedB.snapshot().scenes).toMatchObject([{ description: 'A' }, { description: '窗口 B 草稿' }])
   })
+  it('does not roll back a newer cloud version when confirming an old receipt', async () => {
+    const first = createSession(); await first.openEditSession('p')
+    const submitted = view(); submitted.scenes[0]!.description = '原提交'
+    loseReply = true
+    await expect(first.saveSnapshot(view(), submitted)).rejects.toThrow('response lost')
+    await first.releaseEditSession()
+    const remote = server.find(item => item.id === 'a')!
+    remote.revision++
+    ;(remote.body!.scenes as Array<Record<string, unknown>>)[0]!.description = '其他成员后续更新'
+    const reopened = createSession(); await reopened.openEditSession('p')
+    expect(reopened.snapshot().scenes).toMatchObject([{ description: '其他成员后续更新' }, { description: 'B' }])
+    expect(reopened.editSession.value.scopeConflict).toBe(false)
+  })
+  it('releases acquired objects when a later object in the save is occupied', async () => {
+    const session = createSession(); await session.openEditSession('p')
+    const local = view(); local.scenes[0]!.description = 'A 草稿'; local.scenes[1]!.description = 'B 草稿'
+    blocked = 'b'
+    await expect(session.saveSnapshot(view(), local)).rejects.toThrow('正在由其他成员编辑')
+    expect(vi.mocked($fetch).mock.calls.some(([, options]) => {
+      const body = options?.body as Record<string, unknown>
+      return body?.leaseAction === 'release' && body.id === 'a'
+    })).toBe(true)
+    expect(writes).toHaveLength(0)
+  })
   it('adds object revisions to the existing scene and writing requests', async () => {
     const session = createSession(); await session.openEditSession('p')
     expect(await prepareWorkbenchRequest('/api/asset-workflow/reference/generate', { projectId: 'p', scene: { id: 's2' } })).toMatchObject({ collaborationInput: { type: 'episode', id: 'b', episodeId: 'b', revision: 1, settingsRevision: 1 } })

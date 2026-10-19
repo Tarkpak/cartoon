@@ -3737,6 +3737,7 @@ async function confirmProjectTakeover() {
 
     <AssetWorkbenchStagePanel
       v-else-if="activeAutoStage === 'assets' || activeAutoStage === 'videos'"
+      :inert="!canEditProject"
     >
       <KeepAlive>
         <AssetWorkbenchAssetsStage

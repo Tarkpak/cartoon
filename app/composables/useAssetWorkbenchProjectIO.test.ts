@@ -387,6 +387,22 @@ describe('useAssetWorkbenchProjectIO', () => {
     expect(await io.saveProject()).toBe(true)
     expect(collaborationMock.saveSnapshot).not.toHaveBeenCalled()
   })
+  it('treats hydrated workflow defaults as the baseline rather than edits to every episode', async () => {
+    collaborationMock.enabled = true
+    const loaded = createLoadResponse()
+    collaborationMock.snapshot.mockReturnValue(loaded.data)
+    fetchMock.mockResolvedValue(loaded)
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    const normalized = { version: 8, props: [], sceneConfigs: { [state.scenes.value[0]!.id]: { consistencyLevel: 'lock' } } }
+    state.projectAssetWorkflow.value = normalized
+    io.acknowledgeWorkflowNormalization(null, normalized)
+    expect(await io.saveProject()).toBe(true)
+    expect(collaborationMock.saveSnapshot).not.toHaveBeenCalled()
+    state.scenes.value[0]!.description = '用户的真实修改'
+    expect(await io.saveProject()).toBe(true)
+    expect(collaborationMock.saveSnapshot.mock.calls[0]![0].assetWorkflow).toEqual(normalized)
+  })
   it('loads the canonical view for a viewer and allows leaving without a save', async () => {
     collaborationMock.enabled = true; collaborationMock.editable = false
     const loaded = createLoadResponse()
@@ -405,7 +421,7 @@ describe('useAssetWorkbenchProjectIO', () => {
     const loaded = createLoadResponse()
     collaborationMock.snapshot.mockReturnValue(loaded.data)
     const candidate = { id: 'voice-result', kind: 'asset-voice', status: 'completed', createdAt: '2026-10-20', url: 'https://shared.example/voice.mp3', voiceAsset: { audioUrl: 'https://shared.example/voice.mp3', transcript: '你好' }, collaboration: { projectId, actorId: 'owner', assetKind: 'character', assetId: loaded.data.characters[0]!.id, resourceType: 'character', resourceId: loaded.data.characters[0]!.id, revision: 1, settingsRevision: 1 } }
-    fetchMock.mockImplementation(async (url: string) => url.endsWith('/media-results') ? { data: [candidate] } : loaded)
+    fetchMock.mockImplementation(async (url: string) => url.endsWith('/media-results') ? { success: true, data: [candidate] } : loaded)
     const { io, state } = createProjectIO()
     await io.loadProject(projectId)
     await io.refreshCharacterVoiceAssets()
@@ -420,7 +436,7 @@ describe('useAssetWorkbenchProjectIO', () => {
     collaborationMock.snapshot.mockReturnValue(loaded.data)
     collaborationMock.canAdoptAsset.mockReturnValue(false)
     const candidate = { id: 'stale', kind: 'asset-voice', status: 'completed', createdAt: '2026-10-20', url: 'https://shared.example/voice.mp3', voiceAsset: { audioUrl: 'https://shared.example/voice.mp3', transcript: '你好' }, collaboration: { projectId, actorId: 'owner', assetKind: 'character', assetId: loaded.data.characters[0]!.id, resourceType: 'character', resourceId: loaded.data.characters[0]!.id, revision: 1, settingsRevision: 1 } }
-    fetchMock.mockImplementation(async (url: string) => url.endsWith('/media-results') ? { data: [candidate] } : loaded)
+    fetchMock.mockImplementation(async (url: string) => url.endsWith('/media-results') ? { success: true, data: [candidate] } : loaded)
     const { io, state } = createProjectIO()
     await io.loadProject(projectId)
     await io.refreshCharacterVoiceAssets()

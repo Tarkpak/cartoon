@@ -285,7 +285,9 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       if (version !== sequence) throw new Error('项目已切换，原提交结果会在重新打开后确认')
       if (!Array.isArray(result.resources) || sent.mutations.some(scope => !result.resources.some(item => keyOf(item) === keyOf(scope)))) throw new Error('保存回执不完整，请重试原提交')
       const updated = new Map(resources.value.map(item => [keyOf(item), item]))
-      for (const item of result.resources) updated.set(keyOf(item), item)
+      for (const item of result.resources) {
+        if ((updated.get(keyOf(item))?.revision ?? 0) <= item.revision) updated.set(keyOf(item), item)
+      }
       resources.value = [...updated.values()]
       pending = undefined
       localStorage.removeItem(pendingKey)

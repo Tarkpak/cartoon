@@ -77,6 +77,7 @@ try {
   resources = resources.map(item => item.type === remote.type && item.id === remote.id ? remote : item)
   changes.push(remote)
   await page.getByText('初到城市（远端更新）', { exact: true }).first().waitFor({ timeout: 20000 })
+  assert(await page.getByRole('button', { name: /历史 1/ }).count() > 0, 'remote updates must preserve resource-scoped video history')
   assert.equal(writes.length, writesBeforeRemote, 'receiving remote updates must not trigger a phantom save')
   editable = false
   await page.getByText('当前账号已调整为只读权限，本机草稿已保留。', { exact: true }).waitFor({ timeout: 20000 })
