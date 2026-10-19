@@ -116,14 +116,17 @@ pub(super) fn remember_cloud_collaboration_mode(
     Ok(())
 }
 
-pub(super) fn require_legacy_project_mode(state: &BackendState, id: &str) -> Result<(), ApiError> {
-    if get_config_json(
+pub(super) fn project_uses_collaboration(state: &BackendState, id: &str) -> Result<bool, ApiError> {
+    Ok(get_config_json(
         &db_connection(state)?,
         &format!("project_collaboration_enabled:{id}"),
     )?
     .and_then(|value| value.as_bool())
-        == Some(true)
-    {
+        == Some(true))
+}
+
+pub(super) fn require_legacy_project_mode(state: &BackendState, id: &str) -> Result<(), ApiError> {
+    if project_uses_collaboration(state, id)? {
         return Err(ApiError::new(
             StatusCode::LOCKED,
             "项目已启用按集协作，请使用协作入口",
@@ -170,41 +173,53 @@ fn prepare_collaboration_write_locked(
         collaboration_scope(mutation)?;
         mutation.as_object_mut().unwrap().remove("leaseToken");
     }
-    let bytes = serde_json::to_vec(body)
-        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
-    let fingerprint = format!("{:x}", Sha256::digest(&bytes));
-    let key = format!(
-        "project_collaboration_operation:{}",
-        json!([user_id, id, session_id, operation_id])
-    );
-    if let Some(cached) = get_config_json(conn, &key)? {
-        if cached.get("fingerprint").and_then(Value::as_str) != Some(fingerprint.as_str()) {
-            return Err(ApiError::new(
-                StatusCode::CONFLICT,
-                "操作 ID 已用于其他内容，请勿重复使用",
-            ));
+    let normalized = |value: &Value| {
+        let mut value = value.clone();
+        if let Some(object) = value.as_object_mut() { object.remove("deviceId"); object.remove("sessionId"); }
+        if let Some(mutations) = value["mutations"].as_array_mut() {
+            for mutation in mutations { if let Some(object) = mutation.as_object_mut() { object.remove("leaseToken"); } }
         }
-        *body = cached.get("request").cloned().ok_or_else(|| {
-            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "本地待提交操作损坏")
-        })?;
-        return Ok(());
+        value
+    };
+    let key = format!("project_collaboration_operation:{}", json!([user_id, id, operation_id]));
+    let mut cached = get_config_json(conn, &key)?;
+    if cached.is_none() {
+        // Preserve outboxes written by the window-scoped protocol before a reload/upgrade.
+        let tuple = json!([user_id, id]).to_string();
+        let prefix = format!("project_collaboration_operation:{},", tuple.trim_end_matches(']'));
+        let pattern = format!("{}%", prefix.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+        let mut statement = conn.prepare("SELECT key, value FROM system_config WHERE key LIKE ?1 ESCAPE '\\'")
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let rows = statement.query_map(params![pattern], |row| Ok((row.get::<_,String>(0)?, row.get::<_,String>(1)?)))
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        for row in rows {
+            let (old_key, raw) = row.map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            let tuple = old_key.strip_prefix("project_collaboration_operation:").and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+            if tuple.as_ref().and_then(Value::as_array).is_some_and(|parts| parts.len() == 4 && parts[0] == user_id && parts[1] == id && parts[3] == operation_id) {
+                cached = Some(serde_json::from_str(&raw).map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "本地待提交操作损坏"))?);
+                break;
+            }
+        }
     }
-    for mutation in body
-        .get_mut("mutations")
-        .and_then(Value::as_array_mut)
-        .unwrap()
-    {
+    if let Some(cached) = &cached {
+        let request = cached.get("request").filter(|request| request.is_object()).ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "本地待提交操作损坏"))?;
+        if normalized(request) != normalized(body) { return Err(ApiError::new(StatusCode::CONFLICT, "操作 ID 已用于其他内容，请勿重复使用")); }
+    }
+    // Fresh tokens may change across reconnection. Payload, revisions and operation ID cannot.
+    // Without fresh leases, replay the original request to confirm a possibly committed receipt.
+    let tokens: Result<Vec<String>, ApiError> = body["mutations"].as_array().unwrap().iter().map(|mutation| {
         let (kind, resource_id) = collaboration_scope(mutation)?;
-        mutation["leaseToken"] =
-            json!(scoped_lease_token(conn, id, session_id, kind, resource_id)?);
+        scoped_lease_token(conn, id, session_id, kind, resource_id)
+    }).collect();
+    match tokens {
+        Ok(tokens) => for (mutation, token) in body["mutations"].as_array_mut().unwrap().iter_mut().zip(tokens) { mutation["leaseToken"] = json!(token); },
+        Err(error) => {
+            if let Some(cached) = cached { *body = cached["request"].clone(); }
+            else { return Err(error); }
+        }
     }
-    // Persist before sending so a lost response can replay the exact operation,
-    // including after lease expiry. The cloud checks deduplication before leases.
-    set_config_json(
-        conn,
-        &key,
-        &json!({"fingerprint": fingerprint, "request": body}),
-    )?;
+    let fingerprint = format!("{:x}", Sha256::digest(serde_json::to_vec(&normalized(body)).map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?));
+    set_config_json(conn, &key, &json!({"fingerprint":fingerprint,"request":body}))?;
     Ok(())
 }
 
@@ -242,7 +257,17 @@ pub(super) async fn api_project_collaboration(
         .to_string();
     if !matches!(
         action.as_str(),
-        "read" | "changes" | "enable" | "lease" | "write"
+        "read"
+            | "changes"
+            | "enable"
+            | "lease"
+            | "write"
+            | "members"
+            | "memberPut"
+            | "memberRemove"
+            | "delete"
+            | "generationCheck"
+            | "migrationPreview"
     ) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "协作操作无效"));
     }
@@ -252,10 +277,12 @@ pub(super) async fn api_project_collaboration(
         ensure_project_permission(
             &conn,
             &id,
-            if matches!(action.as_str(), "read" | "changes") {
-                ProjectPermission::View
-            } else {
-                ProjectPermission::Edit
+            match action.as_str() {
+                "read" | "changes" | "members" => ProjectPermission::View,
+                "memberPut" | "memberRemove" => ProjectPermission::ManageMembers,
+                "delete" => ProjectPermission::Delete,
+                "generationCheck" => ProjectPermission::Generate,
+                _ => ProjectPermission::Edit,
             },
         )?;
         let owner: String = conn
@@ -283,7 +310,7 @@ pub(super) async fn api_project_collaboration(
     } else {
         None
     };
-    if action == "enable" {
+    if action == "enable" || action == "migrationPreview" {
         // A previous migration may have committed while its response was lost.
         let mut read = body.clone();
         read["action"] = json!("read");
@@ -319,6 +346,11 @@ pub(super) async fn api_project_collaboration(
             ));
         }
         drop(conn);
+        if action == "enable" && body["expectedUpdatedAt"].as_str() != base.as_deref() {
+            return Err(ApiError::new(StatusCode::CONFLICT, "预检后的本地版本已变化，请重新预检迁移"));
+        }
+        body["expectedUpdatedAt"] = json!(base);
+        if action == "enable" {
         acquire_conflict_edit_session(&state, &id).await?;
         let lease = capture_project_edit_lease(&state, &id)?;
         body["expectedUpdatedAt"] = json!(base);
@@ -343,6 +375,7 @@ pub(super) async fn api_project_collaboration(
         file.write_all(&bytes)
             .and_then(|_| file.sync_all())
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        }
     }
     let mut lease_request_id = None;
     if action == "lease" {
@@ -364,6 +397,10 @@ pub(super) async fn api_project_collaboration(
         // Tokens remain in the local backend, never in the browser payload.
         body["token"] = cached.get("token").cloned().unwrap_or(Value::Null);
     }
+    if action == "generationCheck" {
+        let (kind, resource_id) = collaboration_scope(&body)?;
+        body["token"] = json!(scoped_lease_token(&db_connection(&state)?, &id, &session_id, kind, resource_id)?);
+    }
     if action == "write" {
         let mut conn = db_connection(&state)?;
         prepare_collaboration_write(&mut conn, &user_id, &id, &session_id, &mut body)?;
@@ -382,6 +419,33 @@ pub(super) async fn api_project_collaboration(
         .get_mut("data")
         .filter(|value| value.is_object())
         .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "云端缺少协作响应"))?;
+    if matches!(action.as_str(), "members" | "memberPut" | "memberRemove") {
+        if !data.get("members").is_some_and(Value::is_array) {
+            return Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "云端缺少项目成员列表",
+            ));
+        }
+        apply_cloud_project_members(&state, &id, data)?;
+        remember_collaboration_mode(&state, &id)?;
+    }
+    if action == "delete" {
+        if data.get("deleted").and_then(Value::as_bool) != Some(true) {
+            return Err(ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "云端尚未确认项目删除",
+            ));
+        }
+        let mut conn = db_connection(&state)?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        ensure_collaboration_account(&tx, &user_id)?;
+        remember_deleted_project_tombstone(&tx, &id)?;
+        delete_local_project_rows(&tx, &id, &owner)?;
+        tx.commit()
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
     if action == "lease" {
         let (kind, resource_id) = collaboration_scope(&body)?;
         let key = collaboration_lease_key(&id, &session_id, kind, resource_id);
@@ -401,9 +465,271 @@ pub(super) async fn api_project_collaboration(
     Ok(Json(response))
 }
 
+fn draft_results_key(project_id: &str, actor_id: &str) -> String {
+    format!("project_collaboration_draft_results:{}", json!([actor_id, project_id]))
+}
+
+pub(super) fn save_collaboration_draft_result(state: &BackendState, project_id: &str, actor_id: &str, response: &Value) -> Result<(), ApiError> {
+    save_collaboration_result(state, project_id, actor_id, response, "draft")
+}
+
+pub(super) fn save_collaboration_media_result(state: &BackendState, project_id: &str, actor_id: &str, response: &Value) -> Result<(), ApiError> {
+    save_collaboration_result(state, project_id, actor_id, response, "media")
+}
+
+fn save_collaboration_result(state: &BackendState, project_id: &str, actor_id: &str, response: &Value, kind: &str) -> Result<(), ApiError> {
+    let mut conn = db_connection(state)?;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    ensure_collaboration_account(&tx, actor_id)?;
+    let key = if kind == "draft" { draft_results_key(project_id, actor_id) } else { format!("project_collaboration_media_results:{}", json!([actor_id, project_id])) };
+    let mut results = get_config_json(&tx, &key)?.and_then(|value| value.as_array().cloned()).unwrap_or_default();
+    results.push(response.clone());
+    if results.len() > 20 { results.drain(..results.len() - 20); }
+    set_config_json(&tx, &key, &json!(results))?;
+    tx.commit().map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+pub(super) async fn api_project_collaboration_draft_results(Path(id): Path<String>, State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let actor = current_project_owner_context(&db_connection(&state)?)?.user_id;
+    // Reauthorize online before returning cached results, including membership revocation/deletion.
+    let _ = api_project_collaboration(Path(id.clone()), State(state.clone()), Json(json!({"action":"read"}))).await?;
+    let conn = db_connection(&state)?;
+    ensure_collaboration_account(&conn, &actor)?;
+    let results = get_config_json(&conn, &draft_results_key(&id, &actor))?.unwrap_or_else(|| json!([]));
+    Ok(Json(json!({"success": true, "data": results})))
+}
+
+pub(super) async fn api_project_collaboration_media_results(Path(id): Path<String>, State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let actor = current_project_owner_context(&db_connection(&state)?)?.user_id;
+    let _ = api_project_collaboration(Path(id.clone()), State(state.clone()), Json(json!({"action":"read"}))).await?;
+    let conn = db_connection(&state)?;
+    ensure_collaboration_account(&conn, &actor)?;
+    let key = format!("project_collaboration_media_results:{}", json!([actor, id]));
+    let mut results = get_config_json(&conn, &key)?.and_then(|value| value.as_array().cloned()).unwrap_or_default();
+    let mut stmt = conn.prepare("SELECT id, status, progress, error, video_data, config, created_at FROM video_tasks WHERE json_extract(config, '$.collaboration.projectId') = ?1 AND json_extract(config, '$.collaboration.actorId') = ?2 ORDER BY created_at DESC LIMIT 30")
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let rows = stmt.query_map(params![id, actor], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, Option<String>>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, String>(5)?, row.get::<_, String>(6)?)))
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    for row in rows {
+        let (task_id,status,progress,error,url,config,created_at) = row.map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let mut config: Value = serde_json::from_str(&config).unwrap_or(Value::Null);
+        if status == "completed" && config["collaborationVoiceContext"].is_object() && config["collaborationVoiceExtraction"].is_null() {
+            if let Some(url) = url.as_deref() {
+                trigger_character_voice_asset_extraction(&state, config["collaboration"]["sceneId"].as_str().unwrap_or(""), &task_id, url);
+                let raw: Option<String> = conn.query_row("SELECT json_extract(config, '$.collaborationVoiceExtraction') FROM video_tasks WHERE id=?1", params![task_id], |row| row.get(0)).unwrap_or(None);
+                config["collaborationVoiceExtraction"] = raw.and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or(Value::Null);
+            }
+        }
+        results.push(json!({"id":task_id,"kind":"video","status":status,"progress":progress,"error":error,"url":url,"createdAt":created_at,"collaboration":config.get("collaboration"),"voiceExtraction":config.get("collaborationVoiceExtraction")}));
+    }
+    Ok(Json(json!({"success":true,"data":results})))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct ManagementProject(BackendState);
+    impl ManagementProject {
+        fn new(user_id: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "playlet-collaboration-management-{}",
+                Uuid::new_v4()
+            ));
+            fs::create_dir_all(&dir).unwrap();
+            let state = BackendState {
+                db_path: dir.join("test.sqlite"),
+                data_dir: dir.clone(),
+                public_dir: dir.clone(),
+                web_dir: dir,
+                xiaohongshu_dynamic_fetcher: None,
+            };
+            init_database(&state).unwrap();
+            let conn = db_connection(&state).unwrap();
+            set_config_json(
+                &conn,
+                CLOUD_ADMIN_SESSION_KEY,
+                &json!({"token":"test", "user":{"id":user_id, "role":"user"}}),
+            )
+            .unwrap();
+            conn.execute("INSERT INTO projects (id, name, project_type, style_id, aspect_ratio, status, created_at, updated_at, owner_user_id, cloud_sync_status) VALUES ('p1', '保留内容', 'script_writing', '', '9:16', 'draft', 'v1', 'v1', 'owner', 'synced')", []).unwrap();
+            conn.execute(r#"INSERT INTO project_members (project_id, user_id, account, display_name, role, permissions_json, created_at, updated_at) VALUES ('p1','manager','manager','Manager','custom','["view","manage_members"]','v1','v1')"#, []).unwrap();
+            remember_collaboration_mode(&state, "p1").unwrap();
+            Self(state)
+        }
+    }
+    impl Drop for ManagementProject {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0.data_dir);
+        }
+    }
+
+    #[test]
+    fn collaboration_draft_results_are_durable_bounded_and_actor_scoped() {
+        let test = ManagementProject::new("owner");
+        for index in 0..22 {
+            save_collaboration_draft_result(&test.0, "p1", "owner", &json!({"id":index,"data":{"draft":"保留结果"}})).unwrap();
+        }
+        let conn = db_connection(&test.0).unwrap();
+        let saved = get_config_json(&conn, &draft_results_key("p1", "owner")).unwrap().unwrap();
+        assert_eq!(saved.as_array().unwrap().len(), 20);
+        assert_eq!(saved[0]["id"], 2);
+        assert!(get_config_json(&conn, &draft_results_key("p1", "other")).unwrap().is_none());
+        assert!(get_config_json(&conn, &draft_results_key("other", "owner")).unwrap().is_none());
+        set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({"token":"test", "user":{"id":"other","role":"user"}})).unwrap();
+        assert!(save_collaboration_draft_result(&test.0, "p1", "owner", &json!({"id":"wrong"})).is_err());
+    }
+
+    #[tokio::test]
+    async fn collaboration_member_routes_use_cloud_permissions_without_a_project_edit_lease() {
+        let test = ManagementProject::new("manager");
+        assert!(ensure_project_permission(
+            &db_connection(&test.0).unwrap(),
+            "p1",
+            ProjectPermission::Edit
+        )
+        .is_err());
+        let calls = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let captured = calls.clone();
+        let router = Router::new().route("/api/client/project-collaboration", post(move |Json(body): Json<Value>| {
+            captured.lock().unwrap().push(body.clone());
+            async move {
+                let mut members = vec![json!({"userId":"manager", "account":"manager", "displayName":"Manager", "role":"custom", "permissions":["view","manage_members"], "createdAt":"v1", "updatedAt":"v1"})];
+                if body["action"] != "memberRemove" { members.push(json!({"userId":"target", "account":"canonical", "displayName":"Canonical", "role":"viewer", "permissions":["view"], "createdAt":"v2", "updatedAt":"v2"})); }
+                Json(json!({"success":true, "data":{"collaboration":true,"members":members}}))
+            }
+        }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        set_config_json(
+            &db_connection(&test.0).unwrap(),
+            CLOUD_ADMIN_CONFIG_KEY,
+            &json!({"baseUrl":format!("http://{addr}")}),
+        )
+        .unwrap();
+        let _ = CURRENT_EDIT_SESSION
+            .scope(
+                Some("window".into()),
+                api_project_member_put(
+                    Path(("p1".into(), "target".into())),
+                    State(test.0.clone()),
+                    Json(
+                        serde_json::from_value(
+                            json!({"role":"viewer","account":"spoofed","expectedUpdatedAt":null}),
+                        )
+                        .unwrap(),
+                    ),
+                ),
+            )
+            .await
+            .unwrap();
+        let conn = db_connection(&test.0).unwrap();
+        let account: String = conn
+            .query_row(
+                "SELECT account FROM project_members WHERE user_id = 'target'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(account, "canonical");
+        let status: String = conn
+            .query_row(
+                "SELECT cloud_sync_status FROM projects WHERE id = 'p1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "synced");
+        let _ = CURRENT_EDIT_SESSION
+            .scope(
+                Some("window".into()),
+                api_project_member_delete(
+                    Path(("p1".into(), "target".into())),
+                    State(test.0.clone()),
+                    Query(HashMap::from([("expectedUpdatedAt".into(), "v2".into())])),
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(calls.lock().unwrap()[0]["action"], "memberPut");
+        assert_eq!(calls.lock().unwrap()[1]["expectedUpdatedAt"], "v2");
+        assert_eq!(calls.lock().unwrap()[0]["ownerUserId"], "owner");
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM project_members WHERE user_id = 'target'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn collaboration_delete_keeps_local_data_until_cloud_acknowledges_and_never_queues_a_snapshot(
+    ) {
+        let test = ManagementProject::new("owner");
+        let accepted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let captured = accepted.clone();
+        let router = Router::new().route(
+            "/api/client/project-collaboration",
+            post(move || {
+                let deleted = captured.load(std::sync::atomic::Ordering::SeqCst);
+                async move { Json(json!({"success":true,"data":{"deleted":deleted}})) }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        set_config_json(
+            &db_connection(&test.0).unwrap(),
+            CLOUD_ADMIN_CONFIG_KEY,
+            &json!({"baseUrl":format!("http://{addr}")}),
+        )
+        .unwrap();
+        let rejected = CURRENT_EDIT_SESSION
+            .scope(
+                Some("window".into()),
+                api_project_delete(Path("p1".into()), State(test.0.clone())),
+            )
+            .await;
+        assert_eq!(rejected.unwrap_err().status, StatusCode::BAD_GATEWAY);
+        assert!(local_project_updated_at_for_owner(
+            &db_connection(&test.0).unwrap(),
+            "p1",
+            "owner"
+        )
+        .unwrap()
+        .is_some());
+        accepted.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = CURRENT_EDIT_SESSION
+            .scope(
+                Some("window".into()),
+                api_project_delete(Path("p1".into()), State(test.0.clone())),
+            )
+            .await
+            .unwrap();
+        let conn = db_connection(&test.0).unwrap();
+        assert!(local_project_updated_at_for_owner(&conn, "p1", "owner")
+            .unwrap()
+            .is_none());
+        assert!(is_deleted_project_tombstone(&conn, "p1").unwrap());
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM cloud_project_deletions", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+        server.abort();
+    }
 
     #[test]
     fn cloud_collaboration_mode_requires_a_matching_local_owner() {
@@ -549,6 +875,25 @@ mod tests {
     }
 
     #[test]
+    fn collaboration_old_window_outbox_can_confirm_receipts_and_refresh_credentials() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE system_config (key TEXT PRIMARY KEY,value TEXT,updated_at TEXT)").unwrap();
+        let original = json!({"action":"write","deviceId":"device","sessionId":"old-window","operationId":"op","mutations":[{"type":"episode","id":"e","expectedRevision":1,"body":{"text":"keep"},"leaseToken":"expired"}]});
+        set_config_json(&conn, &format!("project_collaboration_operation:{}", json!(["actor","p","old-window","op"])), &json!({"request":original,"fingerprint":"old-format"})).unwrap();
+        let mut retry = original.clone();
+        retry["sessionId"] = json!("new-window");
+        prepare_collaboration_write(&mut conn, "actor", "p", "new-window", &mut retry).unwrap();
+        assert_eq!(retry, original);
+        set_config_json(&conn, &collaboration_lease_key("p","new-window","episode","e"), &json!({"token":"new-token","expiresAt":Utc::now().timestamp_millis()+90_000})).unwrap();
+        let mut renewed = original.clone();
+        renewed["sessionId"] = json!("new-window");
+        prepare_collaboration_write(&mut conn, "actor", "p", "new-window", &mut renewed).unwrap();
+        assert_eq!(renewed["sessionId"], "new-window");
+        assert_eq!(renewed["mutations"][0]["leaseToken"], "new-token");
+        assert_eq!(renewed["mutations"][0]["body"], original["mutations"][0]["body"]);
+    }
+
+    #[test]
     fn persisted_write_can_retry_after_expiry_but_cannot_reuse_an_operation_for_other_content() {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
@@ -594,11 +939,10 @@ mod tests {
             StatusCode::LOCKED
         );
         let mut other_window = request;
-        assert_eq!(
-            prepare_collaboration_write(&mut conn, "alice", "p1", "window2", &mut other_window)
-                .unwrap_err()
-                .status,
-            StatusCode::LOCKED
-        );
+        prepare_collaboration_write(&mut conn, "alice", "p1", "window2", &mut other_window).unwrap();
+        assert_eq!(other_window, first);
+        set_config_json(&conn, &collaboration_lease_key("p1", "window2", "episode", "e1"), &json!({"token":"renewed","expiresAt":Utc::now().timestamp_millis()+90_000})).unwrap();
+        prepare_collaboration_write(&mut conn, "alice", "p1", "window2", &mut other_window).unwrap();
+        assert_eq!(other_window["mutations"][0]["leaseToken"], "renewed");
     }
 }

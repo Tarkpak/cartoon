@@ -69,7 +69,7 @@ async function loadMembers() {
           access: ProjectAccess
           currentUserId: string
         }
-      }>(`/api/project/${props.projectId}/members`),
+      }>(`/api/project/${props.projectId}/members`, { timeout: 30_000, retry: 0 }),
       listLibraryMembers().catch(() => [])
     ])
     owner.value = memberResponse.data.owner
@@ -106,12 +106,13 @@ async function saveMember(input: {
       success: boolean
       cloudSync?: { status?: string, message?: string }
     }>(`/api/project/${props.projectId}/members/${input.userId}`, {
-      method: 'PUT',
+      method: 'PUT', timeout: 30_000, retry: 0,
       body: {
         account: input.account,
         displayName: input.displayName,
         role: input.role,
-        permissions: resolveProjectRolePermissions(input.role, input.permissions)
+        permissions: resolveProjectRolePermissions(input.role, input.permissions),
+        expectedUpdatedAt: members.value.find(member => member.userId === input.userId)?.updatedAt ?? null
       }
     })
     await loadMembers()
@@ -184,7 +185,7 @@ async function removeMember(member: ProjectMember) {
     const response = await $fetch<{
       success: boolean
       cloudSync?: { status?: string, message?: string }
-    }>(`/api/project/${props.projectId}/members/${member.userId}`, { method: 'DELETE' })
+    }>(`/api/project/${props.projectId}/members/${member.userId}`, { method: 'DELETE', timeout: 30_000, retry: 0, query: { expectedUpdatedAt: member.updatedAt } })
     await loadMembers()
     if (response.cloudSync?.status === 'error') {
       toast.warning('成员已在本机移除，但云端同步失败', {

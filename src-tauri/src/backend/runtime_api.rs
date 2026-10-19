@@ -9948,16 +9948,63 @@ fn apply_narration_voice_asset(
     Ok(true)
 }
 
+fn collaboration_voice_task(state: &BackendState, task_id: &str) -> Result<Option<Value>, ApiError> {
+    let conn = db_connection(state)?;
+    let raw: Option<String> = conn.query_row("SELECT config FROM video_tasks WHERE id=?1", params![task_id], |row| row.get(0)).optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let config = raw.and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+    if let Some(config) = config.filter(|config| config["collaboration"].is_object()) {
+        let actor = super::current_project_owner_context(&conn)?.user_id;
+        if config["collaboration"]["actorId"].as_str() != Some(actor.as_str()) { return Err(ApiError::new(StatusCode::UNAUTHORIZED, "语音任务所属账号已切换")); }
+        Ok(Some(config))
+    } else { Ok(None) }
+}
+
+fn claim_collaboration_voice_extraction(state: &BackendState, task_id: &str) -> Result<Option<bool>, ApiError> {
+    if collaboration_voice_task(state, task_id)?.is_none() { return Ok(None); }
+    let changed = db_connection(state)?.execute("UPDATE video_tasks SET config=json_set(config, '$.collaborationVoiceExtraction', json(?1)) WHERE id=?2 AND json_type(config, '$.collaborationVoiceContext')='object' AND json_type(config, '$.collaborationVoiceExtraction') IS NULL",
+        params![json!({"status":"running","startedAt":now_iso()}).to_string(), task_id])
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(Some(changed == 1))
+}
+
+fn collaboration_voice_context(config: &Value) -> Result<Option<SceneVoiceContext>, ApiError> {
+    let source = &config["collaborationVoiceContext"];
+    let scene = &source["scene"];
+    if !scene.is_object() { return Err(ApiError::new(StatusCode::CONFLICT, "视频任务缺少已核对的语音输入")); }
+    let project_id = config["collaboration"]["projectId"].as_str().unwrap_or("").to_string();
+    let dialogues = extract_description_dialogues(scene["description"].as_str().unwrap_or(""));
+    let narration = resolve_narration_voice_target("settings", scene["id"].as_str().unwrap_or(""), scene["narration"].as_str().unwrap_or(""), &source["settings"]["body"]["script"]);
+    let characters = source["characters"].as_array().into_iter().flatten().filter_map(|resource| Some(VoiceCharacterRecord {
+        id: resource["id"].as_str()?.to_string(), name: resource["body"]["name"].as_str()?.to_string()
+    })).collect();
+    if dialogues.is_empty() && narration.is_none() { return Ok(None); }
+    Ok(Some(SceneVoiceContext { project_id, dialogues, characters, narration }))
+}
+
+fn save_collaboration_voice_candidate(state: &BackendState, config: &Value, kind: &str, asset_id: &str, voice_asset: &Value) -> Result<(), ApiError> {
+    let metadata = &config["collaboration"];
+    let source = &config["collaborationVoiceContext"];
+    let target = if kind == "character" {
+        source["characters"].as_array().and_then(|items| items.iter().find(|item| item["id"].as_str() == Some(asset_id)))
+    } else { Some(&source["settings"]) }.ok_or_else(|| ApiError::new(StatusCode::CONFLICT, "声音目标缺少版本"))?;
+    let result = json!({"id":format!("voice:{}:{}:{}", voice_asset["sourceTaskId"].as_str().unwrap_or(""), kind, asset_id), "kind":"asset-voice", "status":"completed", "createdAt":now_iso(), "url":voice_asset["audioUrl"], "voiceAsset":voice_asset,
+        "collaboration":{"projectId":metadata["projectId"],"actorId":metadata["actorId"],"assetKind":kind,"assetId":asset_id,"resourceType":target["type"],"resourceId":target["id"],"revision":target["revision"],"settingsRevision":metadata["settingsRevision"]}});
+    super::save_collaboration_media_result(state, metadata["projectId"].as_str().unwrap_or(""), metadata["actorId"].as_str().unwrap_or(""), &result)
+}
+
 async fn extract_character_voice_assets_from_scene_video(
     state: &BackendState,
     scene_id: &str,
     task_id: &str,
     video_url: &str,
 ) -> Result<(), ApiError> {
-    if !super::task_can_write_project(state, task_id, scene_id).await? { return Ok(()); }
-    let Some(context) = load_scene_voice_context(state, scene_id)? else {
-        return Ok(());
-    };
+    let collaboration = collaboration_voice_task(state, task_id)?;
+    if collaboration.is_none() && !super::task_can_write_project(state, task_id, scene_id).await? { return Ok(()); }
+    let context = if let Some(config) = &collaboration {
+        collaboration_voice_context(config)?
+    } else { load_scene_voice_context(state, scene_id)? };
+    let Some(context) = context else { return Ok(()); };
     let temp_dir = std::env::temp_dir().join(format!(
         "playlet_voice_assets_{}_{}",
         sanitize_file_component(task_id),
@@ -10053,7 +10100,9 @@ async fn extract_character_voice_assets_from_scene_video(
                 "matchScore": (voice_match.match_score * 10_000.0).round() / 10_000.0,
                 "updatedAt": now_iso()
             });
-            if super::task_can_write_project(state, task_id, scene_id).await?
+            if let Some(config) = &collaboration {
+                save_collaboration_voice_candidate(state, config, "character", &voice_match.character_id, &next_asset)?;
+            } else if super::task_can_write_project(state, task_id, scene_id).await?
                 && apply_character_voice_asset(state, &voice_match.character_id, next_asset)? {
                 project_changed = true;
                 eprintln!(
@@ -10106,7 +10155,9 @@ async fn extract_character_voice_assets_from_scene_video(
                 "matchScore": (voice_match.match_score * 10_000.0).round() / 10_000.0,
                 "updatedAt": now_iso()
             });
-            if super::task_can_write_project(state, task_id, scene_id).await?
+            if let Some(config) = &collaboration {
+                save_collaboration_voice_candidate(state, config, "prop", &target.prop_id, &next_asset)?;
+            } else if super::task_can_write_project(state, task_id, scene_id).await?
                 && apply_narration_voice_asset(state, target, next_asset)? {
                 project_changed = true;
                 eprintln!(
@@ -10130,7 +10181,7 @@ async fn extract_character_voice_assets_from_scene_video(
     result
 }
 
-fn trigger_character_voice_asset_extraction(
+pub(super) fn trigger_character_voice_asset_extraction(
     state: &BackendState,
     scene_id: &str,
     task_id: &str,
@@ -10139,20 +10190,26 @@ fn trigger_character_voice_asset_extraction(
     if is_model_test_video_task(task_id, scene_id) {
         return;
     }
+    let collaborative = match claim_collaboration_voice_extraction(state, task_id) {
+        Ok(Some(false)) => return,
+        Ok(Some(true)) => true,
+        Ok(None) => false,
+        Err(error) => { eprintln!("[VoiceAsset] 无法登记提取任务: {}", error.message); return; }
+    };
     let state = state.clone();
     let scene_id = scene_id.to_string();
     let task_id = task_id.to_string();
     let video_url = video_url.to_string();
     tauri::async_runtime::spawn(async move {
-        if let Err(error) =
-            extract_character_voice_assets_from_scene_video(&state, &scene_id, &task_id, &video_url)
-                .await
-        {
-            eprintln!(
-                "[VoiceAsset] 场景声音资产提取失败: sceneId={}, taskId={}, error={}",
-                scene_id, task_id, error.message
-            );
+        let result = extract_character_voice_assets_from_scene_video(&state, &scene_id, &task_id, &video_url).await;
+        if collaborative {
+            if let Ok(conn) = db_connection(&state) {
+                let status = if result.is_ok() { "completed" } else { "failed" };
+                let error = result.as_ref().err().map(|error| error.message.clone());
+                let _ = conn.execute("UPDATE video_tasks SET config=json_set(config, '$.collaborationVoiceExtraction.status', ?1, '$.collaborationVoiceExtraction.error', ?2) WHERE id=?3", params![status, error, task_id]);
+            }
         }
+        if let Err(error) = result { eprintln!("[VoiceAsset] 场景声音资产提取失败: sceneId={}, taskId={}, error={}", scene_id, task_id, error.message); }
     });
 }
 
@@ -10503,6 +10560,36 @@ fn apply_scene_video_reference_inputs(
     }
 }
 
+fn inject_collaboration_voice_reference(config: &mut Value, provider: &str, model_id: &str) {
+    if !model_supports_audio_reference(provider, model_id) { return; }
+    let source = &config["collaborationVoiceContext"];
+    let scene = &source["scene"];
+    let mut candidates = Vec::new();
+    for resource in source["characters"].as_array().into_iter().flatten() {
+        let character = &resource["body"];
+        let (Some(id), Some(name)) = (resource["id"].as_str(), character["name"].as_str()) else { continue; };
+        if !scene_character_matches_voice(scene, id, name) { continue; }
+        if let Some(url) = voice_asset_audio_url(&character["voiceAsset"]).filter(|url| is_http_url(url)) {
+            candidates.push(VoiceReferenceCandidate { character_id:id.to_string(), character_name:name.to_string(), audio_url:url, locked:character["voiceAsset"]["locked"].as_bool().unwrap_or(false) });
+        }
+    }
+    let narration = resolve_narration_voice_target("settings", scene["id"].as_str().unwrap_or(""), scene["narration"].as_str().unwrap_or(""), &source["settings"]["body"]["script"]);
+    let mut urls = Vec::new();
+    if let Some(narration) = narration {
+        if let Some(prop) = source["settings"].pointer("/body/script/assetWorkflow/props").and_then(Value::as_array).and_then(|props| props.iter().find(|prop| prop["id"].as_str() == Some(narration.prop_id.as_str()))) {
+            if let Some(url) = voice_asset_audio_url(&prop["voiceAsset"]).filter(|url| is_http_url(url)) { urls.push(url); }
+        }
+    }
+    let limit = model_max_audio_references(provider, model_id);
+    if limit > 1 {
+        candidates.sort_by(|a,b| b.locked.cmp(&a.locked).then_with(|| a.character_name.cmp(&b.character_name)));
+        for candidate in candidates { if urls.len() >= limit { break; } if !urls.contains(&candidate.audio_url) { urls.push(candidate.audio_url); } }
+    } else if urls.is_empty() {
+        if let Some(candidate) = select_voice_reference_candidate(&scene_dialogue_speakers(scene), &candidates, provider == "kling") { urls.push(candidate.audio_url.clone()); }
+    }
+    if !urls.is_empty() { set_config_audio_reference_urls(config, urls); }
+}
+
 fn inject_scene_voice_reference(
     state: &BackendState,
     scene_id: &str,
@@ -10717,11 +10804,19 @@ fn insert_pending_video_task(
     metadata: &Value,
 ) -> Result<(), ApiError> {
     let mut config = config.clone();
-    if let Some(project_id) = resolve_project_id_for_scene(state, scene_id)? {
+    if config.get("collaboration").is_none() {
+      if let Some(project_id) = resolve_project_id_for_scene(state, scene_id)? {
         config["projectEditLease"] = super::capture_project_edit_lease(state, &project_id)?;
         super::start_task_edit_lease_renewal(state, &project_id);
+      }
     }
-    let conn = db_connection(state)?;
+    let mut connection = db_connection(state)?;
+    let conn = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if let Some(input) = config.get("collaboration") {
+        let actor = super::current_project_owner_context(&conn)?.user_id;
+        if input.get("actorId").and_then(Value::as_str) != Some(actor.as_str()) { return Err(ApiError::new(StatusCode::UNAUTHORIZED, "账号已切换，任务未提交")); }
+    }
     let now = now_iso();
     let metadata = video_task_metadata_with_model_log_context(metadata);
     conn.execute(
@@ -10737,7 +10832,7 @@ fn insert_pending_video_task(
         ],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    Ok(())
+    conn.commit().map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
 fn update_video_task_progress(
@@ -10865,7 +10960,7 @@ fn persist_generated_video_record(
     video_url: &str,
     metadata: &Value,
 ) -> Result<(), ApiError> {
-    if is_model_test_video_task(task_id, scene_id) {
+    if is_model_test_video_task(task_id, scene_id) || collaboration_video_metadata(state, task_id)?.is_some() {
         return Ok(());
     }
     let conn = db_connection(state)?;
@@ -19801,11 +19896,218 @@ mod script_writing_prompt_tests {
     }
 }
 
+async fn verified_collaboration_scene(state: &BackendState, project_id: &str, input: &Value, scene_id: &str) -> Result<(Value, Value, Value), ApiError> {
+    let actor = super::current_project_owner_context(&db_connection(state)?)?.user_id;
+    let Json(verified) = super::api_project_collaboration(Path(project_id.to_string()), State(state.clone()), Json(json!({
+        "action":"generationCheck", "type":"episode", "id": input.get("episodeId"),
+        "expectedRevision":input.get("revision"), "settingsRevision":input.get("settingsRevision")
+    }))).await?;
+    let episode = &verified["data"]["episode"];
+    let settings = &verified["data"]["settings"];
+    let scene = episode.pointer("/body/scenes").and_then(Value::as_array)
+        .and_then(|items| items.iter().find(|item| item.get("id").and_then(Value::as_str) == Some(scene_id)))
+        .cloned().ok_or_else(|| ApiError::new(StatusCode::CONFLICT, "目标分镜已移动或删除，请刷新后重试"))?;
+    let metadata = json!({"projectId":project_id,"actorId":actor,"episodeId":episode.get("id"),"revision":episode.get("revision"),"settingsRevision":settings.get("revision"),"sceneId":scene_id});
+    Ok((scene, settings.clone(), metadata))
+}
+
+pub(super) async fn api_collaboration_scene_image(Path(project_id): Path<String>, State(state): State<BackendState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    if !super::project_uses_collaboration(&state, &project_id)? { return Err(ApiError::new(StatusCode::CONFLICT, "项目尚未启用按集协作")); }
+    let scene_id = body.get("sceneId").and_then(trimmed_json_string).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少分镜标识"))?;
+    let (scene, settings, metadata) = verified_collaboration_scene(&state, &project_id, &body["collaborationInput"], &scene_id).await?;
+    let ratio = settings.pointer("/body/project/aspectRatio").and_then(Value::as_str).unwrap_or("16:9");
+    let size = match ratio { "9:16" => "864x1536", "1:1" => "1024x1024", _ => "1536x864" };
+    let prompt = format!("生成本分镜的首帧画面，严格遵守描述与项目设定。不要字幕、水印。\n项目设定：{}\n分镜：{}", settings["body"]["project"], scene);
+    let context = model_log_context_from_workflow_body(&json!({"projectId":project_id}), Some(scene_id.clone()), None);
+    let (url, provider, model) = CURRENT_MODEL_LOG_CONTEXT.scope(context, run_workflow_image_model(&state, "frame_generation", &prompt, size, &format!("collab_{}", Uuid::new_v4().simple()), &[])).await
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
+    let result = json!({"id":Uuid::new_v4().to_string(),"kind":"image","status":"completed","progress":100,"createdAt":super::now_iso(),"collaboration":metadata,"url":url,"usage":{"modelProvider":provider,"modelId":model}});
+    super::save_collaboration_media_result(&state, &project_id, result["collaboration"]["actorId"].as_str().unwrap_or(""), &result)?;
+    Ok(Json(json!({"success":true,"data":result})))
+}
+
+fn collaboration_shared_asset(verified: &Value, kind: &str, asset_id: &str) -> Result<Value, ApiError> {
+    let resource = &verified["resource"];
+    let asset = if kind == "character" {
+        if resource["type"] != "character" || resource["id"] != asset_id { None } else { Some(&resource["body"]) }
+    } else if kind == "prop" && resource["type"] == "settings" {
+        let matches: Vec<&Value> = resource.pointer("/body/script/assetWorkflow/props").and_then(Value::as_array)
+            .map(|items| items.iter().filter(|item| item["id"].as_str() == Some(asset_id)).collect()).unwrap_or_default();
+        if matches.len() == 1 { Some(matches[0]) } else { None }
+    } else { None };
+    asset.filter(|item| item.is_object()).cloned().ok_or_else(|| ApiError::new(StatusCode::CONFLICT, "公共资产不存在或标识重复，请刷新后重试"))
+}
+
+pub(super) async fn api_collaboration_asset_image(Path(project_id): Path<String>, State(state): State<BackendState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+    if !super::project_uses_collaboration(&state, &project_id)? { return Err(ApiError::new(StatusCode::CONFLICT, "项目尚未启用按集协作")); }
+    let kind = body["kind"].as_str().filter(|kind| ["character", "prop"].contains(kind)).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "公共资产类型无效"))?;
+    let asset_id = body["assetId"].as_str().filter(|id| !id.trim().is_empty()).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少公共资产标识"))?;
+    let input = &body["collaborationInput"];
+    let actor = super::current_project_owner_context(&db_connection(&state)?)?.user_id;
+    let resource_type = if kind == "character" { "character" } else { "settings" };
+    let resource_id = if kind == "character" { asset_id } else { "settings" };
+    let Json(verified) = super::api_project_collaboration(Path(project_id.clone()), State(state.clone()), Json(json!({
+        "action":"generationCheck", "type":resource_type, "id":resource_id,
+        "expectedRevision":input["revision"], "settingsRevision":input["settingsRevision"]
+    }))).await?;
+    let verified = &verified["data"];
+    let asset = collaboration_shared_asset(verified, kind, asset_id)?;
+    let prompt = format!("生成公共资产设定图，严格遵守资产描述与项目设定，不要字幕、水印。资产类型：{}\n资产：{}\n项目：{}", kind, asset, verified["settings"]["body"]["project"]);
+    let context = model_log_context_from_workflow_body(&json!({"projectId":project_id}), None, Some(asset_id.to_string()));
+    let (url, provider, model) = CURRENT_MODEL_LOG_CONTEXT.scope(context, run_workflow_image_model(&state, "character_portrait", &prompt, "1024x1024", &format!("collab_asset_{}", Uuid::new_v4().simple()), &[])).await
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
+    let result = json!({"id":Uuid::new_v4().to_string(),"kind":"asset-image","status":"completed","progress":100,"createdAt":super::now_iso(),"url":url,
+        "collaboration":{"projectId":project_id,"actorId":actor,"assetKind":kind,"assetId":asset_id,"resourceType":resource_type,"resourceId":resource_id,"revision":verified["resource"]["revision"],"settingsRevision":verified["settings"]["revision"]},
+        "usage":{"modelProvider":provider,"modelId":model}});
+    super::save_collaboration_media_result(&state, &project_id, &actor, &result)?;
+    Ok(Json(json!({"success":true,"data":result})))
+}
+
+pub(super) async fn api_collaboration_voice_retry(Path((project_id, task_id)): Path<(String, String)>, State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
+    let config = collaboration_voice_task(&state, &task_id)?.ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "协作语音任务不存在"))?;
+    let metadata = &config["collaboration"];
+    if metadata["projectId"].as_str() != Some(project_id.as_str()) { return Err(ApiError::new(StatusCode::NOT_FOUND, "协作语音任务不存在")); }
+    let _ = super::api_project_collaboration(Path(project_id), State(state.clone()), Json(json!({"action":"generationCheck","type":"episode","id":metadata["episodeId"],"expectedRevision":metadata["revision"],"settingsRevision":metadata["settingsRevision"]}))).await?;
+    let conn = db_connection(&state)?;
+    let cutoff = (Utc::now() - chrono::Duration::minutes(15)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let changed = conn.execute("UPDATE video_tasks SET config=json_remove(config, '$.collaborationVoiceExtraction') WHERE id=?1 AND status='completed' AND json_type(config, '$.collaborationVoiceContext')='object' AND (json_extract(config,'$.collaborationVoiceExtraction.status')='failed' OR (json_extract(config,'$.collaborationVoiceExtraction.status')='running' AND json_extract(config,'$.collaborationVoiceExtraction.startedAt') < ?2))", params![task_id, cutoff])
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if changed != 1 { return Err(ApiError::new(StatusCode::CONFLICT, "语音任务正在运行或已完成；中断任务可在十五分钟后重试")); }
+    let url: String = conn.query_row("SELECT video_data FROM video_tasks WHERE id=?1", params![task_id], |row| row.get(0)).map_err(|error| ApiError::new(StatusCode::CONFLICT, error.to_string()))?;
+    trigger_character_voice_asset_extraction(&state, metadata["sceneId"].as_str().unwrap_or(""), &task_id, &url);
+    Ok(Json(json!({"success":true})))
+}
+
+fn collaboration_video_metadata(state: &BackendState, task_id: &str) -> Result<Option<Value>, ApiError> {
+    let raw: Option<String> = db_connection(state)?.query_row("SELECT config FROM video_tasks WHERE id = ?1", params![task_id], |row| row.get(0)).optional()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(raw.and_then(|raw| serde_json::from_str::<Value>(&raw).ok()).and_then(|value| value.get("collaboration").filter(|item| item.is_object()).cloned()))
+}
+
+fn collaboration_episode_context(episode: &Value, settings: &Value, instruction: &str) -> Result<Value, ApiError> {
+    let plan = episode.pointer("/body/plan").and_then(Value::as_object)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "云端缺少集数大纲"))?;
+    if episode.get("id").and_then(Value::as_str).is_none() || plan.get("id") != episode.get("id") {
+        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "云端集数标识不一致"));
+    }
+    let mut target = plan.clone();
+    if let Some(writing) = episode.pointer("/body/writing").and_then(Value::as_object) {
+        target.extend(writing.clone());
+    }
+    target.insert("id".into(), episode["id"].clone());
+    target.insert("index".into(), episode["body"]["plan"]["index"].clone());
+    let studio = &settings["body"]["script"]["writingStudio"];
+    Ok(json!({
+        "brief": studio.get("brief"), "storyBible": studio.get("storyBible"),
+        "episodes": [target.clone()], "targetEpisode": target, "instruction": instruction
+    }))
+}
+
+#[cfg(test)]
+mod collaboration_generation_tests {
+    use super::*;
+    #[test]
+    fn collaboration_shared_assets_require_unique_canonical_targets() {
+        let character = json!({"resource":{"type":"character","id":"c","body":{"id":"c","name":"cloud"}}});
+        assert_eq!(collaboration_shared_asset(&character, "character", "c").unwrap()["name"], "cloud");
+        assert!(collaboration_shared_asset(&character, "character", "other").is_err());
+        let mut props = json!({"resource":{"type":"settings","body":{"script":{"assetWorkflow":{"props":[{"id":"p","name":"cloud prop"}]}}}}});
+        assert_eq!(collaboration_shared_asset(&props, "prop", "p").unwrap()["name"], "cloud prop");
+        props["resource"]["body"]["script"]["assetWorkflow"]["props"].as_array_mut().unwrap().push(json!({"id":"p"}));
+        assert!(collaboration_shared_asset(&props, "prop", "p").is_err());
+    }
+    #[test]
+    fn collaboration_voice_references_use_captured_public_assets() {
+        let mut config = json!({"collaborationVoiceContext":{"scene":{"id":"s","description":"小明：你好，朋友。"},"settings":{"body":{"script":{}}},"characters":[{"id":"c","body":{"name":"小明","voiceAsset":{"audioUrl":"https://shared.example/voice.mp3","locked":true}}}]}});
+        inject_collaboration_voice_reference(&mut config, "qwen", "wan2.7-t2v");
+        assert_eq!(config_audio_reference_urls(&config), vec!["https://shared.example/voice.mp3"]);
+        let mut unsupported = json!({"collaborationVoiceContext":config["collaborationVoiceContext"]});
+        inject_collaboration_voice_reference(&mut unsupported, "unknown", "unsupported");
+        assert!(config_audio_reference_urls(&unsupported).is_empty());
+    }
+    #[tokio::test]
+    async fn collaboration_video_tasks_preserve_results_without_writing_legacy_scenes() {
+        let dir = std::env::temp_dir().join(format!("playlet-collab-media-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let state = BackendState { db_path: dir.join("test.sqlite"), data_dir: dir.clone(), public_dir: dir.clone(), web_dir: dir.clone(), xiaohongshu_dynamic_fetcher: None };
+        init_database(&state).unwrap();
+        let conn = db_connection(&state).unwrap();
+        set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({"token":"test","user":{"id":"owner","role":"user"}})).unwrap();
+        conn.execute("INSERT INTO projects (id,name,style_id,created_at,updated_at,owner_user_id,cloud_sync_status) VALUES ('p','Project','','v1','v1','owner','synced')", []).unwrap();
+        conn.execute("INSERT INTO scripts (id,project_id,raw_text,created_at,updated_at) VALUES ('script','p','{}','v1','v1')", []).unwrap();
+        conn.execute("INSERT INTO scenes (id,script_id,order_index,description,video_url,created_at,updated_at) VALUES ('scene','script',0,'old description','old.mp4','v1','v1')", []).unwrap();
+        let config = json!({"prompt":"cloud description","collaboration":{"projectId":"p","actorId":"owner","episodeId":"e","sceneId":"scene","revision":4,"settingsRevision":2},"projectEditLease":{"token":"legacy"},"collaborationVoiceContext":{"scene":{"id":"scene","description":"小明：你好，朋友。"},"settings":{"type":"settings","id":"settings","revision":2,"body":{"script":{}}},"characters":[{"type":"character","id":"c","revision":3,"body":{"name":"小明"}}]}});
+        set_config_json(&conn, "project_edit_session:p", &json!({"token":"legacy"})).unwrap();
+        // No window legacy lease is available: collaboration insertion must not request one.
+        insert_pending_video_task(&state, "collab_task", "scene", &config, &json!({})).unwrap();
+        let context = collaboration_voice_context(&config).unwrap().unwrap();
+        assert_eq!(context.characters[0].name, "小明");
+        assert_eq!(claim_collaboration_voice_extraction(&state, "collab_task").unwrap(), Some(true));
+        assert_eq!(claim_collaboration_voice_extraction(&state, "collab_task").unwrap(), Some(false));
+        save_collaboration_voice_candidate(&state, &config, "character", "c", &json!({"audioUrl":"https://shared.example/voice.mp3","transcript":"你好，朋友。","sourceTaskId":"collab_task"})).unwrap();
+        let candidates = get_config_json(&conn, &format!("project_collaboration_media_results:{}", json!(["owner","p"]))).unwrap().unwrap();
+        assert_eq!(candidates[0]["kind"], "asset-voice");
+        assert_eq!(candidates[0]["collaboration"]["revision"], 3);
+        assert_eq!(candidates[0]["collaboration"]["settingsRevision"], 2);
+        assert!(!super::super::task_can_write_project(&state, "collab_task", "scene").await.unwrap());
+        assert!(!super::super::task_matches_cached_edit_lease(&conn, "collab_task").unwrap());
+        assert!(sync_scene_video_result(&state, "collab_task", "scene", "https://shared.example/new.mp4").await.unwrap().is_none());
+        persist_generated_video_record(&state, "collab_task", "scene", "https://shared.example/new.mp4", &json!({})).unwrap();
+        update_video_task_progress(&state, "collab_task", "completed", 100, None, Some("https://shared.example/new.mp4"), None).unwrap();
+        assert_eq!(conn.query_row("SELECT video_url FROM scenes WHERE id='scene'", [], |row| row.get::<_,String>(0)).unwrap(), "old.mp4");
+        assert_eq!(conn.query_row("SELECT cloud_sync_status FROM projects WHERE id='p'", [], |row| row.get::<_,String>(0)).unwrap(), "synced");
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM generated_videos", [], |row| row.get::<_,i64>(0)).unwrap(), 0);
+        assert_eq!(conn.query_row("SELECT video_data FROM video_tasks WHERE id='collab_task'", [], |row| row.get::<_,String>(0)).unwrap(), "https://shared.example/new.mp4");
+        set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({"token":"test","user":{"id":"other","role":"user"}})).unwrap();
+        let error = api_video_status(Path("collab_task".into()), State(state.clone())).await.unwrap_err();
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        drop(conn);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn collaboration_generation_context_uses_only_verified_episode_and_settings() {
+        let episode = json!({"id":"e1","body":{"plan":{"id":"e1","index":2,"title":"云端标题"},"writing":{"draft":"云端正文","custom":"keep"}}});
+        let settings = json!({"body":{"script":{"writingStudio":{"brief":{"idea":"云端设定"},"storyBible":{"premise":"已核对"}}}}});
+        let context = collaboration_episode_context(&episode, &settings, "创作要求").unwrap();
+        assert_eq!(context["targetEpisode"]["id"], "e1");
+        assert_eq!(context["targetEpisode"]["draft"], "云端正文");
+        assert_eq!(context["storyBible"]["premise"], "已核对");
+        assert_eq!(context["episodes"].as_array().unwrap().len(), 1);
+        assert!(collaboration_episode_context(&json!({"id":"e1","body":{"plan":null}}), &settings, "").is_err());
+    }
+}
+
 pub(super) async fn api_script_write(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
+    let project_id = required_permission_project_id(&body)?;
+    let actor_id = {
+        let conn = db_connection(&state)?;
+        super::current_project_owner_context(&conn)?.user_id
+    };
+    let mut body = body;
+    let mut collaboration = Value::Null;
+    if super::project_uses_collaboration(&state, &project_id)? {
+        if body.get("action").and_then(Value::as_str) != Some("episode_draft") {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "协作页暂只支持单集正文生成"));
+        }
+        let input = body.get("collaborationInput").cloned().unwrap_or(Value::Null);
+        let Json(verified) = super::api_project_collaboration(
+            Path(project_id.clone()), State(state.clone()), Json(json!({
+                "action": "generationCheck", "type": "episode", "id": input.get("episodeId"),
+                "expectedRevision": input.get("revision"), "settingsRevision": input.get("settingsRevision")
+            }))
+        ).await?;
+        let episode = &verified["data"]["episode"];
+        let settings = &verified["data"]["settings"];
+        body["context"] = collaboration_episode_context(episode, settings, body.pointer("/context/instruction").and_then(Value::as_str).unwrap_or(""))?;
+        collaboration = json!({ "projectId": project_id, "actorId": actor_id,
+            "episodeId": episode.get("id"), "revision": episode.get("revision"), "settingsRevision": settings.get("revision") });
+    } else {
+        ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
+    }
     let prompt = {
         let conn = db_connection(&state)?;
         build_script_writing_prompt(&conn, &body)?
@@ -19835,14 +20137,25 @@ pub(super) async fn api_script_write(
         ));
     }
 
-    Ok(Json(json!({
-      "success": true,
-      "data": data,
-      "usage": {
-        "modelProvider": provider,
-        "modelId": model_id
-      }
-    })))
+    if !collaboration.is_null() {
+        let conn = db_connection(&state)?;
+        if super::current_project_owner_context(&conn)?.user_id != actor_id {
+            return Err(ApiError::new(StatusCode::UNAUTHORIZED, "账号已切换，生成结果不写入当前账号"));
+        }
+        if data.get("episodeId") != collaboration.get("episodeId") || data.get("draft").and_then(Value::as_str).is_none_or(|text| text.trim().is_empty())
+            || data.get("continuityNotes").is_some_and(|value| !value.is_string()) {
+            return Err(ApiError::new(StatusCode::BAD_GATEWAY, "模型返回的集数或正文无效"));
+        }
+    }
+    let response = json!({
+      "success": true, "id": Uuid::new_v4().to_string(), "createdAt": super::now_iso(),
+      "data": data, "collaboration": collaboration,
+      "usage": { "modelProvider": provider, "modelId": model_id }
+    });
+    if !collaboration.is_null() {
+        super::save_collaboration_draft_result(&state, &project_id, &actor_id, &response)?;
+    }
+    Ok(Json(response))
 }
 
 pub(super) async fn api_script_episode_plan(
@@ -22702,7 +23015,24 @@ pub(super) async fn api_video_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
+    let project = required_permission_project_id(&body)?;
+    let mut body = body;
+    let collaboration = if super::project_uses_collaboration(&state, &project)? {
+        let scene_id = body.get("sceneId").and_then(trimmed_json_string).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少分镜标识"))?;
+        let (scene, settings, metadata) = verified_collaboration_scene(&state, &project, &body["collaborationInput"], &scene_id).await?;
+        let description = scene.get("description").and_then(Value::as_str).unwrap_or("").trim();
+        if description.is_empty() { return Err(ApiError::new(StatusCode::BAD_REQUEST, "请先填写并保存分镜画面描述")); }
+        let Json(snapshot) = super::api_project_collaboration(Path(project.clone()), State(state.clone()), Json(json!({"action":"read"}))).await?;
+        let resources = snapshot.pointer("/data/resources").and_then(Value::as_array).ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "缺少云端公共资源"))?;
+        let characters: Vec<Value> = resources.iter().filter(|resource| resource["type"] == "character" && resource["deleted"] == false).cloned().collect();
+        let voice_context = json!({"scene":scene,"settings":settings,"characters":characters});
+        body["config"] = json!({"prompt":description,"duration":scene.get("duration").and_then(Value::as_f64).unwrap_or(8.0),"firstFrame":scene.get("firstFrame"),"aspectRatio":settings.pointer("/body/project/aspectRatio").and_then(Value::as_str).unwrap_or("16:9"),"resolution":"720p","collaboration":metadata,"collaborationVoiceContext":voice_context});
+        Some(metadata)
+    } else {
+        ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
+        if let Some(config) = body.get_mut("config").and_then(Value::as_object_mut) { config.remove("collaboration"); config.remove("collaborationVoiceContext"); config.remove("collaborationVoiceExtraction"); }
+        None
+    };
     let start = Utc::now().timestamp_millis();
     let (scene_id, mut config) = parse_video_generate_request(&body)?;
     let project_id = body.get("projectId").and_then(trimmed_json_string);
@@ -22760,6 +23090,9 @@ pub(super) async fn api_video_generate(
         .unwrap_or("")
         .to_string();
     let scene_for_voice = body.get("scene").cloned().unwrap_or_else(|| json!({}));
+    if collaboration.is_some() {
+        inject_collaboration_voice_reference(&mut config, &provider_name, &model_id_for_voice);
+    } else {
     inject_scene_voice_reference(
         &state,
         &scene_id,
@@ -22768,6 +23101,7 @@ pub(super) async fn api_video_generate(
         &provider_name,
         &model_id_for_voice,
     )?;
+    }
     normalize_video_audio_reference_url(&state, &mut config).await?;
     if provider_name == "volcengine" {
         normalize_volcengine_video_config_images(&state, &mut config).await?;
@@ -22875,6 +23209,14 @@ pub(super) async fn api_video_status(
     Path(id): Path<String>,
     State(state): State<BackendState>,
 ) -> Result<Json<Value>, ApiError> {
+    let status_actor = super::current_project_owner_context(&db_connection(&state)?)?.user_id;
+    if let Some(input) = collaboration_video_metadata(&state, &id)? {
+        let actor = status_actor.clone();
+        if input.get("actorId").and_then(Value::as_str) != Some(actor.as_str()) { return Err(ApiError::new(StatusCode::FORBIDDEN, "该协作任务不属于当前账号")); }
+        let project = input.get("projectId").and_then(Value::as_str).unwrap_or("");
+        let _ = super::api_project_collaboration(Path(project.to_string()), State(state.clone()), Json(json!({"action":"read"}))).await?;
+        if super::current_project_owner_context(&db_connection(&state)?)?.user_id != actor { return Err(ApiError::new(StatusCode::UNAUTHORIZED, "账号已切换，请重新加载任务")); }
+    }
     let conn = db_connection(&state)?;
     type VideoTaskStatusRow = (
         String,
@@ -22936,6 +23278,9 @@ pub(super) async fn api_video_status(
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
         .unwrap_or_else(|| json!({}));
 
+    if collaboration_video_metadata(&state, &id)?.is_some() && super::current_project_owner_context(&db_connection(&state)?)?.user_id != status_actor {
+        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "账号已切换，请重新加载任务"));
+    }
     Ok(Json(json!({
       "success": true,
       "task": {

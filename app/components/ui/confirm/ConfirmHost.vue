@@ -17,7 +17,7 @@ const { confirmState, accept, cancel, handleOpenChange } = useConfirm()
     :open="confirmState.open"
     @update:open="handleOpenChange"
   >
-    <DialogContent class="max-w-md">
+    <DialogContent class="z-[70] max-w-md" overlay-class="z-[60]">
       <DialogHeader>
         <DialogTitle>{{ confirmState.title }}</DialogTitle>
         <DialogDescription>{{ confirmState.description }}</DialogDescription>

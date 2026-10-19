@@ -1,3 +1,4 @@
+import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 import { useDebounceFn } from '@vueuse/core'
 import type { StylePreset } from '#shared/types/styles'
 import { resolveProjectDetailPath } from '#shared/types/project'
@@ -212,7 +213,7 @@ export function useProjectsIndexPage() {
     deleting.value = projectToDelete.value.id
     try {
       await $fetch(`/api/project/${projectToDelete.value.id}`, {
-        method: 'DELETE'
+        method: 'DELETE', timeout: 30_000, retry: 0
       })
       const storageKey = projectLastOpenedStorageKey(currentUser.value?.id)
       if (typeof window !== 'undefined' && storageKey
@@ -224,7 +225,7 @@ export function useProjectsIndexPage() {
       await fetchProjects(currentPage.value)
     } catch (deleteProjectError) {
       console.error('删除项目失败:', deleteProjectError)
-      useToast().toast.error('删除失败，请重试')
+      useToast().toast.error('删除未完成', { description: getDisplayErrorMessage(deleteProjectError, '请刷新列表确认项目状态后重试。') })
     } finally {
       deleting.value = null
     }

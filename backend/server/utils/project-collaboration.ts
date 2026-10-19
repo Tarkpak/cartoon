@@ -47,6 +47,10 @@ export function ensureProjectCollaborationSchema(db: Database) {
   `)
 }
 
+export function nextCollaborationTimestamp(nowMs: number, ...previous: Array<string | null | undefined>) {
+  return new Date(Math.max(nowMs, ...previous.map(value => (Date.parse(value || '') || 0) + 1))).toISOString()
+}
+
 export function projectUsesCollaboration(db: Database, projectId: string): boolean {
   return !!db.query('SELECT 1 FROM project_collaborations WHERE project_id = ?').get(projectId)
 }
@@ -107,9 +111,27 @@ export function collaborationSnapshot(db: Database, projectId: string) {
   })()
 }
 
+export function previewProjectCollaboration(db: Database, projectId: string, expectedUpdatedAt?: string) {
+  const project = db.query('SELECT local_project_id, local_updated_at, deleted_at FROM user_projects WHERE id = ?').get(projectId) as { local_project_id: string, local_updated_at: string, deleted_at: string | null } | null
+  if (!project || project.deleted_at) throw createError({ statusCode: 404, message: '项目不存在或已删除' })
+  if (expectedUpdatedAt !== undefined && project.local_updated_at !== expectedUpdatedAt) throw createError({ statusCode: 409, message: '云端版本已变化，请刷新后重新预检' })
+  const snapshot = db.query('SELECT snapshot_json FROM user_project_snapshots WHERE project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(projectId) as { snapshot_json: string } | null
+  if (!snapshot) throw createError({ statusCode: 409, message: '项目缺少可迁移的完整快照，请先完成同步' })
+  try {
+    const resources = splitProjectSnapshot(JSON.parse(snapshot.snapshot_json))
+    validateCollaborationResources(resources)
+    const settings = resources.find(item => item.type === 'settings')!.body!
+    const projectBody = collaborationObject(settings.project, '项目设置')
+    if (projectBody.id !== project.local_project_id) throw new Error('快照项目身份与云端项目不一致')
+    return { expectedUpdatedAt: project.local_updated_at, snapshotHash: createHash('sha256').update(snapshot.snapshot_json).digest('hex'), projectName: projectBody.name,
+      episodes: resources.filter(item => item.type === 'episode').length, characters: resources.filter(item => item.type === 'character').length,
+      scenes: resources.filter(item => item.type === 'episode').reduce((sum, item) => sum + (item.body!.scenes as unknown[]).length, 0) }
+  } catch (cause) { return invalid(cause) }
+}
+
 // The original snapshot is retained permanently, independently of snapshot retention.
 export function enableProjectCollaboration(db: Database, input: {
-  projectId: string, userId: string, expectedUpdatedAt: string, leaseToken: string
+  projectId: string, userId: string, expectedUpdatedAt: string, leaseToken: string, snapshotHash?: string
 }) {
   return db.transaction(() => {
     const project = db.query('SELECT user_id, local_project_id, local_updated_at, deleted_at FROM user_projects WHERE id = ?')
@@ -117,6 +139,7 @@ export function enableProjectCollaboration(db: Database, input: {
     if (!project || project.deleted_at) throw createError({ statusCode: 404, message: '项目不存在或已删除' })
     if (projectUsesCollaboration(db, input.projectId)) return readCollaboration(db, input.projectId)
     if (project.local_updated_at !== input.expectedUpdatedAt) throw createError({ statusCode: 409, message: '云端版本已变化，请刷新后重新迁移' })
+    if (input.snapshotHash !== undefined && previewProjectCollaboration(db, input.projectId, input.expectedUpdatedAt).snapshotHash !== input.snapshotHash) throw createError({ statusCode: 409, message: '快照内容已变化，请重新预检迁移' })
     requireProjectEditLease(db, { ownerUserId: project.user_id, localProjectId: project.local_project_id, userId: input.userId, token: input.leaseToken })
     const snapshot = db.query('SELECT snapshot_json FROM user_project_snapshots WHERE project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1')
       .get(input.projectId) as { snapshot_json: string } | null
@@ -241,7 +264,8 @@ export function writeCollaboration(db: Database, input: {
     for (const key of ['name', 'description', 'scriptParseMode', 'styleId', 'aspectRatio', 'status']) {
       if (metadata[key] != null && typeof metadata[key] !== 'string') return invalid(new Error(`项目字段 ${key} 必须是文本`))
     }
-    const timestamp = new Date(now).toISOString()
+    const projectVersion = (db.query('SELECT updated_at FROM user_projects WHERE id = ?').get(input.projectId) as { updated_at: string }).updated_at
+    const timestamp = nextCollaborationTimestamp(now, projectVersion)
     const upsert = db.query(`INSERT INTO project_collaboration_resources (project_id, resource_type, resource_id, revision, body_json, deleted)
       VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, resource_type, resource_id) DO UPDATE SET
       revision = excluded.revision, body_json = excluded.body_json, deleted = excluded.deleted`)

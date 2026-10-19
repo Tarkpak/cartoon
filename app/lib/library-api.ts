@@ -130,7 +130,7 @@ export async function listLibraryMembers() {
   const response = await $fetch<{
     success: boolean
     data: { members: Array<{ id: string, account: string, displayName: string, role: string }> }
-  }>('/api/library/members')
+  }>('/api/library/members', { timeout: 30_000, retry: 0 })
   return response.data.members
 }
 

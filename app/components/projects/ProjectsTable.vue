@@ -32,12 +32,17 @@ const emit = defineEmits<{
   (event: 'open-create'): void
   (event: 'open-project', project: Project): void
   (event: 'manage-members', project: Project): void
+  (event: 'migrate-collaboration', project: Project): void
   (event: 'resolve-sync-conflict', project: Project): void
   (event: 'confirm-delete', project: Project, domEvent: Event): void
   (event: 'page-change', page: number): void
   (event: 'page-size-change', value: string): void
 }>()
 
+const { currentUser } = useCloudAdmin()
+function canMigrate(project: Project) {
+  return !project.collaboration && (project.access?.isOwner || currentUser.value?.role === 'admin' || (!!currentUser.value?.id && project.ownerUserId === currentUser.value.id))
+}
 function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
   const normalizedMode = normalizeScriptParseMode(mode)
   return SCRIPT_PARSE_MODE_LABELS[normalizedMode]
@@ -170,6 +175,7 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
           </div>
 
           <div class="mt-4 flex items-center justify-end gap-2">
+            <Button v-if="canMigrate(project)" variant="outline" size="sm" @click.stop="emit('migrate-collaboration', project)">启用按集协作</Button>
             <Button
               v-if="projectAccessCan(project.access, 'manage_members')"
               variant="ghost"
@@ -330,6 +336,7 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
           </TableCell>
           <TableCell class="sticky right-0 z-20 w-[96px] whitespace-nowrap bg-background text-center shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
             <div class="inline-flex items-center justify-center gap-1">
+              <Button v-if="canMigrate(project)" variant="ghost" size="sm" @click.stop="emit('migrate-collaboration', project)">按集协作</Button>
               <Button
                 v-if="projectAccessCan(project.access, 'manage_members')"
                 variant="ghost"

@@ -252,6 +252,8 @@ struct PutProjectMemberBody {
     account: Option<String>,
     #[serde(rename = "displayName")]
     display_name: Option<String>,
+    #[serde(rename = "expectedUpdatedAt")]
+    expected_updated_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -5230,6 +5232,11 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/project/create", post(api_project_create))
         .route("/api/project/{id}/edit-session", post(api_project_edit_session))
         .route("/api/project/{id}/collaboration", post(api_project_collaboration))
+        .route("/api/project/{id}/collaboration/draft-results", get(api_project_collaboration_draft_results))
+        .route("/api/project/{id}/collaboration/media-results", get(api_project_collaboration_media_results))
+        .route("/api/project/{id}/collaboration/scene-image", post(api_collaboration_scene_image))
+        .route("/api/project/{id}/collaboration/asset-image", post(api_collaboration_asset_image))
+        .route("/api/project/{id}/collaboration/voice-retry/{task_id}", post(api_collaboration_voice_retry))
         .route("/api/project/{id}/edit-session/backup", post(api_project_edit_backup))
         .route("/api/project/{id}/edit-session/backup/{backup_id}", get(api_project_edit_backup_get))
         .route(
@@ -6338,6 +6345,9 @@ async fn api_project_members(
     Path(id): Path<String>,
     State(state): State<BackendState>,
 ) -> Result<Json<Value>, ApiError> {
+    if project_uses_collaboration(&state, &id)? {
+        return api_project_collaboration(Path(id), State(state), Json(json!({"action":"members"}))).await;
+    }
     let conn = db_connection(&state)?;
     let owner = ensure_project_access(&conn, &id)?;
     let access = project_access_payload(&conn, &id, &owner)?;
@@ -6377,6 +6387,12 @@ async fn api_project_member_put(
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少成员用户 ID"));
     }
     ensure_project_permission(&db_connection(&state)?, &id, ProjectPermission::ManageMembers)?;
+    if project_uses_collaboration(&state, &id)? {
+        return api_project_collaboration(Path(id), State(state), Json(json!({
+            "action":"memberPut", "userId":user_id, "role":role,
+            "permissions":body.permissions.unwrap_or_default(), "expectedUpdatedAt":body.expected_updated_at
+        }))).await;
+    }
     acquire_conflict_edit_session(&state, &id).await?;
     let conn = db_connection(&state)?;
     ensure_project_permission(&conn, &id, ProjectPermission::ManageMembers)?;
@@ -6437,8 +6453,14 @@ async fn api_project_member_put(
 async fn api_project_member_delete(
     Path((id, user_id)): Path<(String, String)>,
     State(state): State<BackendState>,
+    Query(query): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_project_permission(&db_connection(&state)?, &id, ProjectPermission::ManageMembers)?;
+    if project_uses_collaboration(&state, &id)? {
+        return api_project_collaboration(Path(id), State(state), Json(json!({
+            "action":"memberRemove", "userId":user_id, "expectedUpdatedAt":query.get("expectedUpdatedAt")
+        }))).await;
+    }
     acquire_conflict_edit_session(&state, &id).await?;
     let conn = db_connection(&state)?;
     let current_user = ensure_project_permission(&conn, &id, ProjectPermission::ManageMembers)?;
@@ -6468,6 +6490,9 @@ async fn api_project_delete(
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "缺少项目ID"));
     }
     ensure_project_permission(&db_connection(&state)?, &id, ProjectPermission::Delete)?;
+    if project_uses_collaboration(&state, &id)? {
+        return api_project_collaboration(Path(id), State(state), Json(json!({"action":"delete"}))).await;
+    }
     acquire_conflict_edit_session(&state, &id).await?;
     let mut conn = db_connection(&state)?;
     let requester = ensure_project_permission(&conn, id.as_str(), ProjectPermission::Delete)?;

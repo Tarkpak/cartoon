@@ -6,7 +6,7 @@ import { ensureProjectEditLeaseSchema, operateProjectEditLease } from './project
 import {
   collaborationChanges, collaborationResources, collaborationSnapshot, enableProjectCollaboration,
   ensureProjectCollaborationSchema, operateCollaborationLease, projectUsesCollaboration,
-  rejectLegacyProjectWrite, writeCollaboration
+  rejectLegacyProjectWrite, writeCollaboration, previewProjectCollaboration
 } from './project-collaboration'
 import type { CollaborationMutation, CollaborationResourceType } from '../../../shared/types/project-collaboration'
 
@@ -23,10 +23,12 @@ describe('per resource collaboration', () => {
       CREATE TABLE user_projects (id TEXT PRIMARY KEY, user_id TEXT, local_project_id TEXT, local_updated_at TEXT, deleted_at TEXT, updated_at TEXT, last_synced_at TEXT,
         name TEXT, description TEXT, script_parse_mode TEXT, style_id TEXT, aspect_ratio TEXT, status TEXT, summary_json TEXT);
       CREATE TABLE user_project_snapshots (project_id TEXT, snapshot_json TEXT, created_at TEXT);
-      CREATE TABLE project_members (project_id TEXT, user_id TEXT, role TEXT, permissions_json TEXT);
+      CREATE TABLE users (id TEXT PRIMARY KEY, account TEXT, display_name TEXT, status TEXT DEFAULT 'active');
+      INSERT INTO users (id, account, display_name) VALUES ('owner','owner','Owner'), ('alice','alice','Alice'), ('bob','bob','Bob'), ('viewer','viewer','Viewer'), ('new','new','New');
+      CREATE TABLE project_members (project_id TEXT, user_id TEXT, role TEXT, permissions_json TEXT, created_at TEXT DEFAULT 'v1', updated_at TEXT DEFAULT 'v1', PRIMARY KEY(project_id, user_id));
       INSERT INTO user_projects (id, user_id, local_project_id, local_updated_at, updated_at, last_synced_at)
         VALUES ('cloud-p1', 'owner', 'p1', 'v1', 'v1', 'v1');
-      INSERT INTO project_members VALUES ('cloud-p1', 'alice', 'editor', NULL), ('cloud-p1', 'bob', 'editor', NULL), ('cloud-p1', 'viewer', 'viewer', NULL);
+      INSERT INTO project_members (project_id, user_id, role, permissions_json) VALUES ('cloud-p1', 'alice', 'editor', NULL), ('cloud-p1', 'bob', 'editor', NULL), ('cloud-p1', 'viewer', 'viewer', NULL);
     `)
     const snapshot = {
       project: { id: 'p1', name: '协作项目' },
@@ -56,6 +58,49 @@ describe('per resource collaboration', () => {
   function auth(userId: string): AuthContext {
     return { user: { id: userId, account: userId, display_name: userId, role: 'user', status: 'active' }, sessionId: 'auth-session', deviceId: 'device' }
   }
+
+  it('authorizes generation against exact episode/settings versions and the scoped lease', () => {
+    const { db } = setup()
+    const token = lease(db, 'e1').token!
+    const request = { action: 'generationCheck', ownerUserId: 'owner', localProjectId: 'p1', deviceId: 'device-alice', sessionId: 'window-alice', type: 'episode', id: 'e1', expectedRevision: 1, settingsRevision: 1, token }
+    expect(handleProjectCollaboration(db, auth('alice'), request)).toMatchObject({ episode: { id: 'e1', revision: 1 }, settings: { revision: 1 } })
+    expect(() => handleProjectCollaboration(db, auth('alice'), { ...request, settingsRevision: 2 })).toThrow('输入已变化')
+    expect(() => handleProjectCollaboration(db, auth('alice'), { ...request, expectedRevision: 2 })).toThrow('输入已变化')
+    expect(() => handleProjectCollaboration(db, auth('alice'), { ...request, token: 'wrong' })).toThrow('编辑权')
+    expect(() => handleProjectCollaboration(db, auth('viewer'), request)).toThrow()
+    db.query("UPDATE project_members SET role = 'custom', permissions_json = '[\"view\",\"edit\"]' WHERE user_id = 'alice'").run()
+    expect(() => handleProjectCollaboration(db, auth('alice'), request)).toThrow()
+    expect(collaborationChanges(db, 'cloud-p1', 0).changes).toHaveLength(0)
+  })
+
+  it('checks public resource leases independently of episode leases', () => {
+    const { db } = setup()
+    lease(db, 'e1')
+    for (const [type, id] of [['character', 'c1'], ['settings', 'settings']] as const) {
+      const request = { action: 'generationCheck', ownerUserId: 'owner', localProjectId: 'p1', ...actor(), type, id, expectedRevision: 1, settingsRevision: 1 }
+      expect(() => handleProjectCollaboration(db, auth('alice'), request)).toThrow('编辑权')
+      const token = lease(db, id, 'alice', type).token!
+      expect(handleProjectCollaboration(db, auth('alice'), { ...request, token })).toMatchObject({ resource: { type, id, revision: 1 }, settings: { revision: 1 } })
+      expect(() => handleProjectCollaboration(db, auth('alice'), { ...request, token, expectedRevision: 2 })).toThrow('输入已变化')
+      expect(() => handleProjectCollaboration(db, auth('viewer'), { ...request, token })).toThrow()
+    }
+    expect(collaborationChanges(db, 'cloud-p1', 0).changes).toHaveLength(0)
+  })
+
+  it('previews migration without writes and fences changes to the reviewed snapshot', () => {
+    const { db, migration, snapshot } = setup(false)
+    const identity = { ownerUserId: 'owner', localProjectId: 'p1' }
+    expect(() => handleProjectCollaboration(db, auth('alice'), { ...identity, action: 'migrationPreview' })).toThrow('所有者')
+    const reviewed = previewProjectCollaboration(db, 'cloud-p1', 'v1')
+    expect(reviewed).toMatchObject({ episodes: 2, scenes: 2, characters: 1, expectedUpdatedAt: 'v1' })
+    expect(projectUsesCollaboration(db, 'cloud-p1')).toBe(false)
+    db.query('UPDATE user_project_snapshots SET snapshot_json=?').run(JSON.stringify({ ...snapshot, project: { ...snapshot.project, name: 'changed' } }))
+    expect(() => enableProjectCollaboration(db, { ...migration, snapshotHash: reviewed.snapshotHash })).toThrow('快照内容已变化')
+    expect(projectUsesCollaboration(db, 'cloud-p1')).toBe(false)
+    const next = previewProjectCollaboration(db, 'cloud-p1', 'v1')
+    expect(enableProjectCollaboration(db, { ...migration, snapshotHash: next.snapshotHash }).enabled).toBe(true)
+    expect(enableProjectCollaboration(db, { ...migration, snapshotHash: next.snapshotHash }).enabled).toBe(true)
+  })
 
   it('migrates once, preserves the original snapshot and disables legacy writes', () => {
     const { db, migration, snapshot } = setup()
@@ -208,4 +253,69 @@ describe('per resource collaboration', () => {
       expect(db.query(`SELECT * FROM ${table}`).all()).toHaveLength(0)
     }
   })
+  it('manages canonical members without episode leases or snapshot writes', () => {
+    const { db } = setup()
+    const call = (body: Record<string, unknown>, userId = 'owner') => handleProjectCollaboration(db, auth(userId), { ownerUserId: 'owner', localProjectId: 'p1', ...body })
+    const before = JSON.stringify(collaborationResources(db, 'cloud-p1'))
+    const result = call({ action: 'memberPut', userId: 'new', role: 'editor', expectedUpdatedAt: null, account: 'spoofed', displayName: 'spoofed' }) as { members: Array<{ userId: string, account: string, updatedAt: string }> }
+    const member = result.members.find(member => member.userId === 'new')!
+    expect(member.account).toBe('new')
+    expect(JSON.stringify(collaborationResources(db, 'cloud-p1'))).toBe(before)
+    expect(() => call({ action: 'memberPut', userId: 'new', role: 'viewer', expectedUpdatedAt: null })).toThrow('已变化')
+    call({ action: 'memberPut', userId: 'new', role: 'editor', expectedUpdatedAt: null }) // Lost response retry.
+    call({ action: 'memberRemove', userId: 'new', expectedUpdatedAt: member.updatedAt })
+    call({ action: 'memberRemove', userId: 'new', expectedUpdatedAt: member.updatedAt })
+    expect(db.query("SELECT * FROM project_members WHERE user_id = 'new'").get()).toBeNull()
+  })
+
+  it('fences downgraded members and prevents permission escalation by a manager', () => {
+    const { db } = setup()
+    const writing = mutation(db, 'e1', 'alice')
+    const call = (body: Record<string, unknown>, userId = 'owner') => handleProjectCollaboration(db, auth(userId), { ownerUserId: 'owner', localProjectId: 'p1', ...body })
+    call({ action: 'memberPut', userId: 'alice', role: 'viewer', expectedUpdatedAt: 'v1' })
+    expect(() => handleProjectCollaboration(db, auth('alice'), { action: 'write', ownerUserId: 'owner', localProjectId: 'p1', deviceId: 'device-alice', sessionId: 'window-alice', operationId: 'late', mutations: [writing] })).toThrow()
+    expect(db.query("SELECT * FROM project_collaboration_leases WHERE user_id = 'alice'").all()).toHaveLength(0)
+    call({ action: 'memberPut', userId: 'bob', role: 'manager', expectedUpdatedAt: 'v1' })
+    expect(() => call({ action: 'memberPut', userId: 'new', role: 'custom', permissions: ['delete'], expectedUpdatedAt: null }, 'bob')).toThrow('自身范围')
+    call({ action: 'memberPut', userId: 'new', role: 'viewer', expectedUpdatedAt: null }, 'bob')
+    expect(() => call({ action: 'memberRemove', userId: 'bob' }, 'bob')).toThrow('自己')
+    expect(() => call({ action: 'memberPut', userId: 'owner', role: 'viewer', expectedUpdatedAt: null })).toThrow('所有者')
+    expect(() => call({ action: 'memberPut', userId: 'new', role: 'editor', expectedUpdatedAt: null }, 'viewer')).toThrow()
+  })
+
+  it('deletes collaboration projects idempotently and blocks late edits while retaining backups', () => {
+    const { db } = setup()
+    const writing = mutation(db, 'e1')
+    const body = { ownerUserId: 'owner', localProjectId: 'p1', action: 'delete' }
+    expect(() => handleProjectCollaboration(db, auth('alice'), body)).toThrow()
+    const deleted = handleProjectCollaboration(db, auth('owner'), body)
+    expect(handleProjectCollaboration(db, auth('owner'), body)).toEqual(deleted)
+    expect(db.query('SELECT * FROM project_collaboration_leases').all()).toHaveLength(0)
+    expect(db.query('SELECT source_snapshot_json FROM project_collaborations').get()).toBeTruthy()
+    expect(() => handleProjectCollaboration(db, auth('alice'), { ...body, action: 'read' })).toThrow('已删除')
+    expect(() => writeCollaboration(db, { ...actor(), operationId: 'late', mutations: [writing] })).toThrow()
+  })
+
+  it('supports a member manager without edit permission and rejects disabled targets', () => {
+    const { db } = setup()
+    const call = (body: Record<string, unknown>, userId = 'owner') => handleProjectCollaboration(db, auth(userId), { ownerUserId: 'owner', localProjectId: 'p1', ...body })
+    call({ action: 'memberPut', userId: 'bob', role: 'custom', permissions: ['manage_members'], expectedUpdatedAt: 'v1' })
+    call({ action: 'memberPut', userId: 'new', role: 'viewer', expectedUpdatedAt: null }, 'bob')
+    expect(() => call({ action: 'lease', type: 'episode', id: 'e1', leaseAction: 'acquire' }, 'bob')).toThrow()
+    db.query("UPDATE users SET status = 'disabled' WHERE id = 'alice'").run()
+    expect(() => call({ action: 'memberPut', userId: 'alice', role: 'viewer', expectedUpdatedAt: 'v1' })).toThrow('停用')
+  })
+
+  it('keeps the project sync timestamp increasing across membership and resource commits', () => {
+    const { db } = setup()
+    const future = new Date(Date.now() + 60000).toISOString()
+    db.query('UPDATE user_projects SET updated_at = ?').run(future)
+    handleProjectCollaboration(db, auth('owner'), { ownerUserId: 'owner', localProjectId: 'p1', action: 'memberPut', userId: 'new', role: 'viewer', expectedUpdatedAt: null })
+    const memberVersion = (db.query('SELECT updated_at FROM user_projects').get() as { updated_at: string }).updated_at
+    expect(memberVersion > future).toBe(true)
+    writeCollaboration(db, { ...actor(), operationId: 'after-member', mutations: [mutation(db, 'e1')] })
+    const resourceVersion = (db.query('SELECT updated_at FROM user_projects').get() as { updated_at: string }).updated_at
+    expect(resourceVersion > memberVersion).toBe(true)
+  })
+
 })

@@ -20,6 +20,9 @@ mod lease_fencing_tests {
              INSERT INTO system_config VALUES ('project_edit_session:p1', '{\"token\":\"current\"}');",
         ).unwrap();
         assert!(task_matches_cached_edit_lease(&conn, "task1").unwrap());
+        conn.execute("UPDATE video_tasks SET config = ?1", params![json!({"projectEditLease":{"token":"current"},"collaboration":{"projectId":"p1"}}).to_string()]).unwrap();
+        assert!(!task_matches_cached_edit_lease(&conn, "task1").unwrap());
+        conn.execute("UPDATE video_tasks SET config = ?1", params![json!({"projectEditLease":{"token":"current"}}).to_string()]).unwrap();
         conn.execute(
             "UPDATE system_config SET value = '{\"token\":\"replacement\"}'",
             [],
@@ -331,6 +334,7 @@ pub(super) async fn task_can_write_project(
         row
     };
     let config: Value = serde_json::from_str(&config).unwrap_or(Value::Null);
+    if config.get("collaboration").is_some() { return Ok(false); }
     let lease = config.get("projectEditLease").unwrap_or(&Value::Null);
     let cached = cached_project_edit_session(state, &project_id)?;
     if lease.get("token").and_then(Value::as_str).is_none()
@@ -362,6 +366,7 @@ pub(super) fn task_matches_cached_edit_lease(
         return Ok(false);
     }
     let config: Value = serde_json::from_str(&config).unwrap_or(Value::Null);
+    if config.get("collaboration").is_some() { return Ok(false); }
     let token = config
         .pointer("/projectEditLease/token")
         .and_then(Value::as_str);

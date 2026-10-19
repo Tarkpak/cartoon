@@ -1,3 +1,4 @@
+import { validateCollaborationResources } from '../../shared/utils/project-collaboration'
 import { collaborationId, collaborationObject, collaborationResourceType, type CollaborationBody, type CollaborationChange, type CollaborationResource } from '../../shared/types/project-collaboration'
 
 export interface CollaborationDraft {
@@ -19,6 +20,8 @@ export class ProjectCollaborationClient {
   readonly drafts = new Map<string, CollaborationDraft>()
   cursor = 0
   private pending?: { operationId: string, mutations: Mutation[] }
+  private structure?: Pick<CollaborationResource, 'type' | 'id'>[]
+  get structureScopes() { return copy(this.structure ?? []) }
   private polling?: Promise<void>
   private generation = 0
 
@@ -40,10 +43,53 @@ export class ProjectCollaborationClient {
   }
 
   edit(type: CollaborationResource['type'], id: string, body: CollaborationBody | null) {
+    if (this.structure?.some(scope => keyOf(scope) === keyOf({ type, id }))) throw new Error('请先完成目录调整')
     const draft = this.get(type, id)
     if (!draft || draft.base.deleted) throw new Error('编辑对象不存在或已删除')
     draft.body = copy(body)
     draft.dirty = true
+  }
+
+  /** Stage a validated directory change as one indivisible draft group. */
+  stageStructure(changes: Pick<CollaborationResource, 'type' | 'id' | 'body'>[]) {
+    if (this.pending || this.structure) throw new Error('请先完成上一次目录调整')
+    if (changes.length < 2 || changes.length > 100 || !changes.some(item => item.type === 'directory' && item.id === 'directory')
+      || changes.some(item => !['directory', 'episode'].includes(item.type))
+      || new Set(changes.map(keyOf)).size !== changes.length) throw new Error('目录调整无效')
+    const next = new Map([...this.drafts].map(([key, draft]) => [key, copy(draft.base)]))
+    for (const change of changes) {
+      const current = this.get(change.type, change.id)
+      if (current?.dirty || current?.conflict) throw new Error('请先保存或处理受影响集数的草稿')
+      if (current?.base.deleted || (!current && (change.type !== 'episode' || change.body === null))) throw new Error('集数已删除或不存在')
+      next.set(keyOf(change), { ...copy(change), revision: (current?.base.revision ?? 0) + 1, deleted: change.body === null })
+    }
+    validateCollaborationResources([...next.values()])
+    for (const change of changes) {
+      const current = this.get(change.type, change.id)
+      const base = current?.base ?? { type: change.type, id: change.id, revision: 0, body: null, deleted: true }
+      this.drafts.set(keyOf(change), { base: copy(base), body: copy(change.body), dirty: true, conflict: false })
+    }
+    this.structure = changes.map(({ type, id }) => ({ type, id }))
+  }
+
+  async reviewStructure() {
+    if (!this.structure) throw new Error('没有待处理的目录调整')
+    const result = await this.request({ action: 'read' }) as { resources: CollaborationResource[] }
+    return this.structure.map(scope => copy(result.resources.find(item => keyOf(item) === keyOf(scope))
+      ?? { ...scope, revision: 0, body: null, deleted: true }))
+  }
+
+  async discardStructure(reviewed: CollaborationResource[]) {
+    if (this.pending || this.saving) throw new Error('请先确认正在提交的修改')
+    const generation = this.generation
+    const remote = await this.reviewStructure()
+    if (generation !== this.generation) return
+    if (remote.length !== reviewed.length || remote.some(item => !reviewed.some(old => keyOf(old) === keyOf(item) && old.revision === item.revision))) throw new Error('远端内容再次更新，请重新查看后处理')
+    for (const item of remote) {
+      if (!item.revision) this.drafts.delete(keyOf(item))
+      else this.drafts.set(keyOf(item), { base: copy(item), body: copy(item.body), dirty: false, conflict: false })
+    }
+    this.structure = undefined
   }
 
   private apply(resource: CollaborationResource) {
@@ -78,8 +124,9 @@ export class ProjectCollaborationClient {
     return this.polling
   }
 
-  async save(resources: Pick<CollaborationResource, 'type' | 'id'>[]) {
+  prepareSave(resources: Pick<CollaborationResource, 'type' | 'id'>[]) {
     if (this.pending) throw new Error('上次提交结果尚未确认，请重试原提交')
+    if (this.structure && resources.some(item => this.structure!.some(scope => keyOf(scope) === keyOf(item)))) resources = this.structure
     const mutations: Mutation[] = []
     for (const resource of resources) {
       const draft = this.get(resource.type, resource.id)
@@ -89,6 +136,10 @@ export class ProjectCollaborationClient {
     }
     if (!mutations.length) return
     this.pending = { operationId: crypto.randomUUID(), mutations }
+  }
+
+  async save(resources: Pick<CollaborationResource, 'type' | 'id'>[]) {
+    this.prepareSave(resources)
     return this.retrySave()
   }
 
@@ -102,6 +153,7 @@ export class ProjectCollaborationClient {
 
   async resolve(type: CollaborationResource['type'], id: string, keepLocal: boolean, reviewedRevision?: number) {
     if (this.pending || this.saving) throw new Error('请先确认正在提交的修改')
+    if (this.structure?.some(scope => keyOf(scope) === keyOf({ type, id }))) throw new Error('请在集数目录中处理整组修改')
     const draft = this.get(type, id)
     if (!draft) throw new Error('编辑对象不存在')
     const generation = this.generation
@@ -125,6 +177,7 @@ export class ProjectCollaborationClient {
     const pending = this.pending
     try {
       const result = await this.request({ action: 'write', ...copy(pending) }) as { resources: CollaborationResource[] }
+      if (pending.mutations.some(sent => !result.resources.some(item => keyOf(item) === keyOf(sent)))) throw new Error('提交回执不完整，请重试原提交')
       for (const resource of result.resources) {
         const draft = this.get(resource.type, resource.id)
         const sent = pending.mutations.find(item => keyOf(item) === keyOf(resource))
@@ -138,6 +191,7 @@ export class ProjectCollaborationClient {
         if (!editedAgain) draft.body = copy(resource.body)
       }
       // Only the feed advances the cursor: a write response may include unseen changes.
+      if (this.structure && this.structure.every(scope => pending.mutations.some(item => keyOf(item) === keyOf(scope)))) this.structure = undefined
       this.pending = undefined
     } catch (error) {
       const status = (error as { statusCode?: number, status?: number }).statusCode ?? (error as { status?: number }).status
@@ -155,6 +209,7 @@ export class ProjectCollaborationClient {
     } finally { this.saving = false }
   }
 
+  get isSaving() { return this.saving }
   get hasPendingSave() { return !!this.pending }
   get hasUnsavedChanges() { return this.hasPendingSave || [...this.drafts.values()].some(draft => draft.dirty) }
 
@@ -166,8 +221,9 @@ export class ProjectCollaborationClient {
       const item = collaborationObject(value, '备份对象')
       const type = collaborationResourceType(item.type)
       const id = collaborationId(item.id)
-      if (!Number.isSafeInteger(item.revision) || (item.revision as number) < 1 || typeof item.deleted !== 'boolean') throw new Error('备份对象版本无效')
+      if (!Number.isSafeInteger(item.revision) || (item.revision as number) < 0 || typeof item.deleted !== 'boolean') throw new Error('备份对象版本无效')
       const body = item.body === null ? null : collaborationObject(item.body, '对象内容')
+      if (item.revision === 0 && (type !== 'episode' || !item.deleted || body !== null)) throw new Error('新建集数备份无效')
       return { type, id, revision: item.revision as number, deleted: item.deleted, body }
     }
     const drafts = backup.drafts.map(value => {
@@ -176,6 +232,19 @@ export class ProjectCollaborationClient {
       return { base: resource(item.base), body: item.body === null ? null : collaborationObject(item.body, '草稿内容'), dirty: item.dirty, conflict: item.conflict }
     })
     if (new Set(drafts.map(draft => keyOf(draft.base))).size !== drafts.length) throw new Error('备份对象重复')
+    let structure: typeof this.structure
+    if (backup.structure != null) {
+      if (!Array.isArray(backup.structure) || backup.structure.length < 2 || backup.structure.length > 100) throw new Error('目录备份无效')
+      structure = backup.structure.map(value => {
+        const scope = collaborationObject(value, '目录对象')
+        const type = collaborationResourceType(scope.type)
+        const id = collaborationId(scope.id)
+        if (!['directory', 'episode'].includes(type) || !drafts.some(draft => draft.dirty && keyOf(draft.base) === keyOf({ type, id }))) throw new Error('目录备份与草稿不匹配')
+        return { type, id }
+      })
+      if (!structure.some(item => item.type === 'directory' && item.id === 'directory') || new Set(structure.map(keyOf)).size !== structure.length) throw new Error('目录备份无效')
+    }
+    if (drafts.some(draft => draft.base.revision === 0 && !structure?.some(scope => keyOf(scope) === keyOf(draft.base)))) throw new Error('新建集数缺少目录备份')
     let pending: typeof this.pending
     if (backup.pending != null) {
       const operation = collaborationObject(backup.pending, '待确认提交')
@@ -191,19 +260,22 @@ export class ProjectCollaborationClient {
         return { type, id, expectedRevision: expectedRevision as number, body: item.body === null ? null : collaborationObject(item.body, '提交内容') }
       })
       if (new Set(mutations.map(keyOf)).size !== mutations.length) throw new Error('备份提交重复')
+      if (structure && structure.some(scope => !mutations.some(item => keyOf(item) === keyOf(scope)))) throw new Error('目录提交缺少关联修改')
       pending = { operationId, mutations }
     }
     // Validate everything before modifying live drafts. Keep the freshly read feed cursor.
     for (const draft of drafts.filter(draft => draft.dirty)) {
       const current = this.drafts.get(keyOf(draft.base))
-      const conflict = draft.conflict || !current || current.base.deleted || current.base.revision !== draft.base.revision
+      const unchangedNew = draft.base.revision === 0 && !current
+      const conflict = draft.conflict || (!unchangedNew && (!current || current.base.deleted || current.base.revision !== draft.base.revision))
       this.drafts.set(keyOf(draft.base), { ...copy(draft), conflict, remoteRevision: current?.base.revision })
     }
     this.pending = copy(pending)
+    this.structure = copy(structure)
   }
 
   /** Export before navigation or lease loss; includes uncertain operations for safe recovery. */
   backup() {
-    return copy({ cursor: this.cursor, drafts: [...this.drafts.values()].filter(draft => draft.dirty), pending: this.pending })
+    return copy({ cursor: this.cursor, drafts: [...this.drafts.values()].filter(draft => draft.dirty), pending: this.pending, structure: this.structure })
   }
 }

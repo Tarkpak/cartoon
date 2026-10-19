@@ -23,7 +23,8 @@ defineEmits<{
       <DialogHeader>
         <DialogTitle>确认删除</DialogTitle>
         <DialogDescription>
-          确定要删除项目「{{ projectToDelete?.title }}」吗？此操作不可撤销，所有相关数据将被永久删除。
+          <template v-if="projectToDelete?.collaboration">确定要删除项目「{{ projectToDelete.title }}」吗？删除后，所有成员将无法继续访问此项目。云端保留迁移备份，当前页面不提供恢复操作。</template>
+          <template v-else>确定要删除项目「{{ projectToDelete?.title }}」吗？此操作不可撤销，所有相关数据将被永久删除。</template>
         </DialogDescription>
       </DialogHeader>
       <DialogFooter>

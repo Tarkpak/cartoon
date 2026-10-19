@@ -11,6 +11,7 @@ export function useProjectCollaboration() {
   const error = ref('')
   const revision = ref(0)
   const recovery = shallowRef<unknown>()
+  const queued = ref(false)
   const leases = ref(new Map<string, CollaborationLease>())
   const scopes = new Map<string, CollaborationScope>()
   const leaseVersions = new Map<string, number>()
@@ -22,6 +23,15 @@ export function useProjectCollaboration() {
   let ticking = false
   let releasing: Promise<unknown> = Promise.resolve()
   const keyOf = (scope: CollaborationScope) => JSON.stringify([scope.type, scope.id])
+  let queueEntry: string | undefined
+  const queuePrefix = () => `project-collaboration-outbox:${JSON.stringify([actorId, projectId]).slice(0, -1)},`
+  const nextQueue = () => {
+    if (typeof localStorage === 'undefined') return undefined
+    for (let index = 0; index < localStorage.length; index++) {
+      const key = localStorage.key(index)
+      if (key?.startsWith(queuePrefix())) return key
+    }
+  }
   const storageKey = () => `project-collaboration-draft:${JSON.stringify([actorId, projectId])}`
   const request = async <T>(id: string, body: Record<string, unknown>) => {
     const response = await $fetch<{ data: T }>(`/api/project/${encodeURIComponent(id)}/collaboration`, {
@@ -35,6 +45,19 @@ export function useProjectCollaboration() {
     if (client.value.hasUnsavedChanges) {
       sessionStorage.setItem(storageKey(), JSON.stringify(client.value.backup()))
     } else sessionStorage.removeItem(storageKey())
+    if (typeof localStorage !== 'undefined') {
+      if (client.value.hasPendingSave) {
+        const previous = queueEntry
+        const next = `project-collaboration-outbox:${JSON.stringify([actorId, projectId, client.value.backup().pending!.operationId])}`
+        localStorage.setItem(next, JSON.stringify(client.value.backup()))
+        queueEntry = next
+        if (previous && previous !== next) localStorage.removeItem(previous)
+      } else if (queueEntry) {
+        if (client.value.hasUnsavedChanges) localStorage.setItem(queueEntry, JSON.stringify(client.value.backup()))
+        else { localStorage.removeItem(queueEntry); queueEntry = undefined }
+      }
+    }
+    queued.value = client.value.hasPendingSave
   }
 
   function canEdit(scope: CollaborationScope) {
@@ -49,6 +72,21 @@ export function useProjectCollaboration() {
     const id = projectId
     const active = client.value
     try {
+      if (active?.hasPendingSave && !active.isSaving && recovery.value === undefined) {
+        await retrySave()
+        if (version !== sequence) return
+      }
+      if (active && !active.hasUnsavedChanges && recovery.value === undefined) {
+        const next = nextQueue()
+        if (next) {
+          queueEntry = next
+          const saved = JSON.parse(localStorage.getItem(next)!)
+          if (saved.pending) active.restore(saved)
+          else recovery.value = saved
+          backup()
+          revision.value++
+        }
+      }
       for (const [key, scope] of [...scopes]) {
         if (version !== sequence) return
         const leaseVersion = leaseVersions.get(key)
@@ -96,11 +134,13 @@ export function useProjectCollaboration() {
     const held = [...scopes.values()]
     projectId = ''
     actorId = ''
+    queueEntry = undefined
     scopes.clear()
     leaseVersions.clear()
     leases.value.clear()
     client.value = undefined
     recovery.value = undefined
+    queued.value = false
     releasing = Promise.all([releasing, Promise.allSettled(held.map(scope => request(id, { action: 'lease', leaseAction: 'release', ...scope })))])
     await releasing
   }
@@ -116,13 +156,22 @@ export function useProjectCollaboration() {
     const next = new ProjectCollaborationClient(body => request(id, body))
     await next.load()
     if (version !== sequence) return
-    const saved = sessionStorage.getItem(storageKey())
+    queueEntry = nextQueue()
+    const durable = queueEntry ? localStorage.getItem(queueEntry) : null
+    const saved = durable ?? sessionStorage.getItem(storageKey())
     try { recovery.value = saved ? JSON.parse(saved) : undefined }
     catch {
       recovery.value = { unreadableBackup: saved }
       error.value = '窗口备份格式异常，请先导出备份，再选择放弃。'
     }
     client.value = next
+    if (durable && recovery.value && typeof recovery.value === 'object' && 'pending' in recovery.value && recovery.value.pending) {
+      try {
+        next.restore(recovery.value)
+        recovery.value = undefined
+        queued.value = next.hasPendingSave
+      } catch (cause) { error.value = getDisplayErrorMessage(cause, '离线队列恢复失败，请导出备份后处理') }
+    }
     if (recovery.value === undefined) error.value = ''
     revision.value++
     let ticks = 0
@@ -142,6 +191,8 @@ export function useProjectCollaboration() {
 
   function discardRecovery() {
     sessionStorage.removeItem(storageKey())
+    if (typeof localStorage !== 'undefined' && queueEntry) localStorage.removeItem(queueEntry)
+    queueEntry = undefined
     recovery.value = undefined
   }
 
@@ -160,29 +211,47 @@ export function useProjectCollaboration() {
 
   async function save(selected: CollaborationScope[]) {
     if (!client.value) throw new Error('协作项目尚未加载')
+    const group = client.value.structureScopes
+    if (group.length && selected.some(scope => group.some(item => item.type === scope.type && item.id === scope.id))) selected = group
     if (selected.some(scope => !canEdit(scope))) throw new Error('请先取得对应对象的编辑权')
     const active = client.value
-    try { await active.save(selected) }
-    finally { if (active === client.value) { backup(); revision.value++ } }
+    try {
+      active.prepareSave(selected)
+      // Persist the exact operation before sending: a crash or lost response must replay the same ID.
+      backup()
+      revision.value++
+      await active.retrySave()
+    } finally { if (active === client.value) { try { backup() } finally { revision.value++ } } }
   }
 
   async function retrySave() {
     const active = client.value
     if (!active) return
+    const version = sequence
+    backup()
     // After reload, the backend needs fresh scoped leases before resending an outbox item.
     for (const scope of active.backup().pending?.mutations ?? []) {
+      if (version !== sequence) return
       if (!canEdit(scope)) {
         // A cached outbox operation may already have committed, even if another member now holds the lease.
         try { await acquire(scope) } catch { /* Still ask the backend to confirm the original operation. */ }
       }
     }
-    try { await active.retrySave() }
-    finally { if (active === client.value) { backup(); revision.value++ } }
+    if (version !== sequence) return
+    const group = active.structureScopes
+    try {
+      await active.retrySave()
+      if (active === client.value && !active.structureScopes.length) await Promise.allSettled(group.filter(item => item.type === 'episode').map(item => release(item)))
+    }
+    finally { if (active === client.value) { try { backup() } finally { revision.value++ } } }
   }
 
+  const reconnect = () => { void tick() }
+  if (typeof window !== 'undefined') window.addEventListener('online', reconnect)
   onBeforeUnmount(() => {
+    if (typeof window !== 'undefined') window.removeEventListener('online', reconnect)
     try { backup() } catch (cause) { error.value = getDisplayErrorMessage(cause, '草稿备份失败，请导出后再关闭') }
     void close(false)
   })
-  return { client, error, revision, recovery, leases, open, close, acquire, release, canEdit, save, retrySave, backup, recover, discardRecovery, refresh: tick }
+  return { client, error, revision, recovery, queued, leases, open, close, acquire, release, canEdit, save, retrySave, backup, recover, discardRecovery, refresh: tick }
 }
