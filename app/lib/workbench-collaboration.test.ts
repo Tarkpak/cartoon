@@ -22,6 +22,12 @@ describe('original workbench resource adapter', () => {
     expect(changes[0]).toMatchObject({ type: 'episode', id: 'a', expectedRevision: 1 })
     expect(changes[0]!.body!.scenes).toEqual([{ ...snapshot.scenes[0], description: '修改 A' }])
   })
+  it('keeps remote array additions and ordering while applying local field changes', () => {
+    const before = [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }]
+    const after = [{ id: 'a', text: 'local' }, { id: 'b', text: 'B' }]
+    const remote = [{ id: 'b', text: 'remote' }, { id: 'new', text: 'new' }, { id: 'a', text: 'A' }]
+    expect(patchWorkbenchFields(remote, before, after)).toEqual([{ id: 'b', text: 'remote' }, { id: 'new', text: 'new' }, { id: 'a', text: 'local' }])
+  })
   it('uses a separate character revision and preserves voice assets', () => {
     const before = view()
     const after = view()

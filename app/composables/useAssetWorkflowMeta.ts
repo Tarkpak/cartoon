@@ -1,5 +1,5 @@
 import { useDebounceFn } from '@vueuse/core'
-import { nextTick, type Ref } from 'vue'
+import { nextTick, watch, type Ref } from 'vue'
 import type { CharacterVoiceAsset } from '#shared/types/character'
 import type {
   AssetImageHistoryEntry,
@@ -78,6 +78,7 @@ interface UseAssetWorkflowMetaOptions {
   finalMergeOptions?: Ref<FinalMergeOptions>
   saveProject: () => Promise<unknown>
   onHydrated?: () => void
+  onNormalized?: (raw: unknown, normalized: AssetWorkflowMeta) => void
   debounceMs?: number
 }
 
@@ -499,12 +500,22 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
     } finally {
       options.onHydrated?.()
       await nextTick()
+      if (options.onNormalized) {
+        const payload = buildWorkflowMetaPayload()
+        if (options.projectAssetWorkflow) options.projectAssetWorkflow.value = payload
+        options.onNormalized(rawMetaInput, payload)
+      }
       workflowMetaReady.value = true
       hydratingWorkflowMeta.value = false
     }
 
     return hasMeta
   }
+
+  if (options.projectAssetWorkflow) watch(options.projectAssetWorkflow, value => {
+    if (!workflowMetaReady.value || hydratingWorkflowMeta.value) return
+    if (JSON.stringify(value) !== JSON.stringify(buildWorkflowMetaPayload())) void loadWorkflowMeta(value)
+  })
 
   async function saveWorkflowMeta() {
     const currentProjectId = options.projectId.value

@@ -1,3 +1,4 @@
+import { ref, nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { splitProjectSnapshot } from '../../shared/utils/project-collaboration'
 import { prepareWorkbenchRequest } from '../lib/workbench-collaboration'
@@ -10,16 +11,25 @@ let writes: Array<Record<string, any>>
 let blocked: string
 let loseReply: boolean
 let store: Map<string, string>
+let currentUser = ref<{ id: string } | null>({ id: 'owner' })
+let changes: typeof server
+let readError: unknown
+let editable: boolean
 const sessions: ReturnType<typeof useWorkbenchCollaborationSession>[] = []
 beforeEach(() => {
   vi.useFakeTimers()
+  currentUser = ref<{ id: string } | null>({ id: 'owner' }); changes = []; readError = undefined; editable = true
   server = fixture(); writes = []; blocked = ''; loseReply = false; store = new Map()
-  vi.stubGlobal('useCloudAdmin', () => ({ loadStatus: async () => ({ user: { id: 'owner' } }) }))
+  vi.stubGlobal('useCloudAdmin', () => ({ currentUser, loadStatus: async () => ({ user: currentUser.value }) }))
   vi.stubGlobal('localStorage', { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value), removeItem: (key: string) => store.delete(key) })
   const receipts = new Map<string, unknown>()
   vi.stubGlobal('$fetch', vi.fn(async (path: string, options: { body?: Record<string, any> }) => {
-    if (path.endsWith('/prepare')) return { data: { enabled: true, protocolVersion: 1, resources: structuredClone(server) } }
+    if (path.endsWith('/prepare')) return { data: { enabled: true, editable, protocolVersion: 1, resources: structuredClone(server) } }
     const body = options.body!
+    if (body.action === 'changes') {
+      if (readError) throw readError
+      return { data: { changes: structuredClone(changes), cursor: 1, hasMore: false, editable } }
+    }
     if (body.action === 'lease') return { data: { editable: body.id !== blocked, expiresAt: Date.now() + 90000, canTakeover: true } }
     if (body.action === 'write') {
       writes.push(structuredClone(body))
@@ -79,6 +89,129 @@ describe('collaboration in the original workbench', () => {
     expect(writes).toHaveLength(2)
     expect(writes[1]!.operationId).toBe(writes[0]!.operationId)
     expect(reopened.snapshot().scenes).toMatchObject([{ description: '已提交' }, { description: 'B' }])
+  })
+  it('receives remote changes while preserving another episode draft and runtime baseline', async () => {
+    const before = view(), after = view()
+    after.scenes[0]!.description = '本机 A 草稿'
+    const apply = vi.fn()
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before, after }), apply })
+    sessions.push(session)
+    await session.openEditSession('p')
+    const remote = structuredClone(server.find(item => item.id === 'b')!)
+    remote.revision++
+    ;(remote.body!.scenes as Array<Record<string, unknown>>)[0]!.description = '成员 B 更新'
+    changes = [remote]
+    await session.poll()
+    expect(apply).toHaveBeenCalledTimes(1)
+    expect(apply.mock.calls[0]![0].scenes).toMatchObject([{ description: 'A' }, { description: '成员 B 更新' }])
+    expect(apply.mock.calls[0]![1].scenes).toMatchObject([{ description: '本机 A 草稿' }, { description: '成员 B 更新' }])
+    expect(session.editSession.value.scopeConflict).not.toBe(true)
+  })
+  it('preserves a dirty object when its remote revision changes', async () => {
+    const before = view(), after = view()
+    after.scenes[0]!.description = '本机 A 草稿'
+    const apply = vi.fn()
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before, after }), apply })
+    sessions.push(session)
+    await session.openEditSession('p')
+    const remote = structuredClone(server.find(item => item.id === 'a')!)
+    remote.revision++
+    changes = [remote]
+    await session.poll()
+    expect(apply).not.toHaveBeenCalled()
+    expect(session.editSession.value.scopeConflict).toBe(true)
+    expect(session.projectEditable.value).toBe(true)
+    expect([...store.values()].some(value => value.includes('本机 A 草稿'))).toBe(true)
+  })
+  it('fences permission removal and account switching without losing the draft', async () => {
+    const before = view(), after = view()
+    after.scenes[0]!.description = '权限变更前草稿'
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before, after }), apply: vi.fn() })
+    sessions.push(session)
+    await session.openEditSession('p')
+    session.stashDraft(before, after)
+    readError = { statusCode: 403, message: '成员已移除' }
+    await session.poll()
+    expect(session.projectEditable.value).toBe(false)
+    currentUser.value = { id: 'other' }
+    await nextTick()
+    expect(session.projectEditable.value).toBe(false)
+    expect(session.editSession.value.reason).toContain('账号已切换')
+    expect([...store.values()].some(value => value.includes('权限变更前草稿'))).toBe(true)
+  })
+  it('does not discard edits made after an uncertain submission when reopening', async () => {
+    const first = createSession(); await first.openEditSession('p')
+    const submitted = view(); submitted.scenes[0]!.description = '已提交'
+    loseReply = true
+    await expect(first.saveSnapshot(view(), submitted)).rejects.toThrow('response lost')
+    const advanced = view(); advanced.scenes[0]!.description = '提交之后继续输入'
+    first.stashDraft(view(), advanced)
+    await first.releaseEditSession()
+    const reopened = createSession(); await reopened.openEditSession('p')
+    expect(reopened.snapshot().scenes).toMatchObject([{ description: '提交之后继续输入' }, { description: 'B' }])
+    expect([...store.values()].some(value => value.includes('提交之后继续输入'))).toBe(true)
+  })
+  it('does not disable the entire workbench when a recovered submission conflicts', async () => {
+    const first = createSession(); await first.openEditSession('p')
+    const submitted = view(); submitted.scenes[0]!.description = '待确认'
+    loseReply = true
+    await expect(first.saveSnapshot(view(), submitted)).rejects.toThrow('response lost')
+    const fetch = vi.mocked($fetch)
+    const original = fetch.getMockImplementation()!
+    fetch.mockImplementation(async (path: any, options: any) => {
+      if (options?.body?.action === 'write') throw { statusCode: 409, message: '对象已更新' }
+      return original(path, options)
+    })
+    await first.releaseEditSession()
+    const reopened = createSession(); await reopened.openEditSession('p')
+    expect(reopened.projectEditable.value).toBe(true)
+    expect(reopened.editSession.value.scopeConflict).toBe(true)
+    expect(reopened.snapshot().scenes).toMatchObject([{ description: '待确认' }, { description: 'B' }])
+  })
+  it('loads viewers read-only and reacts to an editor downgrade through polling', async () => {
+    editable = false
+    const viewer = createSession(); await viewer.openEditSession('p')
+    expect(viewer.projectEditable.value).toBe(false)
+    expect(viewer.ready.value).toBe(true)
+    expect(viewer.snapshot().scenes).toHaveLength(2)
+    editable = true
+    const editor = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before: view(), after: view() }), apply: vi.fn() })
+    sessions.push(editor)
+    await editor.openEditSession('p')
+    editable = false
+    await editor.poll()
+    expect(editor.projectEditable.value).toBe(false)
+    expect(editor.editSession.value.reason).toContain('只读权限')
+  })
+  it('restores a draft even when another member deleted its episode', async () => {
+    const first = createSession(); await first.openEditSession('p')
+    const local = view(); local.scenes[0]!.description = '已删除集的本机草稿'
+    first.stashDraft(view(), local)
+    await first.releaseEditSession()
+    server.find(item => item.id === 'directory')!.body!.episodeIds = ['b']
+    server.find(item => item.id === 'directory')!.revision++
+    const episode = server.find(item => item.id === 'a')!
+    episode.deleted = true; episode.body = null; episode.revision++
+    const reopened = createSession(); await reopened.openEditSession('p')
+    expect(reopened.projectEditable.value).toBe(true)
+    expect(reopened.editSession.value.scopeConflict).toBe(true)
+    expect(reopened.snapshot().scenes).toMatchObject([{ description: '已删除集的本机草稿' }, { description: 'B' }])
+  })
+  it('isolates drafts and pending operations for two windows of the same account', async () => {
+    const createWindow = (windowId: string) => {
+      const session = useWorkbenchCollaborationSession(async () => true, { windowId, draft: () => undefined, apply: vi.fn() })
+      sessions.push(session); return session
+    }
+    const first = createWindow('window-a'), second = createWindow('window-b')
+    await first.openEditSession('p'); await second.openEditSession('p')
+    const a = view(), b = view()
+    a.scenes[0]!.description = '窗口 A 草稿'; b.scenes[1]!.description = '窗口 B 草稿'
+    first.stashDraft(view(), a); second.stashDraft(view(), b)
+    await first.releaseEditSession(); await second.releaseEditSession()
+    const reopenedA = createWindow('window-a'), reopenedB = createWindow('window-b')
+    await reopenedA.openEditSession('p'); await reopenedB.openEditSession('p')
+    expect(reopenedA.snapshot().scenes).toMatchObject([{ description: '窗口 A 草稿' }, { description: 'B' }])
+    expect(reopenedB.snapshot().scenes).toMatchObject([{ description: 'A' }, { description: '窗口 B 草稿' }])
   })
   it('adds object revisions to the existing scene and writing requests', async () => {
     const session = createSession(); await session.openEditSession('p')

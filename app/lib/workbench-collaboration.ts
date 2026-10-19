@@ -12,7 +12,13 @@ export function patchWorkbenchFields(original: unknown, before: unknown, after: 
   if (Array.isArray(before) && Array.isArray(after) && [...before, ...after].every(item => typeof record(item).id === 'string')) {
     const previous = new Map(before.map(item => [record(item).id, item]))
     const source = new Map((Array.isArray(original) ? original : []).map(item => [record(item).id, item]))
-    return after.map(item => patchWorkbenchFields(source.get(record(item).id), previous.get(record(item).id), item))
+    const next = new Map(after.map(item => [record(item).id, item]))
+    // Preserve remote insertions and ordering when local membership is unchanged.
+    const localOrderChanged = !equal(before.map(item => record(item).id), after.map(item => record(item).id))
+    const order = localOrderChanged ? [...next.keys(), ...[...source.keys()].filter(id => !previous.has(id) && !next.has(id))] : [...source.keys(), ...[...next.keys()].filter(id => !source.has(id) && !previous.has(id))]
+    return order.filter(id => next.has(id) || !previous.has(id)).map(id => next.has(id)
+      ? patchWorkbenchFields(source.get(id), previous.get(id), next.get(id))
+      : copy(source.get(id)))
   }
   if (after && typeof after === 'object' && !Array.isArray(after)) {
     const result = { ...record(original) }

@@ -5,15 +5,18 @@ import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import { useAssetWorkbenchProjectIO } from './useAssetWorkbenchProjectIO'
 
-const collaborationMock = vi.hoisted(() => ({ enabled: false, snapshot: vi.fn(), saveSnapshot: vi.fn() }))
+const collaborationMock = vi.hoisted(() => ({ enabled: false, editable: true, sync: undefined as any, snapshot: vi.fn(), saveSnapshot: vi.fn(), canAdoptAsset: vi.fn() }))
 
 vi.mock('./useWorkbenchCollaborationSession', () => ({
-  useWorkbenchCollaborationSession: () => ({
-    editSession: ref({ editable: true, canTakeover: false, collaboration: collaborationMock.enabled }),
+  useWorkbenchCollaborationSession: (_save: unknown, sync: unknown) => {
+    collaborationMock.sync = sync
+    return ({
+    editSession: ref({ editable: collaborationMock.editable, canTakeover: false, collaboration: collaborationMock.enabled }),
     snapshot: collaborationMock.snapshot, saveSnapshot: collaborationMock.saveSnapshot,
-    projectEditable: ref(true), acquiring: ref(false),
+    canAdoptAsset: collaborationMock.canAdoptAsset, ready: ref(collaborationMock.enabled),
+    projectEditable: ref(collaborationMock.editable), acquiring: ref(false),
     openEditSession: vi.fn(async () => {}), releaseEditSession: vi.fn(async () => {})
-  })
+  }) }
 }))
 
 interface FetchOptions {
@@ -153,6 +156,8 @@ describe('useAssetWorkbenchProjectIO', () => {
   beforeEach(() => {
     fetchMock.mockReset()
     collaborationMock.enabled = false
+    collaborationMock.editable = true
+    collaborationMock.canAdoptAsset.mockReset().mockReturnValue(true)
     collaborationMock.snapshot.mockReset()
     collaborationMock.saveSnapshot.mockReset()
     hadOriginalFetch = Object.prototype.hasOwnProperty.call(testGlobal, '$fetch')
@@ -364,6 +369,64 @@ describe('useAssetWorkbenchProjectIO', () => {
     expect(collaborationMock.saveSnapshot).toHaveBeenCalledOnce()
   })
 
+  it('applies remote data without resaving it and keeps unchanged scene runtime state', async () => {
+    collaborationMock.enabled = true
+    const loaded = createLoadResponse()
+    collaborationMock.snapshot.mockReturnValue(loaded.data)
+    fetchMock.mockResolvedValue(loaded)
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    const scene = state.scenes.value[0]!
+    scene.videoStatus = 'generating'
+    const remote = structuredClone(loaded.data)
+    remote.project.name = '其他成员修改标题'
+    collaborationMock.sync.apply(remote, remote)
+    expect(state.projectName.value).toBe('其他成员修改标题')
+    expect(state.scenes.value[0]).toBe(scene)
+    expect(state.scenes.value[0]!.videoStatus).toBe('generating')
+    expect(await io.saveProject()).toBe(true)
+    expect(collaborationMock.saveSnapshot).not.toHaveBeenCalled()
+  })
+  it('loads the canonical view for a viewer and allows leaving without a save', async () => {
+    collaborationMock.enabled = true; collaborationMock.editable = false
+    const loaded = createLoadResponse()
+    const remote = structuredClone(loaded.data)
+    remote.project.name = '云端最新标题'
+    collaborationMock.snapshot.mockReturnValue(remote)
+    fetchMock.mockResolvedValue(loaded)
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    expect(state.projectName.value).toBe('云端最新标题')
+    expect(await io.saveProject()).toBe(true)
+    expect(collaborationMock.saveSnapshot).not.toHaveBeenCalled()
+  })
+  it('adopts a version-checked voice candidate and preserves a locked voice', async () => {
+    collaborationMock.enabled = true
+    const loaded = createLoadResponse()
+    collaborationMock.snapshot.mockReturnValue(loaded.data)
+    const candidate = { id: 'voice-result', kind: 'asset-voice', status: 'completed', createdAt: '2026-10-20', url: 'https://shared.example/voice.mp3', voiceAsset: { audioUrl: 'https://shared.example/voice.mp3', transcript: '你好' }, collaboration: { projectId, actorId: 'owner', assetKind: 'character', assetId: loaded.data.characters[0]!.id, resourceType: 'character', resourceId: loaded.data.characters[0]!.id, revision: 1, settingsRevision: 1 } }
+    fetchMock.mockImplementation(async (url: string) => url.endsWith('/media-results') ? { data: [candidate] } : loaded)
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    await io.refreshCharacterVoiceAssets()
+    expect(state.characters.value[0]!.voiceAsset).toMatchObject({ audioUrl: candidate.url, locked: true })
+    expect(collaborationMock.saveSnapshot).toHaveBeenCalledOnce()
+    await io.refreshCharacterVoiceAssets()
+    expect(collaborationMock.saveSnapshot).toHaveBeenCalledOnce()
+  })
+  it('leaves stale voice candidates out of the shared project', async () => {
+    collaborationMock.enabled = true
+    const loaded = createLoadResponse()
+    collaborationMock.snapshot.mockReturnValue(loaded.data)
+    collaborationMock.canAdoptAsset.mockReturnValue(false)
+    const candidate = { id: 'stale', kind: 'asset-voice', status: 'completed', createdAt: '2026-10-20', url: 'https://shared.example/voice.mp3', voiceAsset: { audioUrl: 'https://shared.example/voice.mp3', transcript: '你好' }, collaboration: { projectId, actorId: 'owner', assetKind: 'character', assetId: loaded.data.characters[0]!.id, resourceType: 'character', resourceId: loaded.data.characters[0]!.id, revision: 1, settingsRevision: 1 } }
+    fetchMock.mockImplementation(async (url: string) => url.endsWith('/media-results') ? { data: [candidate] } : loaded)
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    await io.refreshCharacterVoiceAssets()
+    expect(state.characters.value[0]!.voiceAsset).toBeUndefined()
+    expect(collaborationMock.saveSnapshot).not.toHaveBeenCalled()
+  })
   it('retains the original UI draft and baseline after a resource conflict', async () => {
     collaborationMock.enabled = true
     collaborationMock.snapshot.mockReturnValue(createLoadResponse().data)

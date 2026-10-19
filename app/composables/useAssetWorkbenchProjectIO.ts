@@ -1,3 +1,6 @@
+import { patchWorkbenchFields } from '~/lib/workbench-collaboration'
+import { parseCollaborationAssetResult } from '~/lib/project-collaboration-assets'
+import type { CollaborationBody } from '#shared/types/project-collaboration'
 import { useWorkbenchCollaborationSession } from './useWorkbenchCollaborationSession'
 import { ref, watch, onBeforeUnmount, getCurrentInstance, type ComputedRef, type Ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
@@ -73,7 +76,16 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   const saveWarning = ref<string | null>(null)
   const loading = ref(false)
   const projectAccess = ref<ProjectAccess | null>(null)
-  const collaboration = useWorkbenchCollaborationSession(() => saveProject())
+  const collaboration = useWorkbenchCollaborationSession(() => saveProject(), {
+    draft: () => !loading.value && lastSavedProjectSnapshot !== null ? { before: lastSavedWorkbenchBody, after: JSON.parse(JSON.stringify(buildProjectSaveBody())) } : undefined,
+    apply: (baseline, current) => {
+      const normalizedBaseline = normalizeCollaborationSnapshot(baseline)
+      const normalizedCurrent = normalizeCollaborationSnapshot(current)
+      lastSavedWorkbenchBody = JSON.parse(JSON.stringify(normalizedBaseline))
+      lastSavedProjectSnapshot = buildProjectSaveSnapshot(activeProjectId.value, normalizedBaseline)
+      applyCollaborationBody(normalizedCurrent)
+    }
+  })
   const { editSession, projectEditable, acquiring: acquiringEditSession, openEditSession, releaseEditSession } = collaboration
   let lastSavedWorkbenchBody: Record<string, unknown> = {}
 
@@ -131,6 +143,58 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         : scene),
       characters: buildSaveCharactersPayload(input?.characters || options.characters.value)
     }
+  }
+
+  function normalizeCollaborationSnapshot(snapshot: CollaborationBody): ReturnType<typeof buildProjectSaveBody> {
+    const project = snapshot.project as Record<string, any>
+    const script = (snapshot.script || {}) as Record<string, any>
+    const scenes = buildLoadedScenes(snapshot.scenes as Parameters<typeof buildLoadedScenes>[0])
+    return {
+      name: project.name, description: project.description || '', status: resolveProjectStatus(),
+      styleId: project.styleId || '', aspectRatio: project.aspectRatio || '16:9',
+      novelText: script.novelText || script.rawText || '',
+      writingStudio: normalizeScriptWritingStudio(script.writingStudio),
+      selectedStyleId: script.selectedStyleId || project.styleId || '',
+      scriptParseMode: project.scriptParseMode || script.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
+      episodePlan: script.episodePlan || [], assetWorkflow: script.assetWorkflow ?? null,
+      scenes: buildSaveScenesPayload(scenes).map((scene, index) => ({ ...scene, videoHistory: scenes[index]?.videoHistory?.length ? scenes[index]?.videoHistory : undefined })),
+      characters: buildSaveCharactersPayload(buildLoadedCharacters(snapshot.characters as Parameters<typeof buildLoadedCharacters>[0]))
+    }
+  }
+
+  function applyCollaborationBody(body: ReturnType<typeof buildProjectSaveBody>) {
+    const current = buildProjectSaveBody()
+    const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+    options.projectName.value = body.name
+    options.projectDescription.value = body.description
+    options.projectStyleId.value = body.styleId
+    options.projectAspectRatio.value = body.aspectRatio
+    options.selectedStyleId.value = body.selectedStyleId
+    options.novelText.value = body.novelText
+    if (!equal(current.writingStudio, body.writingStudio)) writingStudio.value = body.writingStudio
+    options.scriptParseMode.value = body.scriptParseMode
+    if (!equal(current.episodePlan, body.episodePlan)) options.episodePlan.value = body.episodePlan
+    if (!equal(current.assetWorkflow, body.assetWorkflow)) options.projectAssetWorkflow.value = body.assetWorkflow
+    const currentScenes = new Map(current.scenes.map((scene, i) => [scene.id, { data: scene, view: options.scenes.value[i]! }]))
+    if (!equal(current.scenes, body.scenes)) options.scenes.value = buildLoadedScenes(body.scenes).map(scene => {
+      const previous = currentScenes.get(scene.id)
+      const incoming = body.scenes.find(item => item.id === scene.id)
+      if (previous && equal(previous.data, incoming)) return previous.view
+      return { ...scene, active: previous?.view.active ?? false }
+    })
+    const currentCharacters = new Map(current.characters.map((character, i) => [character.id, { data: character, view: options.characters.value[i]! }]))
+    if (!equal(current.characters, body.characters)) options.characters.value = buildLoadedCharacters(body.characters).map(character => {
+      const previous = currentCharacters.get(character.id)
+      return previous && equal(previous.data, body.characters.find(item => item.id === character.id)) ? previous.view : character
+    })
+  }
+
+  function acknowledgeWorkflowNormalization(raw: unknown, normalized: unknown) {
+    if (!editSession.value.collaboration || lastSavedProjectSnapshot === null) return
+    // Hydration defaults are a read transformation, not edits to every episode.
+    lastSavedWorkbenchBody.assetWorkflow = patchWorkbenchFields(lastSavedWorkbenchBody.assetWorkflow, raw, normalized)
+    const id = activeProjectId.value || options.projectId.value
+    if (id) lastSavedProjectSnapshot = buildProjectSaveSnapshot(id, lastSavedWorkbenchBody as ReturnType<typeof buildProjectSaveBody>)
   }
 
   function buildProjectSaveSnapshot(projectId: string, body: ReturnType<typeof buildProjectSaveBody>): string {
@@ -376,7 +440,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       if (requestSequence !== loadRequestSequence) return
       if (!response.success || !response.data) return
 
-      if (projectEditable.value && editSession.value.collaboration) {
+      if ((collaboration.ready?.value ?? projectEditable.value) && editSession.value.collaboration) {
         response.data = { ...collaboration.snapshot(), access: response.data.access } as typeof response.data
       }
 
@@ -410,11 +474,16 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
 
   async function performSaveProject(expectedProjectId?: string) {
     if ((activeProjectId.value || options.projectId.value) && !projectEditable.value) {
+      const id = activeProjectId.value || options.projectId.value
+      if (id && lastSavedProjectSnapshot === buildNormalizedProjectSaveSnapshot(id)) return true
       saveError.value = '当前没有项目编辑权，未同步修改已保留，请重新取得编辑权。'
       return false
     }
     if (projectAccess.value && !projectAccessCan(projectAccess.value, 'edit')) {
-      return true
+      const id = activeProjectId.value || options.projectId.value
+      if (id && lastSavedProjectSnapshot === buildNormalizedProjectSaveSnapshot(id)) return true
+      saveError.value = '当前账号只有查看权限，不能保存修改。'
+      return false
     }
     saving.value = true
     saveError.value = null
@@ -535,10 +604,8 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     delayMs?: number
   } = {}) {
     const id = activeProjectId.value || options.projectId.value
-    if (!id || options.characters.value.length === 0) return
-    // Collaboration voice candidates must be adopted through resource versions;
-    // the legacy local snapshot is not the shared source of truth.
-    if (editSession.value.collaboration) return
+    if (!id) return
+    const collaborationMode = editSession.value.collaboration
 
     const attempts = Math.max(1, input.attempts ?? 1)
     const delayMs = Math.max(200, input.delayMs ?? 1000)
@@ -548,7 +615,33 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         await new Promise(resolve => setTimeout(resolve, delayMs))
       }
 
+      if ((activeProjectId.value || options.projectId.value) !== id) return
       try {
+        if (collaborationMode) {
+          const response = await $fetch<{ data: unknown[] }>(`/api/project/${encodeURIComponent(id)}/collaboration/media-results`)
+          if ((activeProjectId.value || options.projectId.value) !== id) return
+          let changed = false
+          const seen = new Set<string>()
+          for (const value of Array.isArray(response.data) ? [...response.data].reverse() : []) {
+            let candidate
+            try { candidate = parseCollaborationAssetResult(value) } catch { continue }
+            if (candidate.kind !== 'asset-voice' || !collaboration.canAdoptAsset(candidate)) continue
+            const meta = candidate.collaboration
+            const key = JSON.stringify([meta.assetKind, meta.assetId])
+            if (seen.has(key)) continue
+            seen.add(key)
+            const url = new URL(candidate.url)
+            if (!['https:', 'http:'].includes(url.protocol) || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) continue
+            const workflow = options.projectAssetWorkflow.value as { props?: Array<{ id: string, voiceAsset?: CharacterVoiceAsset, mediaType?: string }> } | null
+            const target = meta.assetKind === 'character' ? options.characters.value.find(item => item.id === meta.assetId) : workflow?.props?.find(item => item.id === meta.assetId)
+            if (!target || target.voiceAsset?.locked) continue
+            target.voiceAsset = { ...candidate.voiceAsset, locked: !target.voiceAsset?.audioUrl } as CharacterVoiceAsset
+            if (meta.assetKind === 'prop') (target as { mediaType?: string }).mediaType = 'voice'
+            changed = true
+          }
+          if (changed) { await saveProject(id); return }
+          continue
+        }
         const response = await $fetch<{
           success: boolean
           data?: {
@@ -597,8 +690,11 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       if (lastSavedProjectSnapshot !== null) {
         const body = buildProjectSaveBody()
         if (buildProjectSaveSnapshot(id, body) !== lastSavedProjectSnapshot) {
-          const response = await $fetch<{ backupId: string }>(`/api/project/${encodeURIComponent(id)}/edit-session/backup`, { method: 'POST', body })
-          editSession.value.backupId = response.backupId
+          if (editSession.value.collaboration) collaboration.stashDraft(lastSavedWorkbenchBody, JSON.parse(JSON.stringify(body)))
+          else {
+            const response = await $fetch<{ backupId: string }>(`/api/project/${encodeURIComponent(id)}/edit-session/backup`, { method: 'POST', body })
+            editSession.value.backupId = response.backupId
+          }
         }
       }
       void takeover
@@ -665,6 +761,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     saveProject,
     loadProject,
     refreshCharacterVoiceAssets,
+    acknowledgeWorkflowNormalization,
     mergeAllVideos,
     mergeStatus,
     finalVideo,

@@ -228,7 +228,7 @@ describe('per resource collaboration', () => {
     const { db } = setup()
     const identity = { ownerUserId: 'owner', localProjectId: 'p1' }
     expect(() => handleProjectCollaboration(db, auth('stranger'), { ...identity, action: 'read' })).toThrow('Project not found')
-    expect(handleProjectCollaboration(db, auth('viewer'), { ...identity, action: 'read' })).toHaveProperty('enabled', true)
+    expect(handleProjectCollaboration(db, auth('viewer'), { ...identity, action: 'read' })).toMatchObject({ enabled: true, editable: false })
     expect(() => handleProjectCollaboration(db, auth('viewer'), { ...identity, action: 'lease' })).toThrow('Project not found')
     expect(() => handleProjectCollaboration(db, auth('alice'), { ...identity, action: 'enable' })).toThrow('所有者')
     expect(() => handleProjectCollaboration(db, auth('alice'), {
@@ -272,7 +272,9 @@ describe('per resource collaboration', () => {
     const { db } = setup()
     const writing = mutation(db, 'e1', 'alice')
     const call = (body: Record<string, unknown>, userId = 'owner') => handleProjectCollaboration(db, auth(userId), { ownerUserId: 'owner', localProjectId: 'p1', ...body })
+    expect(call({ action: 'changes', after: 0 }, 'alice')).toHaveProperty('editable', true)
     call({ action: 'memberPut', userId: 'alice', role: 'viewer', expectedUpdatedAt: 'v1' })
+    expect(call({ action: 'changes', after: 0 }, 'alice')).toHaveProperty('editable', false)
     expect(() => handleProjectCollaboration(db, auth('alice'), { action: 'write', ownerUserId: 'owner', localProjectId: 'p1', deviceId: 'device-alice', sessionId: 'window-alice', operationId: 'late', mutations: [writing] })).toThrow()
     expect(db.query("SELECT * FROM project_collaboration_leases WHERE user_id = 'alice'").all()).toHaveLength(0)
     call({ action: 'memberPut', userId: 'bob', role: 'manager', expectedUpdatedAt: 'v1' })

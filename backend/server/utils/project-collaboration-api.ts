@@ -2,7 +2,7 @@ import { createError } from 'h3'
 import type { Database } from 'bun:sqlite'
 import type { AuthContext } from './auth'
 import { manageCollaboration } from './project-collaboration-management'
-import { requireCloudProjectPermission, type ProjectPermission } from './project-permissions'
+import { requireCloudProjectPermission, projectMemberCan, type ProjectPermission } from './project-permissions'
 import {
   collaborationChanges,
   enableProjectCollaboration,
@@ -28,10 +28,11 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
     if (!project) throw createError({ statusCode: 404, message: '项目不存在' })
     const permission: ProjectPermission = ['read', 'changes', 'members'].includes(body.action as string) ? 'view'
       : ['memberPut', 'memberRemove'].includes(body.action as string) ? 'manage_members' : body.action === 'delete' ? 'delete' : body.action === 'generationCheck' ? 'generate' : 'edit'
-    requireCloudProjectPermission({ db, auth, projectId: project.id, permission })
+    const access = requireCloudProjectPermission({ db, auth, projectId: project.id, permission })
+    const editable = auth.user.role === 'admin' || auth.user.id === ownerUserId || (!!access.role && projectMemberCan({ role: access.role, permissions_json: access.permissions_json }, 'edit'))
     if (project.deleted_at && body.action !== 'delete') throw createError({ statusCode: 410, message: '项目已删除' })
-    if (body.action === 'read') return readCollaboration(db, project.id)
-    if (body.action === 'changes') return collaborationChanges(db, project.id, body.after as number)
+    if (body.action === 'read') return { ...readCollaboration(db, project.id), editable }
+    if (body.action === 'changes') return { ...collaborationChanges(db, project.id, body.after as number), editable }
     if (['members', 'memberPut', 'memberRemove', 'delete'].includes(body.action as string)) return manageCollaboration(db, auth, { id: project.id, ownerId: ownerUserId, deletedAt: project.deleted_at }, body)
     const canTakeover = auth.user.id === ownerUserId || auth.user.role === 'admin'
     if (body.action === 'migrationPreview') {

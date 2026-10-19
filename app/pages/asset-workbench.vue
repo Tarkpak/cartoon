@@ -229,6 +229,7 @@ const {
   acquiringEditSession,
   requestProjectEditing,
   downloadEditBackup,
+  acknowledgeWorkflowNormalization,
   saveProject,
   loadProject,
   deleteScene,
@@ -665,6 +666,7 @@ const {
   finalVideo,
   finalMergeOptions: finalStageMergeOptions,
   saveProject,
+  onNormalized: acknowledgeWorkflowNormalization,
   onHydrated: () => {
     synchronizeSceneConfigs()
     synchronizeQueueItems()
