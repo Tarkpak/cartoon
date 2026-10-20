@@ -6,6 +6,7 @@ import { Loader2, Sparkles } from 'lucide-vue-next'
 const novelText = defineModel<string>('novelText', { required: true })
 
 const props = defineProps<{
+  readOnly?: boolean
   scriptParseMode: ScriptParseMode
   parsing: boolean
   episodePlan?: Array<{
@@ -117,7 +118,7 @@ function resetDragState() {
 
 function handleDragEnter(event: DragEvent) {
   event.preventDefault()
-  if (props.parsing) return
+  if (props.parsing || props.readOnly) return
 
   dragCounter.value += 1
   isDraggingTextFile.value = true
@@ -125,7 +126,7 @@ function handleDragEnter(event: DragEvent) {
 
 function handleDragOver(event: DragEvent) {
   event.preventDefault()
-  if (props.parsing) return
+  if (props.parsing || props.readOnly) return
 
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = 'copy'
@@ -134,7 +135,7 @@ function handleDragOver(event: DragEvent) {
 
 function handleDragLeave(event: DragEvent) {
   event.preventDefault()
-  if (props.parsing) return
+  if (props.parsing || props.readOnly) return
 
   dragCounter.value = Math.max(0, dragCounter.value - 1)
   if (dragCounter.value === 0) {
@@ -144,7 +145,7 @@ function handleDragLeave(event: DragEvent) {
 
 async function handleDrop(event: DragEvent) {
   event.preventDefault()
-  if (props.parsing) return
+  if (props.parsing || props.readOnly) return
 
   resetDragState()
 
@@ -176,7 +177,7 @@ async function handleDrop(event: DragEvent) {
 
 <template>
   <AssetWorkbenchStagePanel
-    content-class="flex-1 min-h-0 flex flex-col gap-4 overflow-hidden"
+    content-class="flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto"
   >
     <div
       class="relative flex-1 min-h-[280px] rounded-xl bg-muted/20 transition-colors"
@@ -188,6 +189,7 @@ async function handleDrop(event: DragEvent) {
     >
       <Textarea
         v-model="novelText"
+        :readonly="readOnly"
         class="h-full min-h-[280px] w-full resize-none overflow-y-auto rounded-lg border-0 bg-transparent placeholder:text-muted-foreground/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         :placeholder="inputPlaceholder"
       />
@@ -211,7 +213,7 @@ async function handleDrop(event: DragEvent) {
 
     <div class="shrink-0 flex flex-wrap items-center gap-3">
       <Button
-        :disabled="parsing || !novelText.trim()"
+        :disabled="readOnly || parsing || !novelText.trim()"
         class="gap-2"
         @click="emit('prepare-episodes')"
       >

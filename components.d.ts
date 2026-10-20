@@ -23,6 +23,7 @@ declare module 'vue' {
     AssetWorkbenchParseStage: typeof import('./app/components/asset-workbench/ParseStage.vue')['default']
     AssetWorkbenchPropAssetsTab: typeof import('./app/components/asset-workbench/PropAssetsTab.vue')['default']
     AssetWorkbenchRegenerateDialog: typeof import('./app/components/asset-workbench/RegenerateDialog.vue')['default']
+    AssetWorkbenchSaveToPersonalLibraryButton: typeof import('./app/components/asset-workbench/SaveToPersonalLibraryButton.vue')['default']
     AssetWorkbenchSceneChatPanel: typeof import('./app/components/asset-workbench/SceneChatPanel.vue')['default']
     AssetWorkbenchSceneVideoCard: typeof import('./app/components/asset-workbench/SceneVideoCard.vue')['default']
     AssetWorkbenchSceneVideoHistoryDialog: typeof import('./app/components/asset-workbench/SceneVideoHistoryDialog.vue')['default']

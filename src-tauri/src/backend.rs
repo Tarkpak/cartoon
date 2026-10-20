@@ -1,5 +1,3 @@
-#[cfg(target_os = "windows")]
-use crate::process_util::hidden_command;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};

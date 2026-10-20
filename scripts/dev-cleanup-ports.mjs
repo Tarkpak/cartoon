@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const devPorts = [3000, 3001, 3002, 3003, 3004, 3005, 43127]
 const allowedProcessNames = ['node', 'bun', 'playlet-desktop', 'playlet-backend']
@@ -17,7 +18,18 @@ function run(command, args) {
 function cleanupWindows() {
   const ports = devPorts.join(',')
   const allowed = allowedProcessNames.map(name => `'${name}'`).join(',')
+  const desktopPath = fileURLToPath(new URL('../src-tauri/target/debug/playlet-desktop.exe', import.meta.url))
   const script = [
+    "$ErrorActionPreference = 'Stop'",
+    `$desktopPath = '${desktopPath.replace(/'/g, "''")}'`,
+    // A leftover desktop window can lock the binary without listening on a dev port.
+    "$desktopProcesses = @(Get-Process -Name 'playlet-desktop' -ErrorAction SilentlyContinue)",
+    'foreach ($desktopProcess in $desktopProcesses) {',
+    '  if ($desktopProcess.Path -ne $desktopPath) { continue }',
+    '  Write-Host "[dev-cleanup] stop desktop PID $($desktopProcess.Id)"',
+    '  Stop-Process -InputObject $desktopProcess -Force',
+    '  if (-not $desktopProcess.WaitForExit(10000)) { throw "Desktop process did not exit: $($desktopProcess.Id)" }',
+    '}',
     `$ports = @(${ports})`,
     `$allowed = @(${allowed})`,
     '$connections = Get-NetTCPConnection -State Listen -LocalPort $ports -ErrorAction SilentlyContinue',
@@ -33,6 +45,7 @@ function cleanupWindows() {
     '  }',
     '  Write-Host "[dev-cleanup] stop PID $processId ($($process.ProcessName))"',
     '  Stop-Process -Id $processId -Force',
+    '  if (-not $process.WaitForExit(10000)) { throw "Dev process did not exit: $processId" }',
     '}'
   ].join('; ')
 

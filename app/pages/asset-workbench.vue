@@ -3763,7 +3763,7 @@ function reportWorkbenchActivity() {
 
     <AssetWorkbenchParseStage
       v-if="activeAutoStage === 'parse'"
-      :inert="!canEditProject"
+      :read-only="!canEditProject"
       v-model:novel-text="novelText"
       :script-parse-mode="scriptParseMode"
       :parsing="parsing"
