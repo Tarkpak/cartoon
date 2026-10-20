@@ -617,6 +617,7 @@ watch(
                     </p>
                     <div class="mt-2 flex flex-wrap items-center gap-1.5">
                       <SaveToPersonalLibraryButton
+                        :asset-key="`characters:${variant.id}`"
                         :available="!!(variant.baseImage || Object.values(variant.views || {}).some(Boolean) || variant.voiceAsset?.audioUrl)"
                         :busy="!!savingLibraryAssetKey"
                         :saving="savingLibraryAssetKey === `characters:${variant.id}`"
@@ -783,6 +784,7 @@ watch(
         </template>
         <template v-else>
           <SaveToPersonalLibraryButton
+            :asset-key="`characters:${char.id}`"
             :available="!!(char.baseImage || Object.values(char.views || {}).some(Boolean) || char.voiceAsset?.audioUrl)"
             :busy="!!savingLibraryAssetKey"
             :saving="savingLibraryAssetKey === `characters:${char.id}`"

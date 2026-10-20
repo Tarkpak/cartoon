@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import ProjectEditSessionBanner from '@/components/projects/ProjectEditSessionBanner.vue'
 import ProjectConflictDialog from '@/components/projects/ProjectConflictDialog.vue'
-import ProjectPresenceBar from '@/components/projects/ProjectPresenceBar.vue'
 import ProjectMembersDialog from '@/components/projects/ProjectMembersDialog.vue'
 import { buildScriptWritingExportText } from '~/lib/script-writing-export'
 import { ArrowUpRight, FilePlus2, Loader2, PenLine, Search, Trash2, Users } from 'lucide-vue-next'
@@ -534,13 +533,13 @@ async function confirmWritingTakeover() {
 
       <div v-else class="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
         <div class="flex shrink-0 flex-wrap items-center justify-between gap-2">
-          <ProjectPresenceBar :participants="collaborationParticipants" />
           <Button v-if="loadedProjectId && projectAccessCan(projectAccess, 'manage_members')" variant="outline" size="sm" class="ml-auto gap-2" @click="projectMembersOpen = true"><Users class="h-4 w-4" />项目成员</Button>
         </div>
         <ProjectMembersDialog v-if="loadedProjectId" v-model:open="projectMembersOpen" :project-id="loadedProjectId" />
         <ProjectConflictDialog :preview="collaborationMergePreview" :busy="saving" :error="saveError" @cancel="cancelProjectMerge" @apply="applyProjectMerge" />
         <ProjectEditSessionBanner
           :session="editSession"
+          :participants="collaborationParticipants"
           :busy="acquiringEditSession"
           @retry="requestProjectEditing()"
           @takeover="confirmWritingTakeover"

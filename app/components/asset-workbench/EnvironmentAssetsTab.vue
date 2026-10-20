@@ -240,6 +240,7 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
         <!-- Actions -->
         <div class="flex flex-wrap items-center gap-1 border-t px-3 py-1.5">
           <SaveToPersonalLibraryButton
+            :asset-key="`environments:${asset.id}`"
             :available="!!(asset.referenceImage || asset.singleViewImage || asset.fourViewImage)"
             :busy="!!savingLibraryAssetKey"
             :saving="savingLibraryAssetKey === `environments:${asset.id}`"

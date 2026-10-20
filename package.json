@@ -9,6 +9,8 @@
     "dev:cleanup": "node ./scripts/dev-cleanup-ports.mjs",
     "dev:frontend": "vite",
     "dev:backend": "cargo run --manifest-path src-tauri/Cargo.toml --bin playlet-backend",
+    "dev:client2": "PLAYLET_BACKEND_HOST=127.0.0.1 PLAYLET_BACKEND_PORT=43128 PLAYLET_DATA_DIR=./data/client2 PLAYLET_DB_PATH=./data/client2/playlet.db PLAYLET_PUBLIC_DIR=./data/client2/public RUST_BACKEND_URL=http://127.0.0.1:43128 bun run --parallel dev:backend dev:frontend:client2",
+    "dev:frontend:client2": "vite --host 127.0.0.1 --port 3001 --strictPort --open",
     "build": "vite build",
     "build:desktop": "vite build && node ./scripts/desktop-prune-static-assets.mjs",
     "preview": "cargo run --manifest-path src-tauri/Cargo.toml --example playlet-backend",

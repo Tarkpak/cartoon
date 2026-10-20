@@ -2,13 +2,13 @@
 import ProjectEditSessionBanner from '@/components/projects/ProjectEditSessionBanner.vue'
 import ProjectMembersDialog from '@/components/projects/ProjectMembersDialog.vue'
 import ProjectConflictDialog from '@/components/projects/ProjectConflictDialog.vue'
-import ProjectPresenceBar from '@/components/projects/ProjectPresenceBar.vue'
 import { Users } from 'lucide-vue-next'
 import { useDebounceFn } from '@vueuse/core'
 import type { CharacterVoiceAsset } from '#shared/types/character'
 import type { LibraryAsset } from '#shared/types/library'
 import { libraryPermissionCanUse } from '#shared/types/library'
-import { findPersonalLibraryAsset } from '~/lib/personal-library-assets'
+import { findPersonalLibraryAsset, isPersonalLibraryFavorite, personalLibraryFavoriteKeys, type PersonalLibrarySource } from '~/lib/personal-library-assets'
+import { provide } from 'vue'
 import { projectAccessCan } from '#shared/types/project'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
@@ -3551,6 +3551,50 @@ async function handleImportLibraryAsset(payload: {
 
 const savingLibraryAssetKey = ref<string | null>(null)
 const libraryCloudAccount = useCloudAdmin()
+const personalLibraryAssets = shallowRef<LibraryAsset[]>([])
+let libraryRefreshSequence = 0
+async function refreshPersonalLibraryFavorites() {
+  const sequence = ++libraryRefreshSequence
+  try {
+    const assets = await listAllLibraryAssets()
+    if (sequence === libraryRefreshSequence) personalLibraryAssets.value = assets
+  } catch {
+    // A temporarily unavailable library must not interrupt project editing.
+  }
+}
+watch(() => libraryCloudAccount.currentUser.value?.id, () => {
+  personalLibraryAssets.value = []
+  void refreshPersonalLibraryFavorites()
+}, { immediate: true })
+onMounted(() => window.addEventListener('focus', refreshPersonalLibraryFavorites))
+onBeforeUnmount(() => {
+  libraryRefreshSequence++
+  window.removeEventListener('focus', refreshPersonalLibraryFavorites)
+})
+provide(personalLibraryFavoriteKeys, computed(() => {
+  const keys = new Set<string>()
+  const markFavorite = (key: string, sources: PersonalLibrarySource[]) => {
+    if (isPersonalLibraryFavorite(personalLibraryAssets.value, sources, libraryCloudAccount.currentUser.value?.id)) keys.add(key)
+  }
+  for (const character of characters.value) {
+    const imageUrls = [...new Set([character.baseImage, ...Object.values(character.views || {}), ...Object.values(character.expressions || {})].filter((url): url is string => !!url))]
+    markFavorite(`characters:${character.id}`, [
+      ...imageUrls.map(sourceUrl => ({ category: 'character' as const, mediaType: 'image' as const, sourceUrl })),
+      { category: 'character_voice', mediaType: 'audio', sourceUrl: character.voiceAsset?.audioUrl }
+    ])
+  }
+  for (const environment of displayEnvironmentAssetCards.value) {
+    markFavorite(`environments:${environment.id}`, [{ category: 'environment', mediaType: 'image', sourceUrl: environment.referenceImage || environment.singleViewImage || environment.fourViewImage }])
+  }
+  for (const item of propAssets.value) {
+    const tab = item.category === 'prop' ? 'props' : 'others'
+    markFavorite(`${tab}:${item.id}`, [
+      { category: tab === 'props' ? 'prop' : 'other', mediaType: 'image', sourceUrl: item.referenceImage },
+      { category: 'narration', mediaType: 'audio', sourceUrl: item.voiceAsset?.audioUrl }
+    ])
+  }
+  return keys
+}))
 
 async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'props' | 'others', targetId?: string) {
   if (!canExportProject.value) {
@@ -3561,6 +3605,8 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
   savingLibraryAssetKey.value = `${tab}:${targetId || 'all'}`
   try {
     const existing = await listAllLibraryAssets()
+    libraryRefreshSequence++
+    personalLibraryAssets.value = existing
     type LibraryCreateInput = Parameters<typeof createLibraryAsset>[0]
     let savedCount = 0
     let resourceCount = 0
@@ -3675,6 +3721,7 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
         const primaryIndex = existing.findIndex(asset => asset.id === primary.id)
         if (primaryIndex >= 0) existing[primaryIndex] = primary
       }
+      personalLibraryAssets.value = [...existing]
       if (!resourceCount) toast.info('当前资产还没有可收藏的图片或音频')
       else toast.success(targetId ? '已收藏到个人资源库' : savedCount > 0 ? `已存入 ${savedCount} 个资源并更新角色包` : '角色包已更新')
       return
@@ -3696,6 +3743,7 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
     for (const job of jobs) {
       await storeProjectAsset(job)
     }
+    personalLibraryAssets.value = [...existing]
     if (!resourceCount) toast.info('当前资产还没有可收藏的图片或音频')
     else toast.success(targetId ? '已收藏到个人资源库' : savedCount > 0 ? `已存入 ${savedCount} 个资源` : '这些资源已在个人资源库中')
   } catch (error) {
@@ -3744,10 +3792,10 @@ function reportWorkbenchActivity() {
 
     <ProjectMembersDialog v-if="projectId" v-model:open="projectMembersOpen" :project-id="projectId" />
     <ProjectConflictDialog :preview="collaborationMergePreview" :busy="saving" :error="saveError" @cancel="cancelProjectMerge" @apply="applyProjectMerge" />
-    <ProjectPresenceBar :participants="collaborationParticipants" />
 
     <ProjectEditSessionBanner
       :session="editSession"
+      :participants="collaborationParticipants"
       :busy="acquiringEditSession"
       @retry="requestProjectEditing()"
       @takeover="confirmProjectTakeover"

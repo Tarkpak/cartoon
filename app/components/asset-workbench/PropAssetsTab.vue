@@ -449,6 +449,7 @@ function buildImageLoadKey(prop: PropAsset): string {
           </span>
           <div class="flex flex-wrap items-center gap-1">
             <SaveToPersonalLibraryButton
+              :asset-key="`${prop.category === 'other' ? 'others' : 'props'}:${prop.id}`"
               :available="!!(prop.referenceImage || prop.voiceAsset?.audioUrl)"
               :busy="!!savingLibraryAssetKey"
               :saving="savingLibraryAssetKey === `${prop.category === 'other' ? 'others' : 'props'}:${prop.id}`"
