@@ -27,6 +27,7 @@ beforeEach(() => {
     if (path.endsWith('/prepare')) return { data: { enabled: true, editable, protocolVersion: 1, resources: structuredClone(server) } }
     const body = options.body!
     if (body.action === 'read') return { data: { enabled: true, editable, resources: structuredClone(server), cursor: 1 } }
+    if (body.action === 'presence') return { data: { collaborators: [{ userId: 'owner', displayName: 'Owner', self: true, editing: [], locked: [] }] } }
     if (body.action === 'changes') {
       if (readError) throw readError
       return { data: { changes: structuredClone(changes), cursor: 1, hasMore: false, editable } }
@@ -347,6 +348,23 @@ describe('collaboration in the original workbench', () => {
       return body?.leaseAction === 'release' && body.id === 'a'
     })).toBe(true)
     expect(writes).toHaveLength(0)
+  })
+  it('describes online activity using canonical resource names without treating draft editing as a lock', async () => {
+    const session = createSession(); await session.openEditSession('p')
+    await vi.advanceTimersByTimeAsync(0)
+    const fetch = vi.mocked($fetch), original = fetch.getMockImplementation()!
+    fetch.mockImplementation(async (path: any, options: any) => {
+      if (options?.body?.action === 'presence') return { data: { collaborators: [
+        { userId: 'owner', displayName: 'Owner', self: true, editing: [], locked: [] },
+        { userId: 'alice', displayName: '小张', self: false, editing: [{ type: 'episode', id: 'b' }], locked: [] }
+      ] } }
+      return original(path, options)
+    })
+    await session.refreshPresence()
+    expect(session.editSession.value.onlineCount).toBe(2)
+    expect(session.editSession.value.collaborators).toEqual([{ userId: 'alice', displayName: '小张', activity: '正在编辑 第2集', locked: false }])
+    expect(session.projectEditable.value).toBe(true)
+    expect(session.editSession.value.syncStatus).toBe('synced')
   })
   it('adds object revisions to the existing scene and writing requests', async () => {
     const session = createSession(); await session.openEditSession('p')

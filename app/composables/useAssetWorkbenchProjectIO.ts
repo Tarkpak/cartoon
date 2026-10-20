@@ -194,6 +194,12 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     if (!editSession.value.collaboration || lastSavedProjectSnapshot === null) return
     // Hydration defaults are a read transformation, not edits to every episode.
     lastSavedWorkbenchBody.assetWorkflow = patchWorkbenchFields(lastSavedWorkbenchBody.assetWorkflow, raw, normalized)
+    const baselineScenes = lastSavedWorkbenchBody.scenes as Array<Record<string, unknown>> | undefined
+    for (const scene of baselineScenes || []) {
+      if (scene.videoHistory) continue
+      const current = options.scenes.value.find(item => item.id === scene.id)
+      if (current?.videoHistory?.length && current.videoHistory.every(item => item.source === 'legacy' && item.videoUrl === scene.videoUrl)) scene.videoHistory = JSON.parse(JSON.stringify(current.videoHistory))
+    }
     const id = activeProjectId.value || options.projectId.value
     if (id) lastSavedProjectSnapshot = buildProjectSaveSnapshot(id, lastSavedWorkbenchBody as ReturnType<typeof buildProjectSaveBody>)
   }
@@ -681,6 +687,11 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     try {
       const id = activeProjectId.value || options.projectId.value
       if (!id) return
+      if (editSession.value.pendingSave) {
+        await collaboration.confirmPending()
+        await loadProject(id)
+        return
+      }
       if (editSession.value.scopeConflict && editSession.value.collaboration && projectEditable.value) {
         saveError.value = null
         await collaboration.previewMerge()
@@ -706,8 +717,9 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       void takeover
       await openEditSession(id)
       if (projectEditable.value) await loadProject(id, true)
-    } catch (error) {
-      saveError.value = getDisplayErrorMessage(error, '读取最新内容失败，请重试')
+    } catch (cause) {
+      saveError.value = getDisplayErrorMessage(cause, '协作连接恢复失败，本机草稿已保留。')
+      editSession.value.reason = saveError.value
     } finally { loading.value = false }
   }
 

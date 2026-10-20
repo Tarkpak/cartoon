@@ -1,8 +1,9 @@
+import { updateCollaborationPresence } from './project-collaboration-presence'
+import { updateCollaborationWindowPresence } from './project-collaboration-window-presence'
 import { afterEach, describe, expect, it } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import type { AuthContext } from './auth'
 import { handleProjectCollaboration } from './project-collaboration-api'
-import { updateCollaborationPresence } from './project-collaboration-presence'
 import { ensureProjectEditLeaseSchema, operateProjectEditLease } from './project-edit-leases'
 import {
   collaborationChanges, collaborationResources, collaborationSnapshot, enableProjectCollaboration,
@@ -342,6 +343,37 @@ describe('per resource collaboration', () => {
     writeCollaboration(db, { ...actor(), operationId: 'after-member', mutations: [mutation(db, 'e1')] })
     const resourceVersion = (db.query('SELECT updated_at FROM user_projects').get() as { updated_at: string }).updated_at
     expect(resourceVersion > memberVersion).toBe(true)
+  })
+
+  it('reports online members, draft activity and exclusive leases without exposing tokens', () => {
+    const { db } = setup()
+    const call = (user: string, body: Record<string, unknown> = {}) => handleProjectCollaboration(db, auth(user), {
+      ownerUserId: 'owner', localProjectId: 'p1', ...actor(user), action: 'presence', ...body
+    }) as { collaborators: Array<{ userId: string, displayName: string, self: boolean, editing: unknown[], locked: unknown[] }> }
+    lease(db, 'e1', 'alice')
+    const alice = call('alice', { userId: 'owner', displayName: 'spoofed', editing: [{ type: 'episode', id: 'e1' }] })
+    expect(alice.collaborators[0]).toMatchObject({ userId: 'alice', displayName: 'Alice', self: true, editing: [{ type: 'episode', id: 'e1' }], locked: [{ type: 'episode', id: 'e1' }] })
+    const bob = call('bob')
+    expect(bob.collaborators).toHaveLength(2)
+    expect(bob.collaborators.find(item => item.userId === 'alice')?.self).toBe(false)
+    expect(JSON.stringify(bob)).not.toContain('token')
+    expect(call('viewer', { editing: [{ type: 'episode', id: 'e1' }] }).collaborators.find(item => item.userId === 'viewer')?.editing).toEqual([])
+    call('alice', { leaving: true })
+    expect(call('bob').collaborators.some(item => item.userId === 'alice')).toBe(false)
+    expect(() => call('stranger')).toThrow('Project not found')
+  })
+
+  it('expires disconnected presence and immediately removes revoked member activity', () => {
+    const { db } = setup()
+    const presence = (userId: string, nowMs: number) => updateCollaborationWindowPresence(db, {
+      projectId: 'cloud-p1', ownerId: 'owner', userId, deviceId: userId, sessionId: userId,
+      editable: true, editing: [{ type: 'episode', id: 'e1' }], nowMs, resources: collaborationResources(db, 'cloud-p1')
+    })
+    presence('alice', 1)
+    expect(presence('bob', 35_002).collaborators.map(item => item.userId)).toEqual(['bob'])
+    presence('alice', Date.now())
+    handleProjectCollaboration(db, auth('owner'), { ownerUserId: 'owner', localProjectId: 'p1', action: 'memberRemove', userId: 'alice', expectedUpdatedAt: 'v1' })
+    expect(presence('bob', Date.now()).collaborators.some(item => item.userId === 'alice')).toBe(false)
   })
 
 })

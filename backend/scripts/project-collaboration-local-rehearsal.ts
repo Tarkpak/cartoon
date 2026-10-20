@@ -87,6 +87,13 @@ export async function rehearseLocalBackends(cloudUrl: string, directory: string)
     assert.equal((await alice.acquire('a')).editable, true)
     assert.equal((await bob.acquire('b')).editable, true)
     assert.equal((await bob.acquire('a')).editable, false)
+    await alice.request({ action: 'presence', editing: [{ type: 'episode', id: 'a' }] })
+    const presence = await bob.request({ action: 'presence', editing: [{ type: 'episode', id: 'b' }] })
+    assert.equal(presence.collaborators.length, 2)
+    assert.equal(presence.collaborators.find((item: any) => item.userId === 'alice').self, false)
+    assert.deepEqual(presence.collaborators.find((item: any) => item.userId === 'alice').locked, [{ type: 'episode', id: 'a' }])
+    await alice.request({ action: 'presence', leaving: true })
+    assert.equal((await bob.request({ action: 'presence' })).collaborators.length, 1)
     for (const [device, id, description] of [[alice, 'a', 'Alice local backend'], [bob, 'b', 'Bob local backend']] as const) {
       const body = structuredClone(device.client.get('episode', id)!.body!)
       ;(body.scenes as any[])[0].description = description
@@ -131,6 +138,6 @@ export async function rehearseLocalBackends(cloudUrl: string, directory: string)
     assert(local.query('SELECT key FROM system_config WHERE key=?').get(`project_collaboration_operation:${JSON.stringify(['alice', 'p', operation])}`))
     assert.equal((local.query("SELECT video_url FROM scenes WHERE id='s1'").get() as { video_url: string }).video_url, 'https://shared.example/keep.mp4')
     local.close()
-    console.log(JSON.stringify({ passed: true, transport: 'three independent Rust backend processes → real cloud HTTP → isolated SQLite', checks: ['Rust migration preflight', 'owner migration creates real local backup', 'two member devices independently acquire and save episodes', 'incremental updates cross local backends', 'same episode exclusion', 'local outbox survives process restart and new window', 'receipt confirmation succeeds after owner takeover without a new lease', 'uncommitted offline operation resumes with a renewed lease after process restart', 'legacy local media unchanged'] }, null, 2))
+    console.log(JSON.stringify({ passed: true, transport: 'three independent Rust backend processes → real cloud HTTP → isolated SQLite', checks: ['Rust migration preflight', 'owner migration creates real local backup', 'two member devices independently acquire and save episodes', 'incremental updates cross local backends', 'same episode exclusion', 'online presence, resource activity and leaving cross independent backends', 'local outbox survives process restart and new window', 'receipt confirmation succeeds after owner takeover without a new lease', 'uncommitted offline operation resumes with a renewed lease after process restart', 'legacy local media unchanged'] }, null, 2))
   } finally { for (const process of processes) if (process.exitCode === null) process.kill(); await Promise.all(processes.map(process => process.exited)) }
 }

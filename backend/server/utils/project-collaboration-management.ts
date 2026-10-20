@@ -37,6 +37,8 @@ export function manageCollaboration(db: Database, auth: AuthContext, project: { 
     db.query('UPDATE user_projects SET deleted_at = ?, updated_at = ?, local_updated_at = ?, last_synced_at = ? WHERE id = ?')
       .run(timestamp, timestamp, timestamp, timestamp, project.id)
     db.query('DELETE FROM project_collaboration_leases WHERE project_id = ?').run(project.id)
+    db.query('DELETE FROM project_collaboration_presence WHERE project_id = ?').run(project.id)
+    db.query('DELETE FROM project_collaboration_window_presence WHERE project_id = ?').run(project.id)
     // Keep resources, original snapshot and operation receipts available for audit/recovery.
     return { deleted: true, deletedAt: timestamp }
   }
@@ -53,6 +55,8 @@ export function manageCollaboration(db: Database, auth: AuthContext, project: { 
     if (userId === auth.user.id) throw createError({ statusCode: 400, message: '不能移除当前账号自己' })
     if (!previous) return membersResult(db, auth, project.id, project.ownerId)
     if (body.expectedUpdatedAt !== previous.updated_at) throw createError({ statusCode: 409, message: '成员权限已变化，请刷新后重试' })
+    db.query('DELETE FROM project_collaboration_presence WHERE project_id = ? AND user_id = ?').run(project.id, userId)
+    db.query('DELETE FROM project_collaboration_window_presence WHERE project_id = ? AND user_id = ?').run(project.id, userId)
     db.query('DELETE FROM project_members WHERE project_id = ? AND user_id = ?').run(project.id, userId)
     db.query('DELETE FROM project_collaboration_leases WHERE project_id = ? AND user_id = ?').run(project.id, userId)
   } else {
@@ -68,6 +72,8 @@ export function manageCollaboration(db: Database, auth: AuthContext, project: { 
     db.query(`INSERT INTO project_members (project_id, user_id, role, permissions_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_id, user_id) DO UPDATE SET role = excluded.role, permissions_json = excluded.permissions_json, updated_at = excluded.updated_at`)
       .run(project.id, userId, role, permissionsJson, timestamp, timestamp)
+    db.query('UPDATE project_collaboration_window_presence SET editing_json = ? WHERE project_id = ? AND user_id = ?').run('[]', project.id, userId)
+    db.query('UPDATE project_collaboration_presence SET scopes_json = ? WHERE project_id = ? AND user_id = ?').run('[]', project.id, userId)
     // Downgrades fence existing editor tokens immediately, even if that user remains a viewer.
     db.query('DELETE FROM project_collaboration_leases WHERE project_id = ? AND user_id = ?').run(project.id, userId)
   }

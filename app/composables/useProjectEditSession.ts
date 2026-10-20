@@ -6,6 +6,12 @@ export interface ProjectEditSessionState {
   editable: boolean
   collaboration?: boolean
   scopeConflict?: boolean
+  pendingSave?: boolean
+  syncStatus?: 'connecting' | 'synced' | 'editing' | 'saving' | 'offline'
+  lastRemoteUpdate?: string
+  presenceAvailable?: boolean
+  onlineCount?: number
+  collaborators?: Array<{ userId: string, displayName: string, activity: string, locked: boolean }>
   canTakeover: boolean
   holderName?: string
   expiresAt?: number | null

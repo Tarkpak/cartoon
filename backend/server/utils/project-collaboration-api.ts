@@ -1,5 +1,6 @@
-import { createError } from 'h3'
 import { updateCollaborationPresence } from './project-collaboration-presence'
+import { updateCollaborationWindowPresence } from './project-collaboration-window-presence'
+import { createError } from 'h3'
 import type { Database } from 'bun:sqlite'
 import type { AuthContext } from './auth'
 import { manageCollaboration } from './project-collaboration-management'
@@ -21,17 +22,22 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
     ownerUserId = collaborationId(body.ownerUserId)
     localProjectId = collaborationId(body.localProjectId)
   } catch { throw createError({ statusCode: 400, message: '项目标识无效' }) }
-  if (typeof body.action !== 'string' || !['read', 'changes', 'enable', 'lease', 'write', 'members', 'memberPut', 'memberRemove', 'delete', 'generationCheck', 'migrationPreview'].includes(body.action)) throw createError({ statusCode: 400, message: '协作操作无效' })
+  if (typeof body.action !== 'string' || !['read', 'changes', 'enable', 'lease', 'write', 'members', 'memberPut', 'memberRemove', 'delete', 'generationCheck', 'migrationPreview', 'presence'].includes(body.action)) throw createError({ statusCode: 400, message: '协作操作无效' })
   // All checks and writes share one SQLite transaction, including membership checks.
   const transaction = db.transaction(() => {
     const project = db.query('SELECT id, deleted_at FROM user_projects WHERE user_id = ? AND local_project_id = ?')
       .get(ownerUserId, localProjectId) as { id: string, deleted_at: string | null } | null
     if (!project) throw createError({ statusCode: 404, message: '项目不存在' })
-    const permission: ProjectPermission = ['read', 'changes', 'members'].includes(body.action as string) ? 'view'
+    const permission: ProjectPermission = ['read', 'changes', 'members', 'presence'].includes(body.action as string) ? 'view'
       : ['memberPut', 'memberRemove'].includes(body.action as string) ? 'manage_members' : body.action === 'delete' ? 'delete' : body.action === 'generationCheck' ? 'generate' : 'edit'
     const access = requireCloudProjectPermission({ db, auth, projectId: project.id, permission })
     const editable = auth.user.role === 'admin' || auth.user.id === ownerUserId || (!!access.role && projectMemberCan({ role: access.role, permissions_json: access.permissions_json }, 'edit'))
     if (project.deleted_at && body.action !== 'delete') throw createError({ statusCode: 410, message: '项目已删除' })
+    if (body.action === 'presence') {
+      const snapshot = readCollaboration(db, project.id)
+      if (!snapshot.enabled) throw createError({ statusCode: 409, message: '项目尚未启用协作' })
+      return updateCollaborationWindowPresence(db, { projectId: project.id, ownerId: ownerUserId, userId: auth.user.id, deviceId: body.deviceId, sessionId: body.sessionId, editable, editing: body.editing, leaving: body.leaving === true, resources: snapshot.resources })
+    }
     if (body.action === 'read') return { ...readCollaboration(db, project.id), editable }
     if (body.action === 'changes') {
       const result = collaborationChanges(db, project.id, body.after as number)

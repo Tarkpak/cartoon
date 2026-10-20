@@ -319,6 +319,7 @@ pub(super) async fn api_project_collaboration(
             | "delete"
             | "generationCheck"
             | "migrationPreview"
+            | "presence"
     ) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "协作操作无效"));
     }
@@ -329,7 +330,7 @@ pub(super) async fn api_project_collaboration(
             &conn,
             &id,
             match action.as_str() {
-                "read" | "changes" | "members" => ProjectPermission::View,
+                "read" | "changes" | "members" | "presence" => ProjectPermission::View,
                 "memberPut" | "memberRemove" => ProjectPermission::ManageMembers,
                 "delete" => ProjectPermission::Delete,
                 "generationCheck" => ProjectPermission::Generate,

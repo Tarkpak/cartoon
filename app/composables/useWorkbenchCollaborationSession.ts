@@ -1,5 +1,5 @@
 import { computed, getCurrentInstance, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
-import type { CollaborationBody, CollaborationLease, CollaborationPresence, CollaborationResource } from '../../shared/types/project-collaboration'
+import type { CollaborationBody, CollaborationLease, CollaborationPresence, CollaborationWindowPresence, CollaborationResource } from '../../shared/types/project-collaboration'
 import { projectEditSessionId } from '~/lib/project-edit-session'
 import type { CollaborationAssetResult } from '~/lib/project-collaboration-assets'
 import type { ProjectEditSessionState } from './useProjectEditSession'
@@ -47,6 +47,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
   let actorId = ''
   let sequence = 0
   let timer: ReturnType<typeof setInterval> | undefined
+  let presenceTimer: ReturnType<typeof setTimeout> | undefined
+  let presenceBusy = false
   let unregister: (() => void) | undefined
   let pending: PendingSave | undefined
   let recovered: { before: CollaborationBody, after: CollaborationBody, resources: CollaborationResource[] } | undefined
@@ -96,16 +98,59 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
   }
   function stashDraft(before: CollaborationBody, after: CollaborationBody) {
     if (!activeId || !actorId) return
-    if (JSON.stringify(before) === JSON.stringify(after)) { localStorage.removeItem(draftKey()); return }
+    if (JSON.stringify(before) === JSON.stringify(after)) {
+      localStorage.removeItem(draftKey())
+      if (!saving && !pending && !connectionLost) editSession.value.syncStatus = 'synced'
+      schedulePresence()
+      return
+    }
+    if (!saving && !pending && !connectionLost) editSession.value.syncStatus = 'editing'
+    schedulePresence()
     localStorage.setItem(draftKey(), JSON.stringify({ before, after, resources: resources.value }))
   }
   async function acquire(scope: { type: CollaborationResource['type'], id: string }, takeover = false) {
     const version = sequence
-    const lease = await request<CollaborationLease>({ action: 'lease', leaseAction: takeover ? 'takeover' : 'acquire', ...scope })
+    const lease = await request<CollaborationLease>({ action: 'lease', leaseAction: takeover ? 'takeover' : 'acquire', type: scope.type, id: scope.id })
     if (version !== sequence) throw new Error('项目已切换，原项目的修改仍保留在本机')
-    if (!lease.editable) throw new Error(`${scope.type === 'episode' ? '此集' : scope.type === 'character' ? '此角色' : '公共设置或目录'}正在由其他成员编辑，其他集仍可编辑；当前修改已保留，请稍后重试。`)
-    held.set(keyOf(scope), scope)
+    const holder = editSession.value.collaborators?.find(item => item.userId === lease.holderUserId)?.displayName || '其他成员'
+    if (!lease.editable) throw new Error(`${resourceLabel(scope)}正在由${holder}编辑，其他集仍可编辑；当前修改已保留，请稍后重试。`)
+    held.set(keyOf(scope), { type: scope.type, id: scope.id })
   }
+  function resourceLabel(scope: { type: CollaborationResource['type'], id: string }) {
+    const resource = resources.value.find(item => keyOf(item) === keyOf(scope))
+    if (scope.type === 'episode') {
+      const plan = resource?.body?.plan as CollaborationBody | undefined
+      return String(plan?.title || `第${plan?.index || '?'}集`)
+    }
+    if (scope.type === 'character') return `角色「${resource?.body?.name || scope.id}」`
+    return scope.type === 'settings' ? '公共资产或项目设置' : '分集目录'
+  }
+  function schedulePresence() {
+    if (presenceTimer || !sync) return
+    presenceTimer = setTimeout(() => { presenceTimer = undefined; void refreshPresence() }, 500)
+  }
+  async function refreshPresence() {
+    if (!activeId || presenceBusy) return
+    presenceBusy = true
+    const version = sequence
+    try {
+      const draft = sync?.draft()
+      const editing = draft && editSession.value.editable ? buildWorkbenchMutations(resources.value, draft.before, draft.after).map(({ type, id }) => ({ type, id })) : []
+      const response = await request<{ collaborators: CollaborationWindowPresence[] }>({ action: 'presence', editing })
+      if (version !== sequence) return
+      if (!Array.isArray(response.collaborators)) throw new Error('成员状态响应无效')
+      editSession.value.presenceAvailable = true
+      editSession.value.onlineCount = new Set(response.collaborators.map(item => item.userId)).size
+      editSession.value.collaborators = response.collaborators.filter(item => !item.self).map(item => ({
+        userId: item.userId, displayName: item.userId === actorId ? '你（其他窗口）' : item.displayName,
+        activity: item.locked.length ? `占用 ${item.locked.map(resourceLabel).join('、')}` : item.editing.length ? `正在编辑 ${item.editing.map(resourceLabel).join('、')}` : '正在查看',
+        locked: item.locked.length > 0
+      }))
+    } catch (cause) {
+      if (version === sequence) { editSession.value.presenceAvailable = false; editSession.value.collaborators = []; fenceAccess(cause) }
+    } finally { presenceBusy = false }
+  }
+
   function fenceAccess(cause: unknown) {
     const status = (cause as { statusCode?: number, status?: number }).statusCode ?? (cause as { status?: number }).status
     if ([401, 403, 404, 410].includes(status || 0)) {
@@ -165,6 +210,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       cursor = nextCursor
       if (connectionLost && !editSession.value.scopeConflict) editSession.value.reason = undefined
       connectionLost = false
+      editSession.value.syncStatus = dirty.size ? 'editing' : 'synced'
+      if (changed) editSession.value.lastRemoteUpdate = '已收到其他成员的更新'
       if (conflict) {
         stashDraft(draft.before, draft.after)
         editSession.value.scopeConflict = true
@@ -177,6 +224,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         fenceAccess(cause)
         connectionLost = true
         participants.value = []
+        editSession.value.syncStatus = 'offline'
         editSession.value.reason = getDisplayErrorMessage(cause, '协作连接中断，本机草稿已保留，正在重试。')
       }
     } finally { polling = false }
@@ -200,6 +248,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     if (activeId && actorId) { exportedDraftKey = draftKey(); exportedConflictKey = `${storageKey()}:conflict` }
     sequence++
     cursor = 0
+    if (presenceTimer) clearTimeout(presenceTimer)
+    presenceTimer = undefined
     unregister?.()
     unregister = undefined
     if (timer) clearInterval(timer)
@@ -215,8 +265,10 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     mergeContext = undefined
     pending = undefined
     recovered = undefined
+    editSession.value.pendingSave = false
     editSession.value.editable = false
-    await Promise.allSettled(scopes.map(scope => $fetch(`/api/project/${encodeURIComponent(id)}/collaboration`, { method: 'POST', retry: 0, timeout: 10_000, body: { action: 'lease', leaseAction: 'release', ...scope } })))
+    const leaving = id ? $fetch(`/api/project/${encodeURIComponent(id)}/collaboration`, { method: 'POST', retry: 0, timeout: 10_000, body: { action: 'presence', leaving: true } }).catch(() => {}) : Promise.resolve()
+    await Promise.allSettled([leaving, ...scopes.map(scope => $fetch(`/api/project/${encodeURIComponent(id)}/collaboration`, { method: 'POST', retry: 0, timeout: 10_000, body: { action: 'lease', leaseAction: 'release', ...scope } }))])
   }
   async function openEditSession(id: string) {
     const releasing = releaseEditSession()
@@ -225,7 +277,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     if (version !== sequence) return
     acquiring.value = true
     activeId = id
-    editSession.value = { editable: false, collaboration: true, canTakeover: false, reason: '正在打开项目并同步最新内容…' }
+    editSession.value = { editable: false, collaboration: true, syncStatus: 'connecting', canTakeover: false, reason: '正在同步、备份并准备协作项目…' }
     try {
       const status = await cloud.loadStatus()
       if (version !== sequence) return
@@ -244,6 +296,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       }
       const saved = localStorage.getItem(storageKey())
       pending = saved ? JSON.parse(saved) : undefined
+      editSession.value.pendingSave = !!pending
       if (pending) {
         try { await sendPending(true) }
         catch (cause) {
@@ -270,7 +323,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         recovered = value
       }
       const conflicts = recovered ? buildWorkbenchMutations(recovered.resources, recovered.before, recovered.after).some(change => response.data.resources.find(item => keyOf(item) === keyOf(change))?.revision !== change.expectedRevision) : false
-      editSession.value = { editable: response.data.editable !== false, collaboration: true, canTakeover: false, scopeConflict: conflicts, reason: response.data.editable === false ? '当前账号只有查看权限。' : conflicts ? '本机草稿与云端内容有冲突。草稿已保留，可点击“对比并合并”处理。' : undefined }
+      editSession.value = { editable: response.data.editable !== false, collaboration: true, syncStatus: recovered ? 'editing' : 'synced', canTakeover: false, scopeConflict: conflicts, reason: response.data.editable === false ? '当前账号只有查看权限。' : conflicts ? '本机草稿与云端内容有冲突。草稿已保留，可点击“对比并合并”处理。' : undefined }
       unregister = registerWorkbenchCollaboration(id, async (_path, body) => {
         if (!await saveCurrent()) throw new Error('请先保存当前修改并处理协作冲突后再生成')
         if (version !== sequence) throw new Error('项目已切换，请在当前项目重新生成')
@@ -294,10 +347,12 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         }
         return { ...body, collaborationInput: { type: resource.type, id: resource.id, episodeId: resource.type === 'episode' ? resource.id : undefined, revision: resource.revision, settingsRevision: settings.revision } }
       })
+      void refreshPresence()
       timer = setInterval(() => {
         if (Date.now() - presenceUpdatedAt > 45_000) participants.value = []
         void heartbeat()
         void poll()
+        void refreshPresence()
       }, 10_000)
     } catch (cause) {
       if (version === sequence) editSession.value = { editable: false, collaboration: true, canTakeover: false, reason: getDisplayErrorMessage(cause, '项目打开失败，请重试') }
@@ -326,6 +381,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       }
       resources.value = [...updated.values()]
       pending = undefined
+      editSession.value.pendingSave = false
       localStorage.removeItem(pendingKey)
       // A draft may have advanced while this operation was in flight. Preserve
       // edits made after the submitted snapshot, including across a reload.
@@ -344,6 +400,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         } else { localStorage.removeItem(savedDraftKey); recovered = undefined }
       } else recovered = undefined
       editSession.value.scopeConflict = false
+      editSession.value.syncStatus = 'synced'
+      editSession.value.lastRemoteUpdate = undefined
       editSession.value.reason = undefined
       // A successful save ends this edit operation. Do not hold every episode
       // visited by an otherwise idle workbench window until it is closed.
@@ -356,6 +414,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         // Keep the exact rejected draft for export/review, but do not replay it indefinitely.
         localStorage.setItem(`${storageKey()}:conflict`, JSON.stringify(sent))
         pending = undefined
+        editSession.value.pendingSave = false
         localStorage.removeItem(storageKey())
       }
       if (version === sequence) fenceAccess(cause)
@@ -366,6 +425,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     if (mergePreview.value) throw new Error('请先完成或取消冲突对比')
     if (saving) throw new Error('协作保存正在进行，请稍后重试')
     saving = true
+    editSession.value.syncStatus = 'saving'
     const version = sequence
     try {
       if (pending) {
@@ -379,12 +439,14 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       for (const scope of mutations) await acquire(scope)
       if (version !== sequence) throw new Error('项目已切换，请重新打开原项目继续保存')
       pending = { operationId: crypto.randomUUID(), mutations }
+      editSession.value.pendingSave = true
       localStorage.setItem(storageKey(), JSON.stringify(pending))
       await sendPending()
     } catch (cause) {
       if (version === sequence) {
         fenceAccess(cause)
         const status = (cause as { statusCode?: number, status?: number }).statusCode ?? (cause as { status?: number }).status
+        editSession.value.syncStatus = !status || status >= 500 ? 'offline' : 'editing'
         if (status === 409) editSession.value.scopeConflict = true
         editSession.value.reason = getDisplayErrorMessage(cause, '当前对象尚未保存，本地草稿已保留，其他对象可以继续编辑。')
       }
@@ -397,6 +459,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         await Promise.allSettled(scopes.map(scope => request({ action: 'lease', leaseAction: 'release', ...scope })))
       }
       saving = false
+      if (version === sequence && editSession.value.syncStatus === 'saving') editSession.value.syncStatus = 'synced'
     }
   }
   function canAdoptAsset(result: CollaborationAssetResult) {
@@ -498,5 +561,5 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     if (draft) stashDraft(draft.before, draft.after)
     void releaseEditSession()
   })
-  return { editSession, projectEditable: computed(() => editSession.value.editable), acquiring, openEditSession, releaseEditSession, heartbeat, poll, canAdoptAsset, ready: computed(() => resources.value.length > 0), snapshot, saveSnapshot, stashDraft, restoredBaseline, downloadDraft, discardDraft, mergePreview, previewMerge, cancelMerge, applyMerge, collaborationParticipants, updateCollaborationActivity }
+  return { editSession, projectEditable: computed(() => editSession.value.editable), acquiring, openEditSession, releaseEditSession, heartbeat, poll, refreshPresence, confirmPending: () => sendPending(true), canAdoptAsset, ready: computed(() => resources.value.length > 0), snapshot, saveSnapshot, stashDraft, restoredBaseline, downloadDraft, discardDraft, mergePreview, previewMerge, cancelMerge, applyMerge, collaborationParticipants, updateCollaborationActivity }
 }

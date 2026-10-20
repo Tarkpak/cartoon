@@ -1,20 +1,39 @@
 <script setup lang="ts">
-import { AlertCircle, Loader2, LockKeyhole } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { Check, CloudOff, Loader2, LockKeyhole, Users } from 'lucide-vue-next'
 import type { ProjectEditSessionState } from '~/composables/useProjectEditSession'
 
-defineProps<{ session: ProjectEditSessionState, busy: boolean }>()
+const props = defineProps<{ session: ProjectEditSessionState, busy: boolean }>()
 defineEmits<{ (event: 'retry'): void, (event: 'takeover'): void, (event: 'download-backup'): void }>()
+const needsAttention = computed(() => !props.session.editable || props.session.scopeConflict || props.session.syncStatus === 'offline')
+const syncLabel = computed(() => ({ connecting: '正在连接', synced: '已同步', editing: '有未保存修改', saving: '正在保存', offline: '连接中断，修改保留在本机' })[props.session.syncStatus || 'connecting'])
 </script>
 
 <template>
-  <div v-if="busy || !session.editable || session.scopeConflict || session.reason" class="flex shrink-0 flex-wrap items-center gap-2 rounded-md bg-muted/45 px-3 py-2 text-xs text-muted-foreground" role="status">
-    <Loader2 v-if="busy" class="h-4 w-4 shrink-0 animate-spin" />
-    <AlertCircle v-else-if="session.editable" class="h-4 w-4 shrink-0" />
-    <LockKeyhole v-else class="h-4 w-4 shrink-0" />
-    <span class="min-w-0 flex-1">{{ session.reason || (session.holderName ? `${session.holderName} 正在编辑，当前为只读模式。` : '当前为只读模式。') }}</span>
-    <Button v-if="session.backupId || session.scopeConflict" size="sm" variant="outline" @click="$emit('download-backup')">下载未同步修改</Button>
-    <Button v-if="!busy" size="sm" variant="outline" @click="$emit('retry')">
-      {{ session.scopeConflict && session.editable && session.collaboration ? '对比并合并' : session.scopeConflict && !session.collaboration ? '读取最新内容' : session.collaboration ? '重新连接' : '重新取得编辑权' }}
+  <div v-if="session.collaboration || needsAttention" class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-md bg-muted/45 px-3 py-2 text-xs text-muted-foreground" role="status" aria-live="polite">
+    <span v-if="session.collaboration" class="inline-flex shrink-0 items-center gap-1.5">
+      <Users class="h-3.5 w-3.5" :stroke-width="1.5" />协作模式
+    </span>
+    <span v-if="!needsAttention" class="inline-flex items-center gap-1.5">
+      <Loader2 v-if="session.syncStatus === 'saving'" class="h-3.5 w-3.5 animate-spin" :stroke-width="1.5" />
+      <Check v-else-if="session.syncStatus === 'synced'" class="h-3.5 w-3.5" :stroke-width="1.5" />
+      {{ syncLabel }}
+    </span>
+    <template v-else>
+      <CloudOff v-if="session.syncStatus === 'offline'" class="h-3.5 w-3.5 shrink-0" :stroke-width="1.5" />
+      <LockKeyhole v-else class="h-3.5 w-3.5 shrink-0" :stroke-width="1.5" />
+      <span class="min-w-0 flex-1">{{ session.reason || (session.holderName ? `${session.holderName} 正在编辑，当前为只读模式。` : session.collaboration ? syncLabel : '当前为只读模式。') }}</span>
+    </template>
+    <span v-if="!needsAttention && session.lastRemoteUpdate" class="text-muted-foreground/80">{{ session.lastRemoteUpdate }}</span>
+    <span v-if="session.presenceAvailable && session.onlineCount" class="ml-auto shrink-0 tabular-nums">{{ session.onlineCount }} 人在线</span>
+    <span v-else-if="session.presenceAvailable === false" class="ml-auto">成员状态暂不可用</span>
+    <span v-for="(member, index) in session.collaborators" :key="`${member.userId}:${index}`" class="inline-flex max-w-full items-center gap-1 break-words" :class="member.locked ? 'text-foreground' : ''">
+      <LockKeyhole v-if="member.locked" class="h-3 w-3 shrink-0" :stroke-width="1.5" />
+      {{ member.displayName }} · {{ member.activity }}
+    </span>
+    <Button v-if="needsAttention && (session.backupId || session.scopeConflict)" size="sm" variant="outline" @click="$emit('download-backup')">下载未同步修改</Button>
+    <Button v-if="needsAttention && (session.editable || session.syncStatus !== 'synced')" size="sm" variant="outline" :disabled="busy" @click="$emit('retry')">
+      <Loader2 v-if="busy" class="mr-1 h-3 w-3 animate-spin" />{{ session.pendingSave ? '确认上次提交' : session.scopeConflict && session.collaboration && session.editable ? '对比并合并' : session.scopeConflict ? '读取最新内容' : session.collaboration ? '重试协作连接' : '重新取得编辑权' }}
     </Button>
     <Button v-if="session.canTakeover && session.holderName" size="sm" variant="outline" :disabled="busy" @click="$emit('takeover')">接管编辑权</Button>
   </div>

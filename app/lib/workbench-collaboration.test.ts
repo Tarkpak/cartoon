@@ -28,6 +28,16 @@ describe('original workbench resource adapter', () => {
     const remote = [{ id: 'b', text: 'remote' }, { id: 'new', text: 'new' }, { id: 'a', text: 'A' }]
     expect(patchWorkbenchFields(remote, before, after)).toEqual([{ id: 'b', text: 'remote' }, { id: 'new', text: 'new' }, { id: 'a', text: 'local' }])
   })
+  it('persists hydrated video history when editing invalidates the active video', () => {
+    const before = { ...view(), scenes: view().scenes.map(scene => ({ ...scene, videoHistory: [{ videoUrl: scene.videoUrl, source: 'legacy' }] })) }
+    expect(buildWorkbenchMutations(splitProjectSnapshot(snapshot), before, structuredClone(before))).toEqual([])
+    const after = structuredClone(before)
+    delete after.scenes[0]!.videoUrl
+    after.scenes[0]!.description = 'changed'
+    const changes = buildWorkbenchMutations(splitProjectSnapshot(snapshot), before, after)
+    expect(changes).toHaveLength(1)
+    expect(changes[0]!.body!.scenes).toEqual(expect.arrayContaining([expect.objectContaining({ videoHistory: before.scenes[0]!.videoHistory })]))
+  })
   it('uses a separate character revision and preserves voice assets', () => {
     const before = view()
     const after = view()

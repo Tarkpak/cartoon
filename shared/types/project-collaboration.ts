@@ -33,6 +33,14 @@ export interface CollaborationChange extends CollaborationResource {
   createdAt: string
 }
 
+export interface CollaborationWindowPresence {
+  userId: string
+  displayName: string
+  self: boolean
+  editing: Array<{ type: CollaborationResourceType, id: string }>
+  locked: Array<{ type: CollaborationResourceType, id: string }>
+}
+
 export interface CollaborationLease {
   editable: boolean
   token?: string

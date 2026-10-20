@@ -86,6 +86,12 @@ if (process.argv.includes('--serve')) {
     assert.equal((await alice.acquire('a')).editable, true)
     assert.equal((await bob.acquire('b')).editable, true)
     assert.equal((await bob.acquire('a')).editable, false)
+    await post('alice', { action: 'presence', editing: [{ type: 'episode', id: 'a' }] })
+    const presence = await post('bob', { action: 'presence', editing: [{ type: 'episode', id: 'b' }] })
+    assert.equal(presence.collaborators.length, 2)
+    assert.equal(presence.collaborators.find((item: any) => item.userId === 'alice').displayName, 'alice')
+    assert.deepEqual(presence.collaborators.find((item: any) => item.userId === 'alice').locked, [{ type: 'episode', id: 'a' }])
+    assert(!JSON.stringify(presence).includes('token'))
     for (const [member, id, description] of [[alice, 'a', 'Alice'], [bob, 'b', 'Bob']] as const) {
       const body = structuredClone(member.client.get('episode', id)!.body!)
       ;(body.scenes as Record<string, unknown>[])[0]!.description = description
@@ -126,7 +132,7 @@ if (process.argv.includes('--serve')) {
     assert.equal(JSON.parse(original.source_snapshot_json).scenes[0].description, 'A')
     assert.equal((audit.query('SELECT COUNT(*) AS count FROM project_collaboration_operations WHERE project_id=?').get('cloud') as { count: number }).count, 4)
     audit.close()
-    console.log(JSON.stringify({ passed: true, transport: 'real HTTP', database: 'isolated on-disk SQLite', checks: ['authentication', 'owner-only migration preview', 'reviewed migration and idempotent retry', 'legacy lock disabled', 'two accounts concurrently save different episodes', 'same episode lease excludes other device', 'both clients receive incremental updates', 'media preserved', 'lost response replay after takeover', 'service restart preserves resources and original backup', 'exact operation replay after restart', 'queued save survives actual service disconnect and reconnect'] }, null, 2))
+    console.log(JSON.stringify({ passed: true, transport: 'real HTTP', database: 'isolated on-disk SQLite', checks: ['authentication', 'owner-only migration preview', 'reviewed migration and idempotent retry', 'legacy lock disabled', 'two accounts concurrently save different episodes', 'same episode lease excludes other device', 'both clients receive incremental updates', 'online members and resource activity exclude lease tokens', 'media preserved', 'lost response replay after takeover', 'service restart preserves resources and original backup', 'exact operation replay after restart', 'queued save survives actual service disconnect and reconnect'] }, null, 2))
     }
   } finally { await stop(); rmSync(directory, { recursive: true, force: true }) }
 }

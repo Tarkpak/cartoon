@@ -72,7 +72,15 @@ export function composeWorkbenchSnapshot(resources: CollaborationResource[]): Co
 
 export function buildWorkbenchMutations(resources: CollaborationResource[], before: CollaborationBody, after: CollaborationBody) {
   const snapshot = composeWorkbenchSnapshot(resources)
-  const next = splitWorkbenchSnapshot(patchWorkbenchFields(snapshot, workbenchSaveView(before), workbenchSaveView(after)) as CollaborationBody)
+  const patched = patchWorkbenchFields(snapshot, workbenchSaveView(before), workbenchSaveView(after)) as CollaborationBody
+  // Hydrated legacy history is normally a read default. Persist it when an edit
+  // invalidates the active video so the previous result remains recoverable.
+  for (const scene of (patched.scenes || []) as CollaborationBody[]) {
+    const old = ((snapshot.scenes || []) as CollaborationBody[]).find(item => item.id === scene.id)
+    const current = ((after.scenes || []) as CollaborationBody[]).find(item => item.id === scene.id)
+    if (old?.videoUrl && !scene.videoUrl && !scene.videoHistory && Array.isArray(current?.videoHistory) && current.videoHistory.length) scene.videoHistory = copy(current.videoHistory)
+  }
+  const next = splitWorkbenchSnapshot(patched)
   const previous = new Map(resources.map(item => [keyOf(item), item]))
   const normalized = new Map(splitWorkbenchSnapshot(snapshot).map(item => [keyOf(item), item]))
   const desired = new Map(next.map(item => [keyOf(item), item]))
