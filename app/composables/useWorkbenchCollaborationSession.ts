@@ -1,3 +1,4 @@
+import { createCollaborationStorage } from '~/lib/collaboration-storage'
 import { computed, getCurrentInstance, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import type { CollaborationBody, CollaborationLease, CollaborationPresence, CollaborationWindowPresence, CollaborationResource } from '../../shared/types/project-collaboration'
 import { projectDraftSession } from '~/lib/project-edit-session'
@@ -23,6 +24,7 @@ const keyOf = (scope: { type: string, id: string }) => JSON.stringify([scope.typ
 
 /** Adapts the original workbench to resource writes without changing its UI. */
 export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<boolean>, sync?: WorkbenchSync) {
+  const storage = createCollaborationStorage()
   const editSession = ref<ProjectEditSessionState>({ editable: false, collaboration: true, canTakeover: false, reason: '正在打开项目…' })
   const acquiring = ref(false)
   const resources = shallowRef<CollaborationResource[]>([])
@@ -78,7 +80,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
   }
   function restoredBaseline() { return recovered?.before }
   function downloadDraft() {
-    const data = localStorage.getItem(draftKey()) || localStorage.getItem(`${storageKey()}:conflict`) || (exportedDraftKey ? localStorage.getItem(exportedDraftKey) : null) || (exportedConflictKey ? localStorage.getItem(exportedConflictKey) : null)
+    const data = storage.getItem(draftKey()) || storage.getItem(`${storageKey()}:conflict`) || (exportedDraftKey ? storage.getItem(exportedDraftKey) : null) || (exportedConflictKey ? storage.getItem(exportedConflictKey) : null)
     if (!data) return
     const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }))
     const link = document.createElement('a')
@@ -89,29 +91,35 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
   }
   function discardDraft() {
     if (pending) throw new Error('上次提交结果尚未确认，请先重试保存，避免丢失后续草稿')
-    const draft = localStorage.getItem(draftKey())
-    if (draft) localStorage.setItem(`${draftKey()}:archived`, draft)
-    localStorage.removeItem(draftKey())
+    const draft = storage.getItem(draftKey())
+    if (draft) storage.setItem(`${draftKey()}:archived`, draft)
+    storage.removeItem(draftKey())
     recovered = undefined
   }
   function stashDraft(before: CollaborationBody, after: CollaborationBody) {
     if (!activeId || !actorId) return
     if (!pending && JSON.stringify(before) === JSON.stringify(after)) {
-      localStorage.removeItem(draftKey())
+      storage.removeItem(draftKey())
       if (!saving && !pending && !connectionLost) editSession.value.syncStatus = 'synced'
       schedulePresence()
       return
     }
     if (!saving && !pending && !connectionLost) editSession.value.syncStatus = 'editing'
     schedulePresence()
-    localStorage.setItem(draftKey(), JSON.stringify({ before, after, resources: resources.value }))
+    storage.setItem(draftKey(), JSON.stringify({ before, after, resources: resources.value }))
+    const version = sequence
+    void storage.flush().catch(cause => {
+      if (version === sequence) editSession.value.reason = getDisplayErrorMessage(cause, '本机草稿备份失败，请保留当前窗口。')
+    })
   }
   async function acquire(scope: { type: CollaborationResource['type'], id: string }, takeover = false) {
     const version = sequence
     const lease = await request<CollaborationLease>({ action: 'lease', leaseAction: takeover ? 'takeover' : 'acquire', type: scope.type, id: scope.id })
     if (version !== sequence) throw new Error('项目已切换，原项目的修改仍保留在本机')
-    const holder = editSession.value.collaborators?.find(item => item.userId === lease.holderUserId)?.displayName || '其他成员'
-    if (!lease.editable) throw Object.assign(new Error(`${resourceLabel(scope)}正在由${holder}编辑，其他集仍可编辑；当前修改已保留，请稍后重试。`), { statusCode: 423 })
+    const holder = lease.holderUserId === actorId ? '你在其他窗口或重启前的会话' : editSession.value.collaborators?.find(item => item.userId === lease.holderUserId)?.displayName || '其他成员'
+    const remaining = lease.expiresAt ? Math.max(1, Math.ceil((lease.expiresAt - Date.now()) / 1000)) : undefined
+    const retry = remaining ? `若占用窗口已关闭，请约 ${remaining} 秒后重试；仍打开的窗口请先结束操作。` : '请稍后重试。'
+    if (!lease.editable) throw Object.assign(new Error(`${resourceLabel(scope)}正在由${holder}编辑，其他集仍可编辑；当前修改已保留。${retry}`), { statusCode: 423 })
     held.set(keyOf(scope), { type: scope.type, id: scope.id })
   }
   function resourceLabel(scope: { type: CollaborationResource['type'], id: string }) {
@@ -286,6 +294,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     activeId = id
     editSession.value = { editable: false, collaboration: true, syncStatus: 'connecting', canTakeover: false, reason: '正在同步、备份并准备协作项目…' }
     try {
+      await storage.initialize()
       const status = await cloud.loadStatus()
       if (version !== sequence) return
       actorId = status?.user?.id || ''
@@ -302,14 +311,14 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         // or resurrect it after this document has saved/discarded its own draft.
         const source = recoveryKey?.(prefix, actorId, activeId)
         if (source) {
-          const previous = localStorage.getItem(source)
-          if (previous && !localStorage.getItem(key)) localStorage.setItem(key, previous)
+          const previous = storage.getItem(source)
+          if (previous && !storage.getItem(key)) storage.setItem(key, previous)
         }
         const legacyKey = `${prefix}${JSON.stringify([actorId, activeId])}`
-        const legacy = localStorage.getItem(legacyKey)
-        if (legacy && !localStorage.getItem(key)) { localStorage.setItem(key, legacy); localStorage.removeItem(legacyKey) }
+        const legacy = storage.getItem(legacyKey)
+        if (legacy && !storage.getItem(key)) { storage.setItem(key, legacy); storage.removeItem(legacyKey) }
       }
-      const saved = localStorage.getItem(storageKey())
+      const saved = storage.getItem(storageKey())
       pending = saved ? JSON.parse(saved) : undefined
       editSession.value.pendingSave = !!pending
       if (pending) {
@@ -320,7 +329,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         }
         if (version !== sequence) return
       }
-      const draft = localStorage.getItem(draftKey())
+      const draft = storage.getItem(draftKey())
       if (draft) {
         const value = JSON.parse(draft) as NonNullable<typeof recovered>
         const changes = buildWorkbenchMutations(value.resources, value.before, value.after)
@@ -392,6 +401,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     const pendingKey = storageKey()
     const savedDraftKey = draftKey()
     try {
+      await storage.flush()
       let result: { resources: CollaborationResource[] }
       try { result = await request<{ resources: CollaborationResource[] }>({ action: 'write', ...sent }) }
       catch (cause) {
@@ -412,10 +422,10 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       resources.value = [...updated.values()]
       pending = undefined
       editSession.value.pendingSave = false
-      localStorage.removeItem(pendingKey)
+      storage.removeItem(pendingKey)
       // A draft may have advanced while this operation was in flight. Preserve
       // edits made after the submitted snapshot, including across a reload.
-      const storedDraft = localStorage.getItem(savedDraftKey)
+      const storedDraft = storage.getItem(savedDraftKey)
       const draft = storedDraft ? JSON.parse(storedDraft) as NonNullable<typeof recovered> : undefined
       if (draft) {
         // Rebase on the acknowledged operation, including fields reverted to
@@ -436,8 +446,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         }
         if (buildWorkbenchMutations(rebased.resources, rebased.before, rebased.after).length) {
           recovered = rebased
-          localStorage.setItem(savedDraftKey, JSON.stringify(rebased))
-        } else { localStorage.removeItem(savedDraftKey); recovered = undefined }
+          storage.setItem(savedDraftKey, JSON.stringify(rebased))
+        } else { storage.removeItem(savedDraftKey); recovered = undefined }
       } else recovered = undefined
       editSession.value.scopeConflict = false
       editSession.value.syncStatus = 'synced'
@@ -452,10 +462,10 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       const status = (cause as { statusCode?: number, status?: number }).statusCode ?? (cause as { status?: number }).status
       if (version === sequence && (status === 409 || status === 423)) {
         // Keep the exact rejected draft for export/review, but do not replay it indefinitely.
-        localStorage.setItem(`${storageKey()}:conflict`, JSON.stringify(sent))
+        storage.setItem(`${storageKey()}:conflict`, JSON.stringify(sent))
         pending = undefined
         editSession.value.pendingSave = false
-        localStorage.removeItem(storageKey())
+        storage.removeItem(storageKey())
       }
       if (version === sequence) fenceAccess(cause)
       throw cause
@@ -480,7 +490,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       if (version !== sequence) throw new Error('项目已切换，请重新打开原项目继续保存')
       pending = { operationId: crypto.randomUUID(), mutations }
       editSession.value.pendingSave = true
-      localStorage.setItem(storageKey(), JSON.stringify(pending))
+      storage.setItem(storageKey(), JSON.stringify(pending))
       await sendPending()
     } catch (cause) {
       if (version === sequence) {
@@ -576,8 +586,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     const baseline = composeWorkbenchSnapshot(context.latest)
     const current = composeWorkbenchSnapshot(merged.resources)
     stashDraft(context.draft.before, context.draft.after)
-    const draft = localStorage.getItem(draftKey())
-    if (draft) localStorage.setItem(`${draftKey()}:archived`, draft)
+    const draft = storage.getItem(draftKey())
+    if (draft) storage.setItem(`${draftKey()}:archived`, draft)
     sync.apply(baseline, current)
     resources.value = context.latest
     cursor = context.cursor
