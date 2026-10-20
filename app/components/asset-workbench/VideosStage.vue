@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onActivated, onDeactivated } from 'vue'
 import { useIntervalFn, useStorage } from '@vueuse/core'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { Check, ChevronLeft, ChevronRight, Download, Eraser, FileDown, FolderOpen, Loader2, Play } from 'lucide-vue-next'
@@ -60,7 +61,13 @@ interface EpisodeDirectoryItem {
   overview: string
 }
 
+const componentActive = ref(true)
+onActivated(() => { componentActive.value = true })
+onDeactivated(() => { componentActive.value = false })
+
 const props = defineProps<{
+  toolbarActive?: boolean
+  canExport?: boolean
   scenes: SceneData[]
   projectName: string
   projectAspectRatio: string
@@ -687,67 +694,68 @@ watch(episodeDirectoryCollapsed, (value) => {
     </p>
   </div>
   <template v-else>
-    <!-- Stats & actions -->
-    <div class="shrink-0 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <div
-        class="flex items-center gap-4"
-        aria-live="polite"
-      >
-        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span
-            class="inline-block h-2 w-2 rounded-full bg-blue-500"
-            aria-hidden="true"
-          />
-          场景 {{ scenes.length }}
-        </div>
-        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span class="inline-block h-2 w-2 rounded-full bg-amber-500" />
-          分集 {{ episodeCount }}
-        </div>
-        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span class="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-          环境图就绪 {{ readySceneCount }}
-        </div>
-        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span class="inline-block h-2 w-2 rounded-full bg-violet-500" />
-          视频完成 {{ queueSummary.done }}
-        </div>
+    <Teleport to="#workbench-stage-toolbar">
+      <div v-if="toolbarActive && componentActive" class="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <div
-          v-if="queueSummary.error > 0"
-          class="flex items-center gap-1.5 text-xs text-destructive"
+          class="flex flex-wrap items-center gap-2"
+          aria-live="polite"
         >
-          <span class="inline-block h-2 w-2 rounded-full bg-destructive" />
-          失败 {{ queueSummary.error }}
+          <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span
+              class="inline-block h-2 w-2 rounded-full bg-blue-500"
+              aria-hidden="true"
+            />
+            场景 {{ scenes.length }}
+          </div>
+          <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span class="inline-block h-2 w-2 rounded-full bg-amber-500" />
+            分集 {{ episodeCount }}
+          </div>
+          <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span class="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+            环境图就绪 {{ readySceneCount }}
+          </div>
+          <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span class="inline-block h-2 w-2 rounded-full bg-violet-500" />
+            视频完成 {{ queueSummary.done }}
+          </div>
+          <div
+            v-if="queueSummary.error > 0"
+            class="flex items-center gap-1.5 text-xs text-destructive"
+          >
+            <span class="inline-block h-2 w-2 rounded-full bg-destructive" />
+            失败 {{ queueSummary.error }}
+          </div>
+          <div
+            v-if="queueSummary.running > 0"
+            class="flex items-center gap-1.5 text-xs text-muted-foreground"
+          >
+            <Loader2 class="h-3 w-3 animate-spin text-primary" />
+            运行中 {{ queueSummary.running }}
+          </div>
         </div>
-        <div
-          v-if="queueSummary.running > 0"
-          class="flex items-center gap-1.5 text-xs text-muted-foreground"
-        >
-          <Loader2 class="h-3 w-3 animate-spin text-primary" />
-          运行中 {{ queueSummary.running }}
-        </div>
-      </div>
 
-      <div class="flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          variant="ghost"
-          class="gap-2 text-muted-foreground sm:ml-auto"
-          :disabled="exportingScriptDocx || scenes.length === 0"
-          @click="onExportFormattedScriptDocx()"
-        >
-          <Loader2
-            v-if="exportingScriptDocx"
-            class="h-3.5 w-3.5 animate-spin"
-          />
-          <FileDown
-            v-else
-            class="h-3.5 w-3.5"
-          />
-          导出格式化 DOCX
-        </Button>
+        <div class="ml-auto flex flex-wrap items-center justify-end gap-3">
+          <Button
+            size="sm"
+            variant="ghost"
+            class="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+            :disabled="canExport === false || exportingScriptDocx || scenes.length === 0"
+            @click="onExportFormattedScriptDocx()"
+          >
+            <Loader2
+              v-if="exportingScriptDocx"
+              class="h-3.5 w-3.5 animate-spin"
+            />
+            <FileDown
+              v-else
+              class="h-3.5 w-3.5"
+            />
+            导出格式化 DOCX
+          </Button>
+        </div>
       </div>
-    </div>
+    </Teleport>
 
     <!-- Scene grid -->
     <div

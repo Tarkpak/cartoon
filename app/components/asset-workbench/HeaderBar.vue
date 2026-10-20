@@ -36,50 +36,39 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="shrink-0 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-    <div class="flex min-w-0 items-center gap-3 lg:max-w-sm xl:max-w-md">
-      <Button
-        variant="ghost"
-        size="icon"
-        class="h-9 w-9 shrink-0 rounded-full"
-        aria-label="返回项目列表"
-        title="返回项目列表"
-        @click="emit('back')"
-      >
-        <ArrowLeft class="h-4 w-4" />
-      </Button>
-      <div class="min-w-0">
-        <h1 class="text-lg font-semibold leading-tight tracking-tight">
-          {{ projectName || 'AI 视频创作工作台' }}
-        </h1>
-        <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span
-            v-if="projectDescription"
-            class="truncate max-w-[200px]"
-          >{{ projectDescription }}</span>
-          <span class="inline-flex items-center gap-1">
-            <span class="inline-block h-1 w-1 rounded-full bg-muted-foreground/40" />
-            {{ styleSummary }}
-          </span>
-          <span class="inline-flex items-center gap-1">
-            <span class="inline-block h-1 w-1 rounded-full bg-muted-foreground/40" />
-            {{ projectAspectRatio }}
-          </span>
+  <div class="flex shrink-0 flex-col gap-1.5 border-b pb-2">
+    <div class="flex flex-wrap items-center gap-3 lg:flex-nowrap">
+      <div class="flex min-w-0 items-center gap-2 lg:max-w-sm">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-8 w-8 shrink-0 rounded-full"
+          aria-label="返回项目列表"
+          title="返回项目列表"
+          @click="emit('back')"
+        >
+          <ArrowLeft class="h-4 w-4" />
+        </Button>
+        <div class="min-w-0" :title="[projectDescription, styleSummary, projectAspectRatio].filter(Boolean).join(' · ')">
+          <h1 :title="projectName" class="truncate text-base font-semibold leading-5 tracking-tight">
+            {{ projectName || 'AI 视频创作工作台' }}
+          </h1>
         </div>
       </div>
+      <div class="min-w-0 shrink-0 lg:ml-auto">
+        <AssetWorkbenchStageSwitcher
+          :stages="stages"
+          :active-stage="activeStage"
+          :auto-run-error="autoRunError"
+          :save-error="saveError"
+          :save-warning="saveWarning"
+          @select-stage="emit('select-stage', $event as AutoStageKey)"
+        />
+      </div>
+      <div class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 lg:flex-nowrap">
+        <slot name="actions" />
+      </div>
     </div>
-    <div class="min-w-0 lg:flex-1">
-      <AssetWorkbenchStageSwitcher
-        :stages="stages"
-        :active-stage="activeStage"
-        :auto-run-error="autoRunError"
-        :save-error="saveError"
-        :save-warning="saveWarning"
-        @select-stage="emit('select-stage', $event as AutoStageKey)"
-      />
-    </div>
-    <div v-if="$slots.actions" class="shrink-0 self-end lg:order-last lg:self-start">
-      <slot name="actions" />
-    </div>
+    <div id="workbench-stage-toolbar" class="empty:hidden" />
   </div>
 </template>

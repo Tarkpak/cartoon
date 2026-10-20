@@ -3784,7 +3784,16 @@ function reportWorkbenchActivity() {
       @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
     >
       <template #actions>
-        <Button v-if="projectId && projectAccessCan(projectAccess, 'manage_members')" variant="outline" size="sm" class="gap-2" @click="projectMembersOpen = true">
+        <ProjectEditSessionBanner
+          compact
+          :session="editSession"
+          :participants="collaborationParticipants"
+          :busy="acquiringEditSession"
+          @retry="requestProjectEditing()"
+          @takeover="confirmProjectTakeover"
+          @download-backup="downloadEditBackup()"
+        />
+        <Button v-if="projectId && projectAccessCan(projectAccess, 'manage_members')" variant="outline" size="sm" class="h-8 gap-1.5 px-2.5 text-xs" @click="projectMembersOpen = true">
           <Users class="h-4 w-4" />项目成员
         </Button>
       </template>
@@ -3792,15 +3801,6 @@ function reportWorkbenchActivity() {
 
     <ProjectMembersDialog v-if="projectId" v-model:open="projectMembersOpen" :project-id="projectId" />
     <ProjectConflictDialog :preview="collaborationMergePreview" :busy="saving" :error="saveError" @cancel="cancelProjectMerge" @apply="applyProjectMerge" />
-
-    <ProjectEditSessionBanner
-      :session="editSession"
-      :participants="collaborationParticipants"
-      :busy="acquiringEditSession"
-      @retry="requestProjectEditing()"
-      @takeover="confirmProjectTakeover"
-      @download-backup="downloadEditBackup()"
-    />
 
     <div
       v-if="projectAccess && !projectAccessCan(projectAccess, 'edit') && !acquiringEditSession"
@@ -3826,6 +3826,7 @@ function reportWorkbenchActivity() {
     <AssetWorkbenchStagePanel
       v-else-if="activeAutoStage === 'assets' || activeAutoStage === 'videos'"
       :inert="activeAutoStage === 'videos' && !canEditProject"
+      content-class="flex-1 min-h-0 overflow-hidden flex flex-col gap-2"
     >
       <KeepAlive>
         <AssetWorkbenchAssetsStage
@@ -3833,6 +3834,7 @@ function reportWorkbenchActivity() {
           :read-only="!canEditProject"
           :can-save-to-library="canExportProject"
           key="assets-stage"
+          :toolbar-active="activeAutoStage === 'assets'"
           :scenes-count="scenes.length"
           :characters="characters"
           :environment-asset-cards="displayEnvironmentAssetCards"
@@ -3897,9 +3899,10 @@ function reportWorkbenchActivity() {
         />
 
         <AssetWorkbenchVideosStage
-          :inert="!canEditProject"
           v-else
           :key="`videos-stage:${projectId || 'new'}`"
+          :toolbar-active="activeAutoStage === 'videos'"
+          :can-export="canExportProject"
           :scenes="scenes"
           :project-name="projectName"
           :project-aspect-ratio="projectAspectRatio"
@@ -3973,7 +3976,8 @@ function reportWorkbenchActivity() {
           :on-submit-scene-chat="submitSceneChat"
           :on-select-scene-description-version="selectSceneDescriptionVersion"
           :normalize-workflow-text="normalizeWorkflowText"
-        />
+        >
+        </AssetWorkbenchVideosStage>
       </KeepAlive>
     </AssetWorkbenchStagePanel>
 

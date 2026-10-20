@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onActivated, onDeactivated } from 'vue'
 import type { LibraryAsset, LibraryAssetCategory } from '#shared/types/library'
 import { Database, Download, Loader2, Plus } from 'lucide-vue-next'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
@@ -14,7 +15,12 @@ import type {
   EnvironmentCropCaptureMode
 } from '~/lib/asset-workbench-types'
 
+const componentActive = ref(true)
+onActivated(() => { componentActive.value = true })
+onDeactivated(() => { componentActive.value = false })
+
 const props = defineProps<{
+  toolbarActive?: boolean
   scenesCount: number
   characters: CharacterData[]
   environmentAssetCards: EnvironmentAssetCard[]
@@ -125,10 +131,20 @@ const tabs = computed(() => [
   { key: 'others' as AssetTab, label: '其他素材', count: otherAssetsOfType.value.length }
 ])
 
-const hasSeedAssets = computed(() => {
-  return props.characters.length > 0
-    || props.environmentAssetCards.length > 0
-    || props.propAssets.length > 0
+const assetSummary = computed(() => {
+  if (assetTab.value === 'characters') {
+    return { label: '角色图', total: props.characters.length, ready: props.characterReadyCount, generating: props.characterGeneratingCount, missing: props.characterMissingCount, error: 0 }
+  }
+  if (assetTab.value === 'environments') {
+    const assets = props.environmentAssetCards
+    const count = (status: string) => assets.filter(item => item.referenceStatus === status).length
+    return { label: '环境图', total: assets.length, ready: count('done'), generating: count('generating'), missing: count('pending'), error: count('error') }
+  }
+  const assets = assetTab.value === 'props' ? propAssetsOfType.value : otherAssetsOfType.value
+  const ready = assets.filter(item => item.mediaType === 'voice' ? !!item.voiceAsset?.audioUrl : !!item.referenceImage).length
+  const generating = assets.filter(item => item.id === props.generatingPropId).length
+  const missing = assets.filter(item => item.id !== props.generatingPropId && !(item.mediaType === 'voice' ? item.voiceAsset?.audioUrl : item.referenceImage)).length
+  return { label: assetTab.value === 'props' ? '道具图' : '其他素材', total: assets.length, ready, generating, missing, error: 0 }
 })
 
 // Personal-library exports do not change the project. Keep them and category
@@ -155,59 +171,55 @@ const vAssetAccess = {
 
 <template>
   <div v-asset-access class="flex min-h-0 flex-1 flex-col gap-3">
-    <!-- Status bar -->
-    <div class="shrink-0 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <div
-        class="flex items-center gap-4"
-        aria-live="polite"
-      >
-        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span
-            class="inline-block h-2 w-2 rounded-full"
-            :class="characterReadyCount === characters.length ? 'bg-emerald-500' : 'bg-amber-500'"
-            aria-hidden="true"
-          />
-          角色图 {{ characterReadyCount }}/{{ characters.length }}
-        </div>
+    <Teleport to="#workbench-stage-toolbar">
+      <div v-if="toolbarActive && componentActive" v-asset-access class="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <div
-          v-if="characterGeneratingCount > 0"
-          class="flex items-center gap-1.5 text-xs text-muted-foreground"
+          class="flex shrink-0 items-center gap-2 whitespace-nowrap"
+          aria-live="polite"
         >
-          <Loader2 class="h-3 w-3 animate-spin text-primary" />
-          生成中 {{ characterGeneratingCount }}
+          <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span
+              class="inline-block h-2 w-2 rounded-full"
+              :class="assetSummary.ready === assetSummary.total ? 'bg-emerald-500' : 'bg-amber-500'"
+              aria-hidden="true"
+            />
+            {{ assetSummary.label }} {{ assetSummary.ready }}/{{ assetSummary.total }}
+          </div>
+          <div
+            v-if="assetSummary.generating > 0"
+            class="flex items-center gap-1.5 text-xs text-muted-foreground"
+          >
+            <Loader2 class="h-3 w-3 animate-spin text-primary" />
+            生成中 {{ assetSummary.generating }}
+          </div>
+          <div
+            v-if="assetSummary.missing > 0"
+            class="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"
+          >
+            <span
+              class="inline-block h-2 w-2 rounded-full bg-amber-500"
+              aria-hidden="true"
+            />
+            待生成 {{ assetSummary.missing }}
+          </div>
+          <span v-if="assetSummary.error" class="text-xs text-destructive">失败 {{ assetSummary.error }}</span>
         </div>
-        <div
-          v-if="characterMissingCount > 0"
-          class="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"
-        >
-          <span
-            class="inline-block h-2 w-2 rounded-full bg-amber-500"
-            aria-hidden="true"
-          />
-          待生成 {{ characterMissingCount }}
-        </div>
-        <div
-          v-if="scenesCount === 0 && hasSeedAssets"
-          class="text-xs text-muted-foreground/80"
-        >
-          当前展示的是分集目录提取的资产候选
+        <div class="ml-auto flex flex-wrap items-center gap-1">
+          <Button v-if="assetTab === 'characters'" size="sm" class="h-7 gap-1 px-2 text-xs" :disabled="autoRunning" @click="emit('add-character')">
+            <Plus class="h-3.5 w-3.5" />
+            新增角色
+          </Button>
+          <Button size="sm" variant="outline" class="h-7 gap-1 px-2 text-xs" @click="libraryPickerOpen = true">
+            <Database class="h-3.5 w-3.5" />
+            从资源库选择
+          </Button>
+          <Button data-library-save size="sm" variant="outline" class="h-7 gap-1 px-2 text-xs" :disabled="!!savingLibraryAssetKey" @click="emit('save-assets-to-library', assetTab)">
+            <Download class="h-3.5 w-3.5" />
+            全部存入个人库
+          </Button>
         </div>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <Button v-if="assetTab === 'characters'" size="sm" class="gap-1.5" :disabled="autoRunning" @click="emit('add-character')">
-          <Plus class="h-3.5 w-3.5" />
-          新增角色
-        </Button>
-        <Button size="sm" variant="outline" class="gap-1.5" @click="libraryPickerOpen = true">
-          <Database class="h-3.5 w-3.5" />
-          从资源库选择
-        </Button>
-        <Button data-library-save size="sm" variant="outline" class="gap-1.5" :disabled="!!savingLibraryAssetKey" @click="emit('save-assets-to-library', assetTab)">
-          <Download class="h-3.5 w-3.5" />
-          全部存入个人库
-        </Button>
-      </div>
-    </div>
+    </Teleport>
 
     <LibraryAssetPickerDialog
       v-model:open="libraryPickerOpen"

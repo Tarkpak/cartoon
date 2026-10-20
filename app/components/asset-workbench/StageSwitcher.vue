@@ -28,17 +28,17 @@ const emit = defineEmits<{
         <!-- Connector line -->
         <div
           v-if="idx > 0"
-          class="h-px flex-1 transition-colors duration-300"
+          class="mx-1 h-px w-3 shrink-0 transition-colors duration-300"
           :class="stage.status === 'done' ? 'bg-emerald-500/40' : 'bg-border'"
         />
         <!-- Step button -->
         <Button
           type="button"
           variant="ghost"
-          class="group relative h-auto gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-200"
+          class="group relative h-8 gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors duration-150"
           :class="[
             activeStage === stage.key
-              ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
+              ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/15'
               : stage.status === 'done'
                 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20'
                 : stage.status === 'running'
@@ -49,7 +49,7 @@ const emit = defineEmits<{
         >
           <!-- Step indicator -->
           <span
-            class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors"
+            class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors"
             :class="[
               activeStage === stage.key
                 ? 'bg-primary-foreground/20 text-primary-foreground'
