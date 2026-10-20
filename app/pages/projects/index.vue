@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { Plus } from 'lucide-vue-next'
 import type { Project } from '~/lib/projects-page'
-import { resolveProjectDetailPath } from '#shared/types/project'
 import ProjectSyncConflictDialog from '@/components/projects/ProjectSyncConflictDialog.vue'
 import { projectAspectRatioOptions } from '~/lib/projects-page'
 import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue'
 import ProjectDeleteDialog from '@/components/projects/ProjectDeleteDialog.vue'
-import ProjectCollaborationMigrationDialog from '@/components/projects/ProjectCollaborationMigrationDialog.vue'
 import ProjectMembersDialog from '@/components/projects/ProjectMembersDialog.vue'
 import ProjectsFiltersBar from '@/components/projects/ProjectsFiltersBar.vue'
 import ProjectsTable from '@/components/projects/ProjectsTable.vue'
@@ -70,15 +68,6 @@ function openSyncConflict(project: Project) {
   conflictDialogOpen.value = true
 }
 
-const migrationProject = ref<Project | null>(null)
-const migrationOpen = ref(false)
-const router = useRouter()
-function openMigration(project: Project) { migrationProject.value = project; migrationOpen.value = true }
-async function migrated(id: string) {
-  migrationOpen.value = false
-  await fetchProjects()
-  await router.push(resolveProjectDetailPath(id))
-}
 const projectMembersDialogOpen = ref(false)
 const projectMembersProjectId = ref('')
 
@@ -131,7 +120,6 @@ function openProjectMembers(project: { id: string }) {
         @open-create="openCreateDialog"
         @open-project="openProject"
         @manage-members="openProjectMembers"
-        @migrate-collaboration="openMigration"
         @resolve-sync-conflict="openSyncConflict"
         @confirm-delete="confirmDelete"
         @page-change="goToPage"
@@ -170,7 +158,6 @@ function openProjectMembers(project: { id: string }) {
     >
     </ProjectCreateDialog>
 
-    <ProjectCollaborationMigrationDialog v-model:open="migrationOpen" :project="migrationProject" @migrated="migrated" />
     <ProjectMembersDialog
       v-if="projectMembersProjectId"
       v-model:open="projectMembersDialogOpen"

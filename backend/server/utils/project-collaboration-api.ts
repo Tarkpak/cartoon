@@ -1,4 +1,5 @@
 import { createError } from 'h3'
+import { updateCollaborationPresence } from './project-collaboration-presence'
 import type { Database } from 'bun:sqlite'
 import type { AuthContext } from './auth'
 import { manageCollaboration } from './project-collaboration-management'
@@ -32,7 +33,14 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
     const editable = auth.user.role === 'admin' || auth.user.id === ownerUserId || (!!access.role && projectMemberCan({ role: access.role, permissions_json: access.permissions_json }, 'edit'))
     if (project.deleted_at && body.action !== 'delete') throw createError({ statusCode: 410, message: '项目已删除' })
     if (body.action === 'read') return { ...readCollaboration(db, project.id), editable }
-    if (body.action === 'changes') return { ...collaborationChanges(db, project.id, body.after as number), editable }
+    if (body.action === 'changes') {
+      const result = collaborationChanges(db, project.id, body.after as number)
+      // Legacy clients may omit presence metadata and continue using the same protocol.
+      const participants = typeof body.deviceId === 'string' && typeof body.sessionId === 'string'
+        ? updateCollaborationPresence(db, project.id, auth.user.id, collaborationId(body.deviceId), collaborationId(body.sessionId), body.activeScopes, editable)
+        : []
+      return { ...result, editable, participants }
+    }
     if (['members', 'memberPut', 'memberRemove', 'delete'].includes(body.action as string)) return manageCollaboration(db, auth, { id: project.id, ownerId: ownerUserId, deletedAt: project.deleted_at }, body)
     const canTakeover = auth.user.id === ownerUserId || auth.user.role === 'admin'
     if (body.action === 'migrationPreview') {
@@ -76,7 +84,7 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
     })
   })
   try {
-    return ['read', 'changes', 'members'].includes(body.action as string) ? transaction() : transaction.immediate()
+    return ['read', 'members'].includes(body.action as string) ? transaction() : transaction.immediate()
   } catch (cause) {
     if (cause instanceof Error && 'code' in cause && cause.code === 'SQLITE_BUSY') {
       throw createError({ statusCode: 503, message: '协作服务繁忙，请稍后使用相同操作 ID 重试' })

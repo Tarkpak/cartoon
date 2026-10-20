@@ -35,6 +35,9 @@ interface ProjectOwnerRow {
 const { toast } = useToast()
 const { confirm } = useConfirm()
 const loading = ref(false)
+const loadError = ref('')
+const candidateError = ref(false)
+let loadSequence = 0
 const savingUserId = ref<string | null>(null)
 const candidates = ref<ProjectMemberCandidate[]>([])
 const owner = ref<ProjectOwnerRow | null>(null)
@@ -58,7 +61,11 @@ const selectedCandidate = computed(() => candidates.value.find(candidate => cand
 
 async function loadMembers() {
   if (!props.projectId) return
+  const version = ++loadSequence
+  const projectId = props.projectId
   loading.value = true
+  loadError.value = ''
+  candidateError.value = false
   try {
     const [memberResponse, memberCandidates] = await Promise.all([
       $fetch<{
@@ -69,23 +76,24 @@ async function loadMembers() {
           access: ProjectAccess
           currentUserId: string
         }
-      }>(`/api/project/${props.projectId}/members`, { timeout: 30_000, retry: 0 }),
-      listLibraryMembers().catch(() => [])
+      }>(`/api/project/${projectId}/members`, { timeout: 30_000, retry: 0 }),
+      listLibraryMembers().catch(() => null)
     ])
+    if (version !== loadSequence) return
     owner.value = memberResponse.data.owner
     members.value = memberResponse.data.members
     access.value = memberResponse.data.access
     currentUserId.value = memberResponse.data.currentUserId
-    candidates.value = memberCandidates
+    candidateError.value = memberCandidates === null
+    candidates.value = memberCandidates || []
     if (!availableCandidates.value.some(candidate => candidate.id === selectedUserId.value)) {
       selectedUserId.value = ''
     }
   } catch (error) {
-    toast.error('加载项目成员失败', {
-      description: error instanceof Error ? error.message : undefined
-    })
+    if (version !== loadSequence) return
+    loadError.value = error instanceof Error ? error.message : '加载项目成员失败，请重试'
   } finally {
-    loading.value = false
+    if (version === loadSequence) loading.value = false
   }
 }
 
@@ -123,10 +131,12 @@ async function saveMember(input: {
     } else {
       toast.success('项目权限已更新')
     }
+    return true
   } catch (error) {
     toast.error('更新项目权限失败', {
       description: error instanceof Error ? error.message : undefined
     })
+    return false
   } finally {
     savingUserId.value = null
   }
@@ -135,14 +145,14 @@ async function saveMember(input: {
 async function addMember() {
   const candidate = selectedCandidate.value
   if (!candidate) return
-  await saveMember({
+  const saved = await saveMember({
     userId: candidate.id,
     account: candidate.account,
     displayName: candidate.displayName,
     role: addRole.value,
     permissions: addRole.value === 'custom' ? ['view'] : undefined
   })
-  selectedUserId.value = ''
+  if (saved) selectedUserId.value = ''
 }
 
 async function updateRole(member: ProjectMember, value: unknown) {
@@ -168,8 +178,7 @@ function toggleCustomPermission(permission: ProjectPermission, checked: boolean 
 }
 
 async function saveCustomPermissions(member: ProjectMember) {
-  await saveMember({ ...member, role: 'custom', permissions: customPermissions.value })
-  customUserId.value = null
+  if (await saveMember({ ...member, role: 'custom', permissions: customPermissions.value })) customUserId.value = null
 }
 
 async function removeMember(member: ProjectMember) {
@@ -203,9 +212,16 @@ async function removeMember(member: ProjectMember) {
   }
 }
 
-watch(() => props.open, (open) => {
-  if (open) void loadMembers()
-})
+watch(() => [props.open, props.projectId] as const, ([open]) => {
+  if (open) {
+    owner.value = null
+    members.value = []
+    access.value = null
+    selectedUserId.value = ''
+    customUserId.value = null
+    void loadMembers()
+  } else loadSequence++
+}, { immediate: true })
 </script>
 
 <template>
@@ -217,7 +233,7 @@ watch(() => props.open, (open) => {
           项目成员
         </DialogTitle>
         <DialogDescription>
-          {{ canManage ? '为账号分配角色，或按需设置自定义权限。' : '查看当前项目的所有者和协作成员。' }}
+          {{ canManage ? '添加成员后，对方可从项目列表进入同一个工作台。' : '查看当前项目的所有者和协作成员。' }}
         </DialogDescription>
       </DialogHeader>
 
@@ -226,9 +242,18 @@ watch(() => props.open, (open) => {
           <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
 
+        <div v-else-if="loadError" class="space-y-3 px-6 py-8 text-center">
+          <p role="alert" class="text-sm text-destructive">{{ loadError }}</p>
+          <Button variant="outline" size="sm" @click="loadMembers">重新加载</Button>
+        </div>
+
         <template v-else>
+          <div v-if="canManage && candidateError" class="flex items-center justify-between gap-3 px-6 py-3 text-sm text-muted-foreground" role="status">
+            可添加成员加载失败
+            <Button variant="outline" size="sm" @click="loadMembers">重试</Button>
+          </div>
           <div v-if="canManage" class="grid gap-2 border-b bg-muted/20 px-6 py-4 sm:grid-cols-[minmax(0,1fr)_140px_auto]">
-            <Select v-model="selectedUserId">
+            <Select v-model="selectedUserId" :disabled="!!savingUserId || candidateError">
               <SelectTrigger class="h-9 min-w-0 bg-background">
                 <SelectValue :placeholder="availableCandidates.length ? '选择账号' : '没有可添加账号'" />
               </SelectTrigger>
@@ -238,7 +263,7 @@ watch(() => props.open, (open) => {
                 </SelectItem>
               </SelectContent>
             </Select>
-            <Select v-model="addRole">
+            <Select v-model="addRole" :disabled="!!savingUserId">
               <SelectTrigger class="h-9 bg-background"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem v-for="role in ['manager', 'editor', 'viewer']" :key="role" :value="role">
@@ -247,8 +272,10 @@ watch(() => props.open, (open) => {
               </SelectContent>
             </Select>
             <Button class="h-9 gap-1.5 transition-transform active:scale-[0.96]" :disabled="!selectedCandidate || !!savingUserId" @click="addMember">
-              <Plus class="h-4 w-4" />添加
+              <Loader2 v-if="savingUserId === selectedUserId" class="h-4 w-4 animate-spin" />
+              <Plus v-else class="h-4 w-4" />添加成员
             </Button>
+            <p class="text-xs leading-5 text-muted-foreground sm:col-span-3">编辑者可修改、生成和导出；查看者只能浏览；项目管理员还可管理成员。</p>
           </div>
 
           <div class="divide-y">
@@ -306,7 +333,7 @@ watch(() => props.open, (open) => {
             </div>
 
             <div v-if="members.length === 0" class="px-6 py-10 text-center text-sm text-muted-foreground">
-              当前还没有协作成员
+              {{ canManage ? '当前暂无协作成员，添加成员即可一起创作。' : '当前暂无协作成员。' }}
             </div>
           </div>
         </template>

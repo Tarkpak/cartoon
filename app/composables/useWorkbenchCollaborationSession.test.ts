@@ -26,6 +26,7 @@ beforeEach(() => {
   vi.stubGlobal('$fetch', vi.fn(async (path: string, options: { body?: Record<string, any> }) => {
     if (path.endsWith('/prepare')) return { data: { enabled: true, editable, protocolVersion: 1, resources: structuredClone(server) } }
     const body = options.body!
+    if (body.action === 'read') return { data: { enabled: true, editable, resources: structuredClone(server), cursor: 1 } }
     if (body.action === 'changes') {
       if (readError) throw readError
       return { data: { changes: structuredClone(changes), cursor: 1, hasMore: false, editable } }
@@ -48,6 +49,116 @@ afterEach(async () => { for (const session of sessions.splice(0)) await session.
 const createSession = () => { const session = useWorkbenchCollaborationSession(async () => true); sessions.push(session); return session }
 
 describe('collaboration in the original workbench', () => {
+  it('reports recent typing after autosave and stops reporting it when idle', async () => {
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before: view(), after: view() }), apply: vi.fn() })
+    sessions.push(session)
+    await session.openEditSession('p')
+    session.updateCollaborationActivity({ type: 'episode', id: 'a' })
+    await session.poll()
+    const requests = () => vi.mocked($fetch).mock.calls.map(([, options]) => options?.body as Record<string, unknown>).filter(body => body?.action === 'changes')
+    expect(requests().at(-1)?.activeScopes).toContainEqual({ type: 'episode', id: 'a' })
+    vi.setSystemTime(Date.now() + 31_000)
+    await session.poll()
+    expect(requests().at(-1)?.activeScopes).toEqual([])
+  })
+
+  it('fences another cloud edit made after the merge preview', async () => {
+    let before = view(), after = view()
+    after.scenes[0]!.description = '我的画面'
+    const session = useWorkbenchCollaborationSession(async () => true, {
+      draft: () => ({ before, after }),
+      apply: (baseline, current) => {
+        before = { ...view(), scenes: baseline.scenes as typeof before.scenes }
+        after = { ...view(), scenes: current.scenes as typeof after.scenes }
+      }
+    })
+    sessions.push(session)
+    await session.openEditSession('p')
+    await session.previewMerge()
+    const remote = server.find(item => item.id === 'a')!
+    remote.revision++
+    ;(remote.body!.scenes as Array<Record<string, unknown>>)[0]!.description = '对方后来保存'
+    session.applyMerge({})
+    await expect(session.saveSnapshot(before, after)).rejects.toMatchObject({ statusCode: 409 })
+    expect(remote.body!.scenes).toMatchObject([{ description: '对方后来保存' }])
+    expect([...store.values()].some(value => value.includes('我的画面'))).toBe(true)
+  })
+
+  it('merges different fields of the same episode and saves against the latest revision', async () => {
+    let before = view(), after = view()
+    after.scenes[0]!.description = '我的画面'
+    const session = useWorkbenchCollaborationSession(async () => true, {
+      draft: () => ({ before, after }),
+      apply: (baseline, current) => {
+        before = { ...view(), scenes: baseline.scenes as typeof before.scenes }
+        after = { ...view(), scenes: current.scenes as typeof after.scenes }
+      }
+    })
+    sessions.push(session)
+    await session.openEditSession('p')
+    const remote = server.find(item => item.id === 'a')!
+    remote.revision++
+    ;(remote.body!.scenes as Array<Record<string, unknown>>)[0]!.dialogue = '对方对白'
+    await session.previewMerge()
+    expect(session.mergePreview.value?.conflicts).toHaveLength(0)
+    session.applyMerge({})
+    expect(after.scenes[0]).toMatchObject({ description: '我的画面', dialogue: '对方对白' })
+    await session.saveSnapshot(before, after)
+    expect(writes[0]!.mutations[0].expectedRevision).toBe(2)
+    expect(server.find(item => item.id === 'a')!.body!.scenes).toMatchObject([{ description: '我的画面', dialogue: '对方对白' }])
+  })
+
+  it('requires explicit choices and rejects a draft changed after comparison', async () => {
+    const before = view(), after = view()
+    after.scenes[0]!.description = '本机修改'
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before, after }), apply: vi.fn() })
+    sessions.push(session)
+    await session.openEditSession('p')
+    const remote = server.find(item => item.id === 'a')!
+    remote.revision++
+    ;(remote.body!.scenes as Array<Record<string, unknown>>)[0]!.description = '云端修改'
+    await session.previewMerge()
+    expect(session.mergePreview.value?.conflicts).toHaveLength(1)
+    expect(() => session.applyMerge({})).toThrow('每一处冲突')
+    after.scenes[0]!.description = '继续输入'
+    expect(() => session.applyMerge({})).toThrow('草稿已变化')
+    session.cancelMerge()
+    expect(session.mergePreview.value).toBeUndefined()
+    expect(writes).toHaveLength(0)
+  })
+
+  it('keeps temporary occupation recoverable without asking to discard a draft', async () => {
+    const session = createSession()
+    await session.openEditSession('p')
+    const local = view()
+    local.scenes[0]!.description = '待保存内容'
+    blocked = 'a'
+    await expect(session.saveSnapshot(view(), local)).rejects.toThrow('正在由其他成员编辑')
+    expect(session.editSession.value.scopeConflict).not.toBe(true)
+    expect(session.editSession.value.reason).toContain('当前修改已保留')
+    blocked = ''
+    await session.saveSnapshot(view(), local)
+    expect(session.editSession.value.reason).toBeUndefined()
+    expect(server.find(item => item.id === 'a')!.body!.scenes).toMatchObject([{ description: '待保存内容' }])
+  })
+
+  it('backs up unsaved edits on connection loss and clears the warning after recovery', async () => {
+    const before = view(), after = view()
+    after.scenes[0]!.description = '断网前输入'
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before, after }), apply: vi.fn() })
+    sessions.push(session)
+    await session.openEditSession('p')
+    readError = new Error('网络暂时不可用')
+    await session.poll()
+    expect(session.projectEditable.value).toBe(true)
+    expect(session.editSession.value.scopeConflict).not.toBe(true)
+    expect(session.editSession.value.reason).toContain('网络暂时不可用')
+    expect([...store.values()].some(value => value.includes('断网前输入'))).toBe(true)
+    readError = undefined
+    await session.poll()
+    expect(session.editSession.value.reason).toBeUndefined()
+  })
+
   it('lets two stale windows save different episodes without overwriting each other', async () => {
     const first = createSession(), second = createSession()
     await first.openEditSession('p'); await second.openEditSession('p')

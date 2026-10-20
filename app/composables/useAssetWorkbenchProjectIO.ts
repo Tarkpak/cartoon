@@ -1,4 +1,5 @@
 import { patchWorkbenchFields } from '~/lib/workbench-collaboration'
+import type { MergeChoices } from '~/lib/collaboration-merge'
 import { parseCollaborationAssetResult } from '~/lib/project-collaboration-assets'
 import type { CollaborationBody } from '#shared/types/project-collaboration'
 import { useWorkbenchCollaborationSession } from './useWorkbenchCollaborationSession'
@@ -676,11 +677,16 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   }
 
   async function requestProjectEditing(takeover = false) {
-    loading.value = true
+    if (!(editSession.value.scopeConflict && editSession.value.collaboration && projectEditable.value)) loading.value = true
     try {
       const id = activeProjectId.value || options.projectId.value
       if (!id) return
-      if (editSession.value.scopeConflict) {
+      if (editSession.value.scopeConflict && editSession.value.collaboration && projectEditable.value) {
+        saveError.value = null
+        await collaboration.previewMerge()
+        return
+      }
+      if (editSession.value.scopeConflict && !editSession.value.collaboration) {
         const { confirm } = useConfirm()
         if (!await confirm({ title: '读取最新协作内容', description: '本机草稿已保留。读取云端内容会替换当前页面，请先下载需要保留的草稿，之后可手动合并。', confirmText: '读取云端内容', cancelText: '保留当前草稿' })) return
         collaboration.discardDraft?.()
@@ -700,7 +706,19 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       void takeover
       await openEditSession(id)
       if (projectEditable.value) await loadProject(id, true)
+    } catch (error) {
+      saveError.value = getDisplayErrorMessage(error, '读取最新内容失败，请重试')
     } finally { loading.value = false }
+  }
+
+  async function applyProjectMerge(choices: MergeChoices) {
+    try {
+      saveError.value = null
+      collaboration.applyMerge(choices)
+      await saveProject()
+    } catch (error) {
+      saveError.value = getDisplayErrorMessage(error, '合并失败，请重新对比')
+    }
   }
 
   async function downloadEditBackup() {
@@ -757,6 +775,11 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     acquiringEditSession,
     requestProjectEditing,
     downloadEditBackup,
+    collaborationMergePreview: collaboration.mergePreview,
+    collaborationParticipants: collaboration.collaborationParticipants,
+    updateCollaborationActivity: collaboration.updateCollaborationActivity,
+    cancelProjectMerge: collaboration.cancelMerge,
+    applyProjectMerge,
     releaseEditSession,
     saveProject,
     loadProject,

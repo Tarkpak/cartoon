@@ -31,6 +31,12 @@ export function ensureProjectCollaborationSchema(db: Database) {
       token TEXT NOT NULL, expires_at INTEGER NOT NULL,
       PRIMARY KEY (project_id, resource_type, resource_id)
     );
+    CREATE TABLE IF NOT EXISTS project_collaboration_presence (
+      project_id TEXT NOT NULL REFERENCES project_collaborations(project_id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL, device_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      scopes_json TEXT NOT NULL, expires_at INTEGER NOT NULL,
+      PRIMARY KEY (project_id, user_id, device_id, session_id)
+    );
     CREATE TABLE IF NOT EXISTS project_collaboration_operations (
       project_id TEXT NOT NULL REFERENCES project_collaborations(project_id) ON DELETE CASCADE, user_id TEXT NOT NULL, operation_id TEXT NOT NULL,
       fingerprint TEXT NOT NULL, result_json TEXT NOT NULL,

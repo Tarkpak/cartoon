@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import ProjectEditSessionBanner from '@/components/projects/ProjectEditSessionBanner.vue'
+import ProjectMembersDialog from '@/components/projects/ProjectMembersDialog.vue'
+import ProjectConflictDialog from '@/components/projects/ProjectConflictDialog.vue'
+import ProjectPresenceBar from '@/components/projects/ProjectPresenceBar.vue'
+import { Users } from 'lucide-vue-next'
 import { useDebounceFn } from '@vueuse/core'
 import type { CharacterVoiceAsset } from '#shared/types/character'
 import type { LibraryAsset } from '#shared/types/library'
@@ -229,6 +233,11 @@ const {
   acquiringEditSession,
   requestProjectEditing,
   downloadEditBackup,
+  collaborationMergePreview,
+  collaborationParticipants,
+  updateCollaborationActivity,
+  cancelProjectMerge,
+  applyProjectMerge,
   acknowledgeWorkflowNormalization,
   saveProject,
   loadProject,
@@ -247,6 +256,7 @@ const {
 const { confirm } = useConfirm()
 const canEditProject = computed(() => projectEditable.value && (!projectAccess.value || projectAccessCan(projectAccess.value, 'edit')))
 const canExportProject = computed(() => !projectAccess.value || projectAccessCan(projectAccess.value, 'export'))
+const projectMembersOpen = ref(false)
 
 const selectedSceneId = ref<string>('')
 const lastArkBindingReconcileKey = ref('')
@@ -3686,10 +3696,15 @@ async function confirmProjectTakeover() {
   }
 }
 
+function reportWorkbenchActivity() {
+  const scene = activeAutoStage.value === 'videos' ? scenes.value.find(item => item.id === selectedSceneId.value) : undefined
+  updateCollaborationActivity(scene?.episodeId ? { type: 'episode', id: scene.episodeId } : { type: 'settings', id: 'settings' })
+}
+
 </script>
 
 <template>
-  <div class="h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2">
+  <div class="h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2" @input="reportWorkbenchActivity">
     <AssetWorkbenchHeaderBar
       :project-name="projectName"
       :project-description="projectDescription"
@@ -3704,7 +3719,17 @@ async function confirmProjectTakeover() {
       :save-warning="saveWarning"
       @back="router.push('/projects')"
       @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
-    />
+    >
+      <template #actions>
+        <Button v-if="projectId && projectAccessCan(projectAccess, 'manage_members')" variant="outline" size="sm" class="gap-2" @click="projectMembersOpen = true">
+          <Users class="h-4 w-4" />项目成员
+        </Button>
+      </template>
+    </AssetWorkbenchHeaderBar>
+
+    <ProjectMembersDialog v-if="projectId" v-model:open="projectMembersOpen" :project-id="projectId" />
+    <ProjectConflictDialog :preview="collaborationMergePreview" :busy="saving" :error="saveError" @cancel="cancelProjectMerge" @apply="applyProjectMerge" />
+    <ProjectPresenceBar :participants="collaborationParticipants" />
 
     <ProjectEditSessionBanner
       :session="editSession"
@@ -3715,7 +3740,7 @@ async function confirmProjectTakeover() {
     />
 
     <div
-      v-if="projectAccess && !canEditProject"
+      v-if="projectAccess && !projectAccessCan(projectAccess, 'edit') && !acquiringEditSession"
       class="shrink-0 rounded-md bg-muted/45 px-3 py-2 text-xs text-muted-foreground"
     >
       当前以只读权限打开项目。你可以查看内容{{ canExportProject ? '并导出结果' : '' }}，修改和生成操作已受限。

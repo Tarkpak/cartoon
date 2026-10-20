@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import ProjectEditSessionBanner from '@/components/projects/ProjectEditSessionBanner.vue'
+import ProjectConflictDialog from '@/components/projects/ProjectConflictDialog.vue'
+import ProjectPresenceBar from '@/components/projects/ProjectPresenceBar.vue'
+import ProjectMembersDialog from '@/components/projects/ProjectMembersDialog.vue'
 import { buildScriptWritingExportText } from '~/lib/script-writing-export'
-import { ArrowUpRight, FilePlus2, Loader2, PenLine, Search, Trash2 } from 'lucide-vue-next'
+import { ArrowUpRight, FilePlus2, Loader2, PenLine, Search, Trash2, Users } from 'lucide-vue-next'
 import type { ScriptWritingPublication } from '#shared/types/script-writing'
 import { createProjectDraft, type Project, type ProjectDraft, type ProjectListResponse } from '~/lib/projects-page'
 import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue'
@@ -9,7 +12,7 @@ import ProjectDeleteDialog from '@/components/projects/ProjectDeleteDialog.vue'
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
-import { resolveProjectWorkbenchPath } from '#shared/types/project'
+import { projectAccessCan, resolveProjectWorkbenchPath } from '#shared/types/project'
 import {
   buildPublishedWritingEpisodePlan,
   clearParsedWorkflowForPublishedWriting
@@ -37,6 +40,13 @@ const {
   saveProject,
   loadProject,
   projectEditable,
+  projectAccess,
+  saving,
+  collaborationMergePreview,
+  collaborationParticipants,
+  updateCollaborationActivity,
+  cancelProjectMerge,
+  applyProjectMerge,
   editSession,
   acquiringEditSession,
   requestProjectEditing,
@@ -54,6 +64,7 @@ const switchingProject = ref(false)
 const projectSearch = ref('')
 const writingStudioRef = ref<{ saveCurrent: () => Promise<boolean> } | null>(null)
 const showCreateDialog = ref(false)
+const projectMembersOpen = ref(false)
 const newProject = ref<ProjectDraft>(createProjectDraft())
 const createStep = ref<'basic' | 'style'>('basic')
 const creatingProject = ref(false)
@@ -522,6 +533,12 @@ async function confirmWritingTakeover() {
       </div>
 
       <div v-else class="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+        <div class="flex shrink-0 flex-wrap items-center justify-between gap-2">
+          <ProjectPresenceBar :participants="collaborationParticipants" />
+          <Button v-if="loadedProjectId && projectAccessCan(projectAccess, 'manage_members')" variant="outline" size="sm" class="ml-auto gap-2" @click="projectMembersOpen = true"><Users class="h-4 w-4" />项目成员</Button>
+        </div>
+        <ProjectMembersDialog v-if="loadedProjectId" v-model:open="projectMembersOpen" :project-id="loadedProjectId" />
+        <ProjectConflictDialog :preview="collaborationMergePreview" :busy="saving" :error="saveError" @cancel="cancelProjectMerge" @apply="applyProjectMerge" />
         <ProjectEditSessionBanner
           :session="editSession"
           :busy="acquiringEditSession"
@@ -545,6 +562,7 @@ async function confirmWritingTakeover() {
           @publish="publishWriting"
           @open-production="openWorkbench"
           @open-list="openProjectList"
+          @editing-scope="updateCollaborationActivity"
         />
       </div>
     </AppPageContent>

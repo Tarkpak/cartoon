@@ -32,17 +32,12 @@ const emit = defineEmits<{
   (event: 'open-create'): void
   (event: 'open-project', project: Project): void
   (event: 'manage-members', project: Project): void
-  (event: 'migrate-collaboration', project: Project): void
   (event: 'resolve-sync-conflict', project: Project): void
   (event: 'confirm-delete', project: Project, domEvent: Event): void
   (event: 'page-change', page: number): void
   (event: 'page-size-change', value: string): void
 }>()
 
-const { currentUser } = useCloudAdmin()
-function canMigrate(project: Project) {
-  return !project.collaboration && (project.access?.isOwner || currentUser.value?.role === 'admin' || (!!currentUser.value?.id && project.ownerUserId === currentUser.value.id))
-}
 function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
   const normalizedMode = normalizeScriptParseMode(mode)
   return SCRIPT_PARSE_MODE_LABELS[normalizedMode]
@@ -66,7 +61,7 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
 
   <Card
     v-else
-    :class="cn('flex flex-col overflow-hidden', $props.class)"
+    :class="cn('projects-table flex flex-col overflow-hidden', $props.class)"
   >
     <div class="min-h-0 flex-1 overflow-y-auto p-3 lg:hidden">
       <div
@@ -175,14 +170,13 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
           </div>
 
           <div class="mt-4 flex items-center justify-end gap-2">
-            <Button v-if="canMigrate(project)" variant="outline" size="sm" @click.stop="emit('migrate-collaboration', project)">启用按集协作</Button>
             <Button
               v-if="projectAccessCan(project.access, 'manage_members')"
               variant="ghost"
               size="icon"
               class="h-8 w-8 text-muted-foreground transition-transform hover:text-foreground active:scale-[0.96]"
-              title="分配项目权限"
-              aria-label="分配项目权限"
+              title="管理项目成员"
+              aria-label="管理项目成员"
               @click.stop="emit('manage-members', project)"
             >
               <Users class="h-4 w-4" />
@@ -220,21 +214,21 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
     </div>
 
     <Table
-      class="min-w-[1454px]"
+      class="min-w-[1000px] table-fixed"
       container-class="hidden min-h-0 flex-1 lg:block"
     >
       <TableHeader>
         <TableRow>
-          <TableHead class="w-[250px] whitespace-nowrap">
+          <TableHead class="whitespace-nowrap">
             项目名称
           </TableHead>
-          <TableHead class="whitespace-nowrap">
+          <TableHead class="project-description whitespace-nowrap">
             描述
           </TableHead>
-          <TableHead class="w-[100px] whitespace-nowrap">
+          <TableHead class="w-[140px] whitespace-nowrap">
             画风
           </TableHead>
-          <TableHead class="w-[120px] whitespace-nowrap">
+          <TableHead class="w-[100px] whitespace-nowrap">
             创建成员
           </TableHead>
           <TableHead class="w-[96px] whitespace-nowrap">
@@ -249,13 +243,13 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
           <TableHead class="w-[80px] whitespace-nowrap">
             状态
           </TableHead>
-          <TableHead class="w-[180px] whitespace-nowrap">
+          <TableHead class="project-created w-[140px] whitespace-nowrap">
             创建时间
           </TableHead>
-          <TableHead class="w-[180px] whitespace-nowrap">
+          <TableHead class="w-[140px] whitespace-nowrap">
             更新时间
           </TableHead>
-          <TableHead class="sticky right-0 top-0 z-30 w-[96px] whitespace-nowrap bg-background text-center shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
+          <TableHead class="project-actions sticky right-0 top-0 z-30 w-[84px] whitespace-nowrap bg-background text-center">
             操作
           </TableHead>
         </TableRow>
@@ -268,9 +262,9 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
           @click="emit('open-project', project)"
         >
           <TableCell class="font-medium">
-            <div class="flex items-center gap-2">
-              <span>{{ project.title }}</span>
-              <Badge v-if="project.access && !project.access.isOwner" variant="outline">
+            <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span class="min-w-0 max-w-full truncate" :title="project.title">{{ project.title }}</span>
+              <Badge v-if="project.access && !project.access.isOwner" variant="outline" class="shrink-0 whitespace-nowrap">
                 {{ PROJECT_ROLE_LABELS[project.access.role] }}
               </Badge>
               <Badge v-if="project.cloudSyncStatus === 'conflict'" variant="destructive" class="shrink-0 whitespace-nowrap" :title="`${project.cloudSyncError || '云端项目版本冲突'}。本地修改已保留，可点击处理同步冲突。`">
@@ -288,13 +282,13 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
               </Badge>
             </div>
           </TableCell>
-          <TableCell class="max-w-[300px] truncate text-muted-foreground">
+          <TableCell class="project-description truncate text-muted-foreground" :title="project.description || '暂无描述'">
             {{ project.description || '暂无描述' }}
           </TableCell>
-          <TableCell class="whitespace-nowrap">
+          <TableCell class="truncate" :title="getStyleName(project.styleId)">
             <span class="text-sm">{{ getStyleName(project.styleId) }}</span>
           </TableCell>
-          <TableCell class="whitespace-nowrap text-sm">
+          <TableCell class="truncate text-sm" :title="project.ownerDisplayName || project.ownerAccount || '-'">
             {{ project.ownerDisplayName || project.ownerAccount || '-' }}
           </TableCell>
           <TableCell class="whitespace-nowrap">
@@ -318,7 +312,7 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
               {{ statusMap[project.status || 'draft']?.label || '草稿' }}
             </Badge>
           </TableCell>
-          <TableCell class="whitespace-nowrap text-sm">
+          <TableCell class="project-created whitespace-nowrap text-sm">
             <div class="flex flex-col">
               <span>{{ formatProjectRelativeTime(project.createdAt) }}</span>
               <span class="text-xs text-muted-foreground">
@@ -334,16 +328,15 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
               </span>
             </div>
           </TableCell>
-          <TableCell class="sticky right-0 z-20 w-[96px] whitespace-nowrap bg-background text-center shadow-none [[data-has-horizontal-overflow=true]_&]:shadow-[-16px_0_24px_-18px_hsl(var(--foreground)/0.75)]">
+          <TableCell class="project-actions sticky right-0 z-20 whitespace-nowrap bg-background text-center">
             <div class="inline-flex items-center justify-center gap-1">
-              <Button v-if="canMigrate(project)" variant="ghost" size="sm" @click.stop="emit('migrate-collaboration', project)">按集协作</Button>
               <Button
                 v-if="projectAccessCan(project.access, 'manage_members')"
                 variant="ghost"
                 size="icon"
                 class="h-8 w-8 text-muted-foreground transition-transform hover:text-foreground active:scale-[0.96]"
-                title="分配项目权限"
-                aria-label="分配项目权限"
+                title="管理项目成员"
+                aria-label="管理项目成员"
                 @click.stop="emit('manage-members', project)"
               >
                 <Users class="h-4 w-4" />
@@ -355,7 +348,7 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
                 class="h-8 w-8 text-muted-foreground hover:text-destructive"
                 title="删除项目"
                 aria-label="删除项目"
-                @click="emit('confirm-delete', project, $event)"
+                @click.stop="emit('confirm-delete', project, $event)"
               >
                 <Trash2 class="h-4 w-4" />
               </Button>
@@ -432,3 +425,39 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
     </div>
   </Card>
 </template>
+
+<style scoped>
+.projects-table {
+  container-type: inline-size;
+}
+
+.project-description,
+.project-created {
+  display: none;
+}
+
+.project-actions {
+  box-shadow: -1px 0 0 hsl(var(--border));
+}
+
+td.project-actions {
+  background-color: color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background)));
+}
+
+tr:hover > td.project-actions {
+  background-color: color-mix(in srgb, hsl(var(--muted)) 65%, hsl(var(--background)));
+}
+
+@container (min-width: 1280px) {
+  .project-description {
+    display: table-cell;
+    width: 220px;
+  }
+}
+
+@container (min-width: 1480px) {
+  .project-created {
+    display: table-cell;
+  }
+}
+</style>

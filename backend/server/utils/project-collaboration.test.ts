@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import type { AuthContext } from './auth'
 import { handleProjectCollaboration } from './project-collaboration-api'
+import { updateCollaborationPresence } from './project-collaboration-presence'
 import { ensureProjectEditLeaseSchema, operateProjectEditLease } from './project-edit-leases'
 import {
   collaborationChanges, collaborationResources, collaborationSnapshot, enableProjectCollaboration,
@@ -11,6 +12,29 @@ import {
 import type { CollaborationMutation, CollaborationResourceType } from '../../../shared/types/project-collaboration'
 
 describe('per resource collaboration', () => {
+  it('shows online members and editing locations without acquiring leases', () => {
+    const { db } = setup()
+    const identity = { ownerUserId: 'owner', localProjectId: 'p1', deviceId: 'device-a', sessionId: 'window-a', action: 'changes', after: 0 }
+    const response = handleProjectCollaboration(db, auth('alice'), { ...identity, activeScopes: [{ type: 'episode', id: 'e1' }] }) as { participants: Array<{ userId: string, isCurrentWindow: boolean, scopes: unknown[] }> }
+    expect(response.participants).toMatchObject([{ userId: 'alice', isCurrentWindow: true, scopes: [{ type: 'episode', id: 'e1' }] }])
+    const viewer = handleProjectCollaboration(db, auth('viewer'), { ...identity, sessionId: 'viewer-window', activeScopes: [{ type: 'episode', id: 'e2' }] }) as typeof response
+    expect(viewer.participants.find(item => item.userId === 'alice')?.isCurrentWindow).toBe(false)
+    expect(viewer.participants.find(item => item.userId === 'viewer')?.scopes).toEqual([])
+    expect(db.query('SELECT * FROM project_collaboration_leases').all()).toHaveLength(0)
+    expect(JSON.stringify(viewer.participants)).not.toContain('device-a')
+    expect(() => handleProjectCollaboration(db, auth('stranger'), identity)).toThrow()
+  })
+
+  it('expires disconnected presence and hides removed members', () => {
+    const { db } = setup()
+    updateCollaborationPresence(db, 'cloud-p1', 'alice', 'd', 'a', [{ type: 'episode', id: 'e1' }], true, 1000)
+    const expired = updateCollaborationPresence(db, 'cloud-p1', 'bob', 'd', 'b', [], true, 46_001)
+    expect(expired.map(item => item.userId)).toEqual(['bob'])
+    db.query("DELETE FROM project_members WHERE user_id = 'bob'").run()
+    const removed = updateCollaborationPresence(db, 'cloud-p1', 'owner', 'd', 'o', [], true, 46_002)
+    expect(removed.map(item => item.userId)).toEqual(['owner'])
+  })
+
   const databases: Database[] = []
   afterEach(() => databases.splice(0).forEach(db => db.close()))
   function setup(migrate = true) {
@@ -23,7 +47,7 @@ describe('per resource collaboration', () => {
       CREATE TABLE user_projects (id TEXT PRIMARY KEY, user_id TEXT, local_project_id TEXT, local_updated_at TEXT, deleted_at TEXT, updated_at TEXT, last_synced_at TEXT,
         name TEXT, description TEXT, script_parse_mode TEXT, style_id TEXT, aspect_ratio TEXT, status TEXT, summary_json TEXT);
       CREATE TABLE user_project_snapshots (project_id TEXT, snapshot_json TEXT, created_at TEXT);
-      CREATE TABLE users (id TEXT PRIMARY KEY, account TEXT, display_name TEXT, status TEXT DEFAULT 'active');
+      CREATE TABLE users (id TEXT PRIMARY KEY, account TEXT, display_name TEXT, status TEXT DEFAULT 'active', role TEXT DEFAULT 'user');
       INSERT INTO users (id, account, display_name) VALUES ('owner','owner','Owner'), ('alice','alice','Alice'), ('bob','bob','Bob'), ('viewer','viewer','Viewer'), ('new','new','New');
       CREATE TABLE project_members (project_id TEXT, user_id TEXT, role TEXT, permissions_json TEXT, created_at TEXT DEFAULT 'v1', updated_at TEXT DEFAULT 'v1', PRIMARY KEY(project_id, user_id));
       INSERT INTO user_projects (id, user_id, local_project_id, local_updated_at, updated_at, last_synced_at)

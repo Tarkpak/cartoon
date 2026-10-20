@@ -3,6 +3,13 @@ export const COLLABORATION_RESOURCE_TYPES = ['settings', 'directory', 'episode',
 export type CollaborationResourceType = typeof COLLABORATION_RESOURCE_TYPES[number]
 export type CollaborationBody = Record<string, unknown>
 
+export interface CollaborationPresence {
+  userId: string
+  displayName: string
+  isCurrentWindow: boolean
+  scopes: Array<{ type: CollaborationResourceType, id: string }>
+}
+
 export interface CollaborationResource {
   type: CollaborationResourceType
   id: string

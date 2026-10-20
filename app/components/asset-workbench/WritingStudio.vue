@@ -65,6 +65,7 @@ const emit = defineEmits<{
   publish: [publication: ScriptWritingPublication]
   openProduction: []
   openList: []
+  editingScope: [scope: { type: 'episode' | 'settings', id: string }]
 }>()
 
 type WritingView = 'bible' | 'episodes' | 'review'
@@ -909,6 +910,7 @@ function formatVersionTime(value: string) {
 <template>
   <div
     class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-transparent"
+    @input="emit('editingScope', activeView === 'episodes' && selectedEpisodeId ? { type: 'episode', id: selectedEpisodeId } : { type: 'settings', id: 'settings' })"
     :class="focusMode
       ? 'fixed inset-2 z-50 rounded-2xl bg-background shadow-2xl'
       : ''"

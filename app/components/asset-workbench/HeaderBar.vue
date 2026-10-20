@@ -78,5 +78,8 @@ const emit = defineEmits<{
         @select-stage="emit('select-stage', $event as AutoStageKey)"
       />
     </div>
+    <div v-if="$slots.actions" class="shrink-0 self-end lg:order-last lg:self-start">
+      <slot name="actions" />
+    </div>
   </div>
 </template>
