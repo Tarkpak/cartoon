@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AudioLines, History, Loader2, Lock, Package, Plus, Sparkles, Trash2, Upload } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
+import SaveToPersonalLibraryButton from './SaveToPersonalLibraryButton.vue'
 import type {
   PropAsset,
   PropAssetCategory,
@@ -14,6 +15,7 @@ const OTHER_ASSET_VOICE_HINT_REGEX = /(旁白|画外音|voiceover|narration|音�
 const props = withDefaults(defineProps<{
   propAssets: PropAsset[]
   autoRunning: boolean
+  savingLibraryAssetKey?: string | null
   uploadingPropId: string | null
   uploadingPropVoiceId?: string | null
   generatingPropId: string | null
@@ -36,6 +38,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
+  'save-to-library': [propId: string]
   'add-prop': [payload: {
     name: string
     description: string
@@ -440,11 +443,17 @@ function buildImageLoadKey(prop: PropAsset): string {
         </div>
 
         <!-- Actions -->
-        <div class="flex items-center justify-between border-t px-3 py-1.5">
+        <div class="flex flex-wrap items-center justify-between gap-1 border-t px-3 py-1.5">
           <span class="text-xs text-muted-foreground/60">
             {{ getPropUsageCount(prop.id) }} 个场景引用
           </span>
-          <div class="flex items-center gap-1">
+          <div class="flex flex-wrap items-center gap-1">
+            <SaveToPersonalLibraryButton
+              :available="!!(prop.referenceImage || prop.voiceAsset?.audioUrl)"
+              :busy="!!savingLibraryAssetKey"
+              :saving="savingLibraryAssetKey === `${prop.category === 'other' ? 'others' : 'props'}:${prop.id}`"
+              @save="emit('save-to-library', prop.id)"
+            />
             <Button
               v-if="!showMediaSubTabs || otherAssetMediaSubTab === 'image'"
               type="button"

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { AudioLines, ChevronDown, ChevronRight, CloudUpload, Database, History, Loader2, Lock, Pencil, Plus, Sparkles, Trash2, Upload, User } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
+import SaveToPersonalLibraryButton from './SaveToPersonalLibraryButton.vue'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
 import { buildAssetUploadInputId, resolveCharacterRoleLabel } from '~/lib/asset-workbench-types'
 
 const props = defineProps<{
   characters: CharacterData[]
   autoRunning: boolean
+  savingLibraryAssetKey?: string | null
   editingCharacterId: string | null
   characterEditDraft: {
     id: string
@@ -24,6 +26,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  'save-to-library': [characterId: string]
   'remove-character': [characterId: string]
   'preview-image': [payload: { src: string | undefined, alt: string }]
   'start-edit': [character: CharacterData]
@@ -613,6 +616,12 @@ watch(
                       {{ variant.appearance || '暂无外观描述' }}
                     </p>
                     <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                      <SaveToPersonalLibraryButton
+                        :available="!!(variant.baseImage || Object.values(variant.views || {}).some(Boolean) || variant.voiceAsset?.audioUrl)"
+                        :busy="!!savingLibraryAssetKey"
+                        :saving="savingLibraryAssetKey === `characters:${variant.id}`"
+                        @save="emit('save-to-library', variant.id)"
+                      />
                       <Button
                         size="sm"
                         variant="ghost"
@@ -773,6 +782,12 @@ watch(
           </Button>
         </template>
         <template v-else>
+          <SaveToPersonalLibraryButton
+            :available="!!(char.baseImage || Object.values(char.views || {}).some(Boolean) || char.voiceAsset?.audioUrl)"
+            :busy="!!savingLibraryAssetKey"
+            :saving="savingLibraryAssetKey === `characters:${char.id}`"
+            @save="emit('save-to-library', char.id)"
+          />
           <Button
             size="sm"
             variant="ghost"

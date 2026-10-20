@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowRight, History, Image, Loader2, Pencil, RefreshCw, ScanSearch, Sparkles, Upload } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
+import SaveToPersonalLibraryButton from './SaveToPersonalLibraryButton.vue'
 import type { EnvironmentAssetCard, EnvironmentCropCaptureMode } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { resolveEnvironmentViewImageForCard } from '~/lib/asset-workbench-environment-views'
@@ -8,6 +9,7 @@ import { resolveEnvironmentViewImageForCard } from '~/lib/asset-workbench-enviro
 const props = defineProps<{
   environmentAssetCards: EnvironmentAssetCard[]
   autoRunning: boolean
+  savingLibraryAssetKey?: string | null
   uploadingEnvironmentAssetId: string | null
   getEnvironmentSceneSummary: (asset: EnvironmentAssetCard) => string
   getEnvironmentMotherCandidates: (asset: EnvironmentAssetCard) => Array<{ id: string, label: string }>
@@ -16,6 +18,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  'save-to-library': [assetId: string]
   'go-videos': []
   'preview-image': [payload: { src: string | undefined, alt: string }]
   'edit-scene': [assetId: string]
@@ -235,7 +238,13 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
         </div>
 
         <!-- Actions -->
-        <div class="flex items-center gap-1 border-t px-3 py-1.5">
+        <div class="flex flex-wrap items-center gap-1 border-t px-3 py-1.5">
+          <SaveToPersonalLibraryButton
+            :available="!!(asset.referenceImage || asset.singleViewImage || asset.fourViewImage)"
+            :busy="!!savingLibraryAssetKey"
+            :saving="savingLibraryAssetKey === `environments:${asset.id}`"
+            @save="emit('save-to-library', asset.id)"
+          />
           <Select
             :model-value="getEnvironmentSelectedMotherId(asset.id) || '__none__'"
             @update:model-value="emit('update-mother', { assetId: asset.id, motherAssetId: $event === '__none__' ? '' : String($event) })"

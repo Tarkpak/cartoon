@@ -8,6 +8,7 @@ import { useDebounceFn } from '@vueuse/core'
 import type { CharacterVoiceAsset } from '#shared/types/character'
 import type { LibraryAsset } from '#shared/types/library'
 import { libraryPermissionCanUse } from '#shared/types/library'
+import { findPersonalLibraryAsset } from '~/lib/personal-library-assets'
 import { projectAccessCan } from '#shared/types/project'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
@@ -3548,24 +3549,34 @@ async function handleImportLibraryAsset(payload: {
   }
 }
 
-async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'props' | 'others') {
+const savingLibraryAssetKey = ref<string | null>(null)
+const libraryCloudAccount = useCloudAdmin()
+
+async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'props' | 'others', targetId?: string) {
+  if (!canExportProject.value) {
+    toast.error('当前账号没有导出权限，不能收藏项目资产')
+    return
+  }
+  if (savingLibraryAssetKey.value) return
+  savingLibraryAssetKey.value = `${tab}:${targetId || 'all'}`
   try {
     const existing = await listAllLibraryAssets()
     type LibraryCreateInput = Parameters<typeof createLibraryAsset>[0]
     let savedCount = 0
-
-    function findStoredAsset(job: LibraryCreateInput) {
-      const sourceUrl = job.sourceUrl?.trim()
-      return existing.find(asset => asset.category === job.category && (
-        (asset.name === job.name && (asset.sourceProjectId || '') === (job.sourceProjectId || ''))
-        || (!!sourceUrl && (asset.url === sourceUrl || asset.sourceUrl === sourceUrl))
-      ))
-    }
+    let resourceCount = 0
 
     async function storeProjectAsset(job: LibraryCreateInput) {
-      const stored = findStoredAsset(job)
-      if (stored) return stored
-      let created = await createLibraryAsset(job)
+      resourceCount += 1
+      const stored = findPersonalLibraryAsset(existing, job, libraryCloudAccount.currentUser.value?.id)
+      if (stored) {
+        if (targetId && !stored.favorite) {
+          const updated = await updateLibraryAsset(stored.id, { favorite: true })
+          existing[existing.indexOf(stored)] = updated
+          return updated
+        }
+        return stored
+      }
+      let created = await createLibraryAsset({ ...job, visibility: 'private', favorite: !!targetId })
       try {
         const metadata = await readRemoteLibraryMetadata(created.url, created.mediaType)
         created = await updateLibraryAsset(created.id, metadata)
@@ -3586,7 +3597,7 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
         top_down: '俯视',
         bottom_up: '仰视'
       }
-      for (const character of characters.value) {
+      for (const character of characters.value.filter(item => !targetId || item.id === targetId)) {
         const voice = character.voiceAsset?.audioUrl
           ? await storeProjectAsset({
               mediaType: 'audio',
@@ -3664,18 +3675,19 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
         const primaryIndex = existing.findIndex(asset => asset.id === primary.id)
         if (primaryIndex >= 0) existing[primaryIndex] = primary
       }
-      toast.success(savedCount > 0 ? `已存入 ${savedCount} 个资源并更新角色包` : '角色包已更新')
+      if (!resourceCount) toast.info('当前资产还没有可收藏的图片或音频')
+      else toast.success(targetId ? '已收藏到个人资源库' : savedCount > 0 ? `已存入 ${savedCount} 个资源并更新角色包` : '角色包已更新')
       return
     }
 
     const jobs: Array<Parameters<typeof createLibraryAsset>[0]> = []
     if (tab === 'environments') {
-      for (const environment of displayEnvironmentAssetCards.value) {
+      for (const environment of displayEnvironmentAssetCards.value.filter(item => !targetId || item.id === targetId)) {
         const url = environment.referenceImage || environment.singleViewImage || environment.fourViewImage
         if (url) jobs.push({ mediaType: 'image', category: 'environment', name: environment.name, description: environment.description, sourceUrl: url, sourceType: 'project', sourceProjectId: projectId.value })
       }
     } else {
-      const source = propAssets.value.filter(item => tab === 'props' ? item.category === 'prop' : item.category === 'other')
+      const source = propAssets.value.filter(item => (!targetId || item.id === targetId) && (tab === 'props' ? item.category === 'prop' : item.category === 'other'))
       for (const item of source) {
         if (item.referenceImage) jobs.push({ mediaType: 'image', category: tab === 'props' ? 'prop' : 'other', name: item.name, description: item.description, sourceUrl: item.referenceImage, sourceType: 'project', sourceProjectId: projectId.value })
         if (item.voiceAsset?.audioUrl) jobs.push({ mediaType: 'audio', category: 'narration', name: item.name, description: item.description, sourceUrl: item.voiceAsset.audioUrl, sourceType: 'project', sourceProjectId: projectId.value })
@@ -3684,9 +3696,12 @@ async function handleSaveAssetsToLibrary(tab: 'characters' | 'environments' | 'p
     for (const job of jobs) {
       await storeProjectAsset(job)
     }
-    toast.success(savedCount > 0 ? `已存入 ${savedCount} 个资源` : '这些资源已在资源库中')
+    if (!resourceCount) toast.info('当前资产还没有可收藏的图片或音频')
+    else toast.success(targetId ? '已收藏到个人资源库' : savedCount > 0 ? `已存入 ${savedCount} 个资源` : '这些资源已在个人资源库中')
   } catch (error) {
-    toast.error(resolveUiError(error, '存入资源库失败'))
+    toast.error(resolveUiError(error, '存入个人资源库失败'))
+  } finally {
+    savingLibraryAssetKey.value = null
   }
 }
 
@@ -3762,17 +3777,19 @@ function reportWorkbenchActivity() {
 
     <AssetWorkbenchStagePanel
       v-else-if="activeAutoStage === 'assets' || activeAutoStage === 'videos'"
-      :inert="!canEditProject"
+      :inert="activeAutoStage === 'videos' && !canEditProject"
     >
       <KeepAlive>
         <AssetWorkbenchAssetsStage
           v-if="activeAutoStage === 'assets'"
-          :inert="!canEditProject"
+          :read-only="!canEditProject"
+          :can-save-to-library="canExportProject"
           key="assets-stage"
           :scenes-count="scenes.length"
           :characters="characters"
           :environment-asset-cards="displayEnvironmentAssetCards"
           :prop-assets="propAssets"
+          :saving-library-asset-key="savingLibraryAssetKey"
           :auto-running="autoRunning"
           :parse-stage-label="scriptParseMode === 'origin_explainer' ? '镜头规划' : '剧本解析'"
           :character-ready-count="characterReadyCount"
@@ -3828,6 +3845,7 @@ function reportWorkbenchActivity() {
           @open-prop-history="openPropHistory"
           @import-library-asset="handleImportLibraryAsset"
           @save-assets-to-library="handleSaveAssetsToLibrary"
+          @save-asset-to-library="handleSaveAssetsToLibrary($event.tab, $event.targetId)"
         />
 
         <AssetWorkbenchVideosStage

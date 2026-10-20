@@ -20,6 +20,9 @@ const props = defineProps<{
   environmentAssetCards: EnvironmentAssetCard[]
   propAssets: PropAsset[]
   autoRunning: boolean
+  readOnly?: boolean
+  canSaveToLibrary?: boolean
+  savingLibraryAssetKey?: string | null
   parseStageLabel?: string
   characterReadyCount: number
   characterGeneratingCount: number
@@ -87,6 +90,7 @@ const emit = defineEmits<{
   'open-prop-history': [propId: string]
   'import-library-asset': [payload: { asset: LibraryAsset, targetId?: string, createNew: boolean, tab: AssetTab }]
   'save-assets-to-library': [tab: AssetTab]
+  'save-asset-to-library': [payload: { tab: AssetTab, targetId: string }]
 }>()
 
 const assetTab = ref<AssetTab>('characters')
@@ -126,10 +130,31 @@ const hasSeedAssets = computed(() => {
     || props.environmentAssetCards.length > 0
     || props.propAssets.length > 0
 })
+
+// Personal-library exports do not change the project. Keep them and category
+// navigation available while fencing editing controls in a read-only project.
+const accessObservers = new WeakMap<HTMLElement, MutationObserver>()
+function updateAssetAccess(root: HTMLElement) {
+  for (const control of root.querySelectorAll<HTMLElement>('button, input, textarea, select, label, a, [role="switch"], [role="combobox"], [role="checkbox"], [contenteditable="true"]')) {
+    control.inert = control.closest('[data-library-save]')
+      ? props.canSaveToLibrary === false
+      : !!props.readOnly && !control.closest('[data-asset-tab]')
+  }
+}
+const vAssetAccess = {
+  mounted(root: HTMLElement) {
+    updateAssetAccess(root)
+    const observer = new MutationObserver(() => updateAssetAccess(root))
+    observer.observe(root, { childList: true, subtree: true })
+    accessObservers.set(root, observer)
+  },
+  updated: updateAssetAccess,
+  unmounted(root: HTMLElement) { accessObservers.get(root)?.disconnect() }
+}
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col gap-3">
+  <div v-asset-access class="flex min-h-0 flex-1 flex-col gap-3">
     <!-- Status bar -->
     <div class="shrink-0 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div
@@ -177,9 +202,9 @@ const hasSeedAssets = computed(() => {
           <Database class="h-3.5 w-3.5" />
           从资源库选择
         </Button>
-        <Button size="sm" variant="outline" class="gap-1.5" @click="emit('save-assets-to-library', assetTab)">
+        <Button data-library-save size="sm" variant="outline" class="gap-1.5" :disabled="!!savingLibraryAssetKey" @click="emit('save-assets-to-library', assetTab)">
           <Download class="h-3.5 w-3.5" />
-          存入资源库
+          全部存入个人库
         </Button>
       </div>
     </div>
@@ -197,6 +222,7 @@ const hasSeedAssets = computed(() => {
       <div class="flex gap-0">
         <Button
           v-for="tab in tabs"
+          data-asset-tab
           :key="tab.key"
           type="button"
           variant="ghost"
@@ -221,6 +247,8 @@ const hasSeedAssets = computed(() => {
       <AssetWorkbenchCharacterAssetsTab
         v-if="assetTab === 'characters'"
         :characters="characters"
+        :saving-library-asset-key="savingLibraryAssetKey"
+        @save-to-library="emit('save-asset-to-library', { tab: 'characters', targetId: $event })"
         :auto-running="autoRunning"
         :editing-character-id="editingCharacterId"
         :character-edit-draft="characterEditDraft"
@@ -250,6 +278,8 @@ const hasSeedAssets = computed(() => {
       <AssetWorkbenchEnvironmentAssetsTab
         v-else-if="assetTab === 'environments'"
         :environment-asset-cards="environmentAssetCards"
+        :saving-library-asset-key="savingLibraryAssetKey"
+        @save-to-library="emit('save-asset-to-library', { tab: 'environments', targetId: $event })"
         :auto-running="autoRunning"
         :uploading-environment-asset-id="uploadingEnvironmentAssetId"
         :get-environment-scene-summary="getEnvironmentSceneSummary"
@@ -270,6 +300,8 @@ const hasSeedAssets = computed(() => {
       <AssetWorkbenchPropAssetsTab
         v-else-if="assetTab === 'props'"
         :prop-assets="propAssetsOfType"
+        :saving-library-asset-key="savingLibraryAssetKey"
+        @save-to-library="emit('save-asset-to-library', { tab: 'props', targetId: $event })"
         :auto-running="autoRunning"
         :uploading-prop-id="uploadingPropId"
         :generating-prop-id="generatingPropId"
@@ -287,6 +319,8 @@ const hasSeedAssets = computed(() => {
       <AssetWorkbenchPropAssetsTab
         v-else
         :prop-assets="otherAssetsOfType"
+        :saving-library-asset-key="savingLibraryAssetKey"
+        @save-to-library="emit('save-asset-to-library', { tab: 'others', targetId: $event })"
         :auto-running="autoRunning"
         :uploading-prop-id="uploadingPropId"
         :uploading-prop-voice-id="uploadingPropVoiceId"
