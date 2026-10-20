@@ -342,6 +342,9 @@ await mapWithConcurrency(updaterAssets, transferConcurrency, async (asset) => {
 
 const latestJson = buildLatestJson({ release, tag, assetBuffers, cdnUrls })
 const latestBody = Buffer.from(`${JSON.stringify(latestJson, null, 2)}\n`)
+// Keep immutable per-version metadata so later syncs can recover skipped releases.
+const versionManifestName = `release-${encodeURIComponent(latestJson.version)}.json`
+await uploadObject(client, joinPath(keyPrefix, manifestDir, versionManifestName), latestBody, versionManifestName)
 await uploadObject(client, joinPath(keyPrefix, manifestPath), latestBody, 'latest.json')
 
 console.log(`Desktop updater CDN manifest: ${joinUrl(publicBaseUrl, manifestPath)}`)

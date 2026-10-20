@@ -559,10 +559,30 @@ export default defineEventHandler(async (event) => {
   }
 
   const merged = new Map<string, VersionCandidate>()
+  const historyWarnings: string[] = []
   let skipped = 0
   let manifestVersion = ''
   let manifestNotes = ''
   let manifestPublishedAt: string | null = null
+
+  // Old installers do not contain their release notes. Recover them from the
+  // per-version manifests retained by the publishing job.
+  for (const file of files) {
+    if (!/^release-.+\.json$/u.test(fileNameFromKey(file.key))) continue
+    const history = await fetchManifest([{
+      url: buildPublicUrl(config, file.key, manifestFetch.mode),
+      mode: manifestFetch.mode
+    }])
+    if (!history.manifest) {
+      historyWarnings.push(history.error || `读取版本清单失败：${file.key}`)
+      continue
+    }
+    const fromHistory = candidatesFromManifest({ manifest: history.manifest, appKey, channel })
+    skipped += fromHistory.skipped
+    for (const candidate of fromHistory.candidates) {
+      mergeCandidate(merged, { ...candidate, priority: 49 })
+    }
+  }
 
   if (manifestFetch.manifest) {
     manifestVersion = normalizeVersionText(textValue(manifestFetch.manifest.version, 64))
@@ -647,7 +667,7 @@ export default defineEventHandler(async (event) => {
       updated,
       skipped,
       scannedFiles: files.length,
-      listWarning: listError || '',
+      listWarning: [listError, ...historyWarnings].filter(Boolean).join('; '),
       versions: versions.map(toPublicClientVersion)
     }
   }

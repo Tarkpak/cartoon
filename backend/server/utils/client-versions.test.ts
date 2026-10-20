@@ -25,6 +25,19 @@ function versionRow(version: string, releaseNotes: string, platform = 'darwin'):
 }
 
 describe('client update release notes', () => {
+  test('shows different notes for 100 to 105 and 104 to 105', () => {
+    const rows = Array.from({ length: 6 }, (_, index) => {
+      const patch = 100 + index
+      return versionRow(`1.0.${patch}`, `- change ${patch}`)
+    })
+    const skippedUpdate = buildClientReleaseNotes(rows, '1.0.100', '1.0.105')
+    for (const patch of [101, 102, 103, 104, 105]) {
+      expect(skippedUpdate).toContain(`版本：v1.0.${patch}\n- change ${patch}`)
+    }
+    expect(skippedUpdate).not.toContain('change 100')
+    expect(buildClientReleaseNotes(rows, '1.0.104', '1.0.105')).toBe('- change 105')
+  })
+
   test('combines every release after the current version through the latest version', () => {
     const rows = [
       versionRow('1.0.4', '版本：v1.0.4\n范围：v1.0.3 -> v1.0.4\n更新内容\n- fourth change'),
