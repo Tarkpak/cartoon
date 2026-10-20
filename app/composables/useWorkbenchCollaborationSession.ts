@@ -1,6 +1,7 @@
 import { computed, getCurrentInstance, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import type { CollaborationBody, CollaborationLease, CollaborationPresence, CollaborationWindowPresence, CollaborationResource } from '../../shared/types/project-collaboration'
-import { projectEditSessionId } from '~/lib/project-edit-session'
+import { projectDraftSession } from '~/lib/project-edit-session'
+import type { ProjectAccess } from '#shared/types/project'
 import type { CollaborationAssetResult } from '~/lib/project-collaboration-assets'
 import type { ProjectEditSessionState } from './useProjectEditSession'
 import { buildWorkbenchMutations, composeWorkbenchSnapshot, patchWorkbenchFields, workbenchSaveView, registerWorkbenchCollaboration } from '~/lib/workbench-collaboration'
@@ -13,6 +14,7 @@ interface PendingSave { operationId: string, mutations: Mutation[] }
 interface WorkbenchDraft { before: CollaborationBody, after: CollaborationBody }
 interface WorkbenchSync {
   windowId?: string
+  access?: (value: ProjectAccess) => void
   draft: () => WorkbenchDraft | undefined
   apply: (baseline: CollaborationBody, current: CollaborationBody) => void
 }
@@ -53,14 +55,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
   let pending: PendingSave | undefined
   let recovered: { before: CollaborationBody, after: CollaborationBody, resources: CollaborationResource[] } | undefined
   const cloud = useCloudAdmin()
-  const windowId = sync?.windowId || (() => {
-    try {
-      const existing = sessionStorage.getItem('workbench-collaboration-window')
-      if (existing) return existing
-      sessionStorage.setItem('workbench-collaboration-window', projectEditSessionId)
-    } catch { /* A runtime-specific ID still isolates tabs when sessionStorage is unavailable. */ }
-    return projectEditSessionId
-  })()
+  const windowId = sync?.windowId || projectDraftSession.windowId
+  const recoveryKey = sync?.windowId ? undefined : projectDraftSession.recoveryKey
   let cursor = 0
   let polling = false
   let connectionLost = false
@@ -171,11 +167,12 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       const activeScopes = [...held.values(), ...(localDraft && editSession.value.editable ? buildWorkbenchMutations(resources.value, localDraft.before, localDraft.after).map(item => ({ type: item.type, id: item.id })) : [])]
       if (activity && activity.at > Date.now() - 30_000 && editSession.value.editable) activeScopes.push({ type: activity.type, id: activity.id })
       while (hasMore) {
-        const page = await request<{ changes: CollaborationResource[], cursor: number, hasMore: boolean, editable?: boolean, participants?: CollaborationPresence[] }>({ action: 'changes', after: nextCursor, activeScopes })
+        const page = await request<{ changes: CollaborationResource[], cursor: number, hasMore: boolean, editable?: boolean, access?: ProjectAccess, participants?: CollaborationPresence[] }>({ action: 'changes', after: nextCursor, activeScopes })
         if (version !== sequence || saving || pending) return
         participants.value = Array.isArray(page.participants) ? page.participants : []
         presenceUpdatedAt = Date.now()
         if (!Array.isArray(page.changes) || !Number.isSafeInteger(page.cursor) || page.cursor < nextCursor || (page.hasMore && page.cursor === nextCursor)) throw new Error('协作增量响应无效，请重新连接')
+        if (page.access) sync.access?.(page.access)
         if (page.editable === false) {
           const draft = sync.draft()
           if (draft) stashDraft(draft.before, draft.after)
@@ -291,13 +288,21 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       if (version !== sequence) return
       actorId = status?.user?.id || ''
       if (!actorId) throw new Error('请先登录云端账号')
-      const response = await $fetch<{ data: { enabled: boolean, protocolVersion: number, editable?: boolean, cursor?: number, resources: CollaborationResource[] } }>(`/api/project/${encodeURIComponent(id)}/collaboration/prepare`, { method: 'POST', retry: 0, timeout: 180_000 })
+      const response = await $fetch<{ data: { enabled: boolean, protocolVersion: number, editable?: boolean, access?: ProjectAccess, cursor?: number, resources: CollaborationResource[] } }>(`/api/project/${encodeURIComponent(id)}/collaboration/prepare`, { method: 'POST', retry: 0, timeout: 180_000 })
       if (version !== sequence) return
       if (!response.data?.enabled || response.data.protocolVersion !== 1 || !Array.isArray(response.data.resources)) throw new Error('项目尚未准备完成，请重试')
       resources.value = copy(response.data.resources)
+      if (response.data.access) sync?.access?.(response.data.access)
       cursor = response.data.cursor ?? 0
       // Adopt the old single-window storage once; new tabs keep independent drafts/outboxes.
       for (const [prefix, key] of [['workbench-collaboration-draft:', draftKey()], ['workbench-collaboration-pending:', storageKey()]] as const) {
+        // Copy once per project/account. Never consume another live tab's backup
+        // or resurrect it after this document has saved/discarded its own draft.
+        const source = recoveryKey?.(prefix, actorId, activeId)
+        if (source) {
+          const previous = localStorage.getItem(source)
+          if (previous && !localStorage.getItem(key)) localStorage.setItem(key, previous)
+        }
         const legacyKey = `${prefix}${JSON.stringify([actorId, activeId])}`
         const legacy = localStorage.getItem(legacyKey)
         if (legacy && !localStorage.getItem(key)) { localStorage.setItem(key, legacy); localStorage.removeItem(legacyKey) }

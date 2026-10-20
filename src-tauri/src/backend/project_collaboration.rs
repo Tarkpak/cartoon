@@ -471,7 +471,9 @@ pub(super) async fn api_project_collaboration(
         .get_mut("data")
         .filter(|value| value.is_object())
         .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "云端缺少协作响应"))?;
-    if matches!(action.as_str(), "members" | "memberPut" | "memberRemove") {
+    if matches!(action.as_str(), "members" | "memberPut" | "memberRemove")
+        || (matches!(action.as_str(), "read" | "changes") && data.get("members").is_some_and(Value::is_array))
+    {
         if !data.get("members").is_some_and(Value::is_array) {
             return Err(ApiError::new(
                 StatusCode::BAD_GATEWAY,
@@ -631,6 +633,42 @@ mod tests {
         assert!(get_config_json(&conn, &draft_results_key("other", "owner")).unwrap().is_none());
         set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({"token":"test", "user":{"id":"other","role":"user"}})).unwrap();
         assert!(save_collaboration_draft_result(&test.0, "p1", "owner", &json!({"id":"wrong"})).is_err());
+    }
+
+    #[tokio::test]
+    async fn collaboration_poll_refreshes_cached_permissions_before_the_next_write() {
+        let test = ManagementProject::new("manager");
+        let upgraded = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let served = upgraded.clone();
+        let router = Router::new().route("/api/client/project-collaboration", post(move || {
+            let editable = served.load(std::sync::atomic::Ordering::SeqCst);
+            async move {
+                let (role, permissions) = if editable {
+                    ("editor", json!(["view", "edit", "generate", "export"]))
+                } else { ("viewer", json!(["view"])) };
+                Json(json!({"success":true,"data":{
+                    "changes":[],"cursor":0,"hasMore":false,"editable":editable,
+                    "members":[{"userId":"manager","role":role,"permissions":permissions}],
+                    "access":{"role":role,"isOwner":false,"permissions":permissions}
+                }}))
+            }
+        }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap(); });
+        set_config_json(&db_connection(&test.0).unwrap(), CLOUD_ADMIN_CONFIG_KEY, &json!({"baseUrl":format!("http://{addr}")})).unwrap();
+        assert!(ensure_project_permission(&db_connection(&test.0).unwrap(), "p1", ProjectPermission::Edit).is_err());
+        for editable in [true, false] {
+            upgraded.store(editable, std::sync::atomic::Ordering::SeqCst);
+            let Json(response) = CURRENT_EDIT_SESSION.scope(Some("window-poll".to_string()), api_project_collaboration(
+                Path("p1".to_string()), State(test.0.clone()), Json(json!({"action":"changes","after":0}))
+            )).await.unwrap();
+            assert_eq!(response["data"]["editable"], editable);
+            for permission in [ProjectPermission::Edit, ProjectPermission::Generate, ProjectPermission::Export] {
+                assert_eq!(ensure_project_permission(&db_connection(&test.0).unwrap(), "p1", permission).is_ok(), editable);
+            }
+        }
+        server.abort();
     }
 
     #[tokio::test]

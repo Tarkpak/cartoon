@@ -13,6 +13,24 @@ import {
 import type { CollaborationMutation, CollaborationResourceType } from '../../../shared/types/project-collaboration'
 
 describe('per resource collaboration', () => {
+  it('returns canonical access and membership on reads and polls after permission changes', () => {
+    const { db } = setup()
+    const identity = { ownerUserId: 'owner', localProjectId: 'p1', deviceId: 'viewer-device', sessionId: 'viewer-window' }
+    expect(handleProjectCollaboration(db, auth('viewer'), { ...identity, action: 'read' })).toMatchObject({ editable: false, access: { role: 'viewer', permissions: ['view'] } })
+    db.query("UPDATE project_members SET role = 'editor' WHERE user_id = 'viewer'").run()
+    const upgraded = handleProjectCollaboration(db, auth('viewer'), { ...identity, action: 'changes', after: 0 })
+    expect(upgraded).toMatchObject({ editable: true, access: { role: 'editor', permissions: ['view', 'edit', 'generate', 'export'] } })
+    expect((upgraded as { members: Array<{ userId: string, role: string }> }).members.find(member => member.userId === 'viewer')?.role).toBe('editor')
+    db.query("UPDATE project_members SET role = 'viewer' WHERE user_id = 'viewer'").run()
+    expect(handleProjectCollaboration(db, auth('viewer'), { ...identity, action: 'changes', after: 0 })).toMatchObject({ editable: false, access: { permissions: ['view'] } })
+    expect(() => handleProjectCollaboration(db, auth('viewer'), { ...identity, action: 'lease', leaseAction: 'acquire', type: 'episode', id: 'e1' })).toThrow()
+  })
+
+  it('keeps an unmigrated project readable for migration preparation', () => {
+    const { db } = setup(false)
+    expect(handleProjectCollaboration(db, auth('owner'), { ownerUserId: 'owner', localProjectId: 'p1', action: 'read' })).toMatchObject({ enabled: false })
+  })
+
   it('shows online members and editing locations without acquiring leases', () => {
     const { db } = setup()
     const identity = { ownerUserId: 'owner', localProjectId: 'p1', deviceId: 'device-a', sessionId: 'window-a', action: 'changes', after: 0 }

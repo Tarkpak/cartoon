@@ -78,6 +78,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   const loading = ref(false)
   const projectAccess = ref<ProjectAccess | null>(null)
   const collaboration = useWorkbenchCollaborationSession(() => saveProject(), {
+    access: value => { projectAccess.value = value },
     draft: () => !loading.value && lastSavedProjectSnapshot !== null ? { before: lastSavedWorkbenchBody, after: JSON.parse(JSON.stringify(buildProjectSaveBody())) } : undefined,
     apply: (baseline, current) => {
       const normalizedBaseline = normalizeCollaborationSnapshot(baseline)

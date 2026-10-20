@@ -10,12 +10,13 @@ const collaborationMock = vi.hoisted(() => ({ enabled: false, editable: true, sy
 vi.mock('./useWorkbenchCollaborationSession', () => ({
   useWorkbenchCollaborationSession: (_save: unknown, sync: unknown) => {
     collaborationMock.sync = sync
+    const editSession = ref({ editable: collaborationMock.editable, canTakeover: false, collaboration: collaborationMock.enabled })
     return ({
-    editSession: ref({ editable: collaborationMock.editable, canTakeover: false, collaboration: collaborationMock.enabled }),
+    editSession,
     snapshot: collaborationMock.snapshot, saveSnapshot: collaborationMock.saveSnapshot,
     stashDraft: collaborationMock.stashDraft, confirmPending: collaborationMock.confirmPending,
     canAdoptAsset: collaborationMock.canAdoptAsset, ready: ref(collaborationMock.enabled),
-    projectEditable: ref(collaborationMock.editable), acquiring: ref(false),
+    projectEditable: computed(() => editSession.value.editable), acquiring: ref(false),
     openEditSession: vi.fn(async () => {}), releaseEditSession: vi.fn(async () => {})
   }) }
 }))
@@ -147,6 +148,27 @@ function createProjectIO(input: { routeProjectId?: ReturnType<typeof ref<string 
 }
 
 describe('useAssetWorkbenchProjectIO', () => {
+  it('updates workbench permissions after polling without reloading unsaved content', async () => {
+    collaborationMock.enabled = true
+    collaborationMock.editable = false
+    const loaded = createLoadResponse()
+    collaborationMock.snapshot.mockReturnValue(loaded.data)
+    fetchMock.mockImplementation(async () => ({ ...loaded, data: { ...loaded.data, access: { role: 'viewer', isOwner: false, permissions: ['view'] } } }))
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    io.editSession.value.editable = true
+    collaborationMock.sync.access({ role: 'editor', isOwner: false, permissions: ['view', 'edit', 'generate', 'export'] })
+    state.scenes.value[0]!.description = '升级后修改'
+    expect(io.projectAccess.value?.permissions).toContain('edit')
+    expect(await io.saveProject()).toBe(true)
+    expect(collaborationMock.saveSnapshot).toHaveBeenCalledOnce()
+    collaborationMock.sync.access({ role: 'viewer', isOwner: false, permissions: ['view'] })
+    state.scenes.value[0]!.description = '降级前保留的输入'
+    expect(await io.saveProject()).toBe(false)
+    expect(state.scenes.value[0]!.description).toBe('降级前保留的输入')
+    expect(io.projectAccess.value?.permissions).not.toContain('export')
+  })
+
   const fetchMock = vi.fn(async (_url: string, _options?: FetchOptions) => {
     return { success: true }
   })

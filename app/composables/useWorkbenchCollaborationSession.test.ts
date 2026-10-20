@@ -3,6 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { splitProjectSnapshot } from '../../shared/utils/project-collaboration'
 import { prepareWorkbenchRequest } from '../lib/workbench-collaboration'
 import { useWorkbenchCollaborationSession } from './useWorkbenchCollaborationSession'
+import type { ProjectAccess } from '#shared/types/project'
+import { createProjectDraftSession } from '~/lib/project-edit-session'
+
+const draftSession = vi.hoisted(() => ({ windowId: 'test-runtime', recoveryKey: (() => undefined) as (prefix: string, actor: string, project: string) => string | undefined }))
+vi.mock('~/lib/project-edit-session', async importOriginal => ({ ...await importOriginal<object>(), projectDraftSession: draftSession }))
+
+function setDraftRuntime(id: string, source?: string) {
+  const values = new Map<string, string>(source ? [['workbench-collaboration-window', source]] : [])
+  Object.assign(draftSession, createProjectDraftSession(id, { getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value) } }))
+}
 
 const fixture = () => splitProjectSnapshot({ project: { id: 'p', name: '原工作台' }, script: { episodePlan: [{ id: 'a', index: 1 }, { id: 'b', index: 2 }] }, scenes: [{ id: 's1', episodeId: 'a', description: 'A' }, { id: 's2', episodeId: 'b', description: 'B' }], characters: [] })
 const view = () => ({ name: '原工作台', episodePlan: [{ id: 'a', index: 1 }, { id: 'b', index: 2 }], scenes: [{ id: 's1', episodeId: 'a', description: 'A' }, { id: 's2', episodeId: 'b', description: 'B' }], characters: [] })
@@ -15,22 +25,24 @@ let currentUser = ref<{ id: string } | null>({ id: 'owner' })
 let changes: typeof server
 let readError: unknown
 let editable: boolean
+let access: ProjectAccess | undefined
 const sessions: ReturnType<typeof useWorkbenchCollaborationSession>[] = []
 beforeEach(() => {
   vi.useFakeTimers()
+  setDraftRuntime('test-runtime'); access = undefined
   currentUser = ref<{ id: string } | null>({ id: 'owner' }); changes = []; readError = undefined; editable = true
   server = fixture(); writes = []; blocked = ''; loseReply = false; store = new Map()
   vi.stubGlobal('useCloudAdmin', () => ({ currentUser, loadStatus: async () => ({ user: currentUser.value }) }))
   vi.stubGlobal('localStorage', { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value), removeItem: (key: string) => store.delete(key) })
   const receipts = new Map<string, unknown>()
   vi.stubGlobal('$fetch', vi.fn(async (path: string, options: { body?: Record<string, any> }) => {
-    if (path.endsWith('/prepare')) return { data: { enabled: true, editable, protocolVersion: 1, resources: structuredClone(server) } }
+    if (path.endsWith('/prepare')) return { data: { enabled: true, editable, access, protocolVersion: 1, resources: structuredClone(server) } }
     const body = options.body!
     if (body.action === 'read') return { data: { enabled: true, editable, resources: structuredClone(server), cursor: 1 } }
     if (body.action === 'presence') return { data: { collaborators: [{ userId: 'owner', displayName: 'Owner', self: true, editing: [], locked: [] }] } }
     if (body.action === 'changes') {
       if (readError) throw readError
-      return { data: { changes: structuredClone(changes), cursor: 1, hasMore: false, editable } }
+      return { data: { changes: structuredClone(changes), cursor: 1, hasMore: false, editable, access } }
     }
     if (body.action === 'lease') return { data: { editable: body.id !== blocked, expiresAt: Date.now() + 90000, canTakeover: true } }
     if (body.action === 'write') {
@@ -50,6 +62,70 @@ afterEach(async () => { for (const session of sessions.splice(0)) await session.
 const createSession = () => { const session = useWorkbenchCollaborationSession(async () => true); sessions.push(session); return session }
 
 describe('collaboration in the original workbench', () => {
+  it('copies recovery drafts without sharing writable keys or resurrecting discarded drafts', async () => {
+    setDraftRuntime('original')
+    const first = createSession()
+    await first.openEditSession('p')
+    const a = view(), b = view()
+    a.scenes[0]!.description = '原窗口草稿'
+    b.scenes[0]!.description = '复制窗口草稿'
+    first.stashDraft(view(), a)
+    setDraftRuntime('copy', 'original')
+    const second = createSession()
+    await second.openEditSession('p')
+    expect(second.snapshot().scenes).toMatchObject([{ description: '原窗口草稿' }, { description: 'B' }])
+    second.stashDraft(view(), b)
+    await first.openEditSession('p')
+    expect(first.snapshot().scenes).toMatchObject([{ description: '原窗口草稿' }, { description: 'B' }])
+    await second.openEditSession('p')
+    expect(second.snapshot().scenes).toMatchObject([{ description: '复制窗口草稿' }, { description: 'B' }])
+    second.discardDraft()
+    await second.releaseEditSession()
+    const remounted = createSession()
+    await remounted.openEditSession('p')
+    expect(remounted.snapshot().scenes).toMatchObject([{ description: 'A' }, { description: 'B' }])
+  })
+
+  it('recovers an uncertain operation and its newer draft under a fresh runtime identity', async () => {
+    const first = createSession()
+    await first.openEditSession('p')
+    const submitted = view()
+    submitted.scenes[0]!.description = '已经提交'
+    loseReply = true
+    await expect(first.saveSnapshot(view(), submitted)).rejects.toThrow('response lost')
+    const current = view()
+    current.scenes[0]!.description = '回执丢失后继续输入'
+    first.stashDraft(view(), current)
+    await first.releaseEditSession()
+    setDraftRuntime('reloaded-runtime', draftSession.windowId)
+    const reopened = createSession()
+    await reopened.openEditSession('p')
+    expect(reopened.editSession.value.pendingSave).toBeFalsy()
+    expect(reopened.snapshot().scenes).toMatchObject([{ description: '回执丢失后继续输入' }, { description: 'B' }])
+    expect(writes[1]!.operationId).toBe(writes[0]!.operationId)
+  })
+
+  it('publishes canonical permissions on open and polling without replacing a draft', async () => {
+    access = { role: 'viewer', isOwner: false, permissions: ['view'] }
+    editable = false
+    const changed = vi.fn()
+    const current = view()
+    const session = useWorkbenchCollaborationSession(async () => true, { access: changed, draft: () => ({ before: view(), after: current }), apply: vi.fn() })
+    sessions.push(session)
+    await session.openEditSession('p')
+    expect(changed).toHaveBeenLastCalledWith(access)
+    access = { role: 'editor', isOwner: false, permissions: ['view', 'edit', 'generate', 'export'] }
+    editable = true
+    await session.poll()
+    expect(changed).toHaveBeenLastCalledWith(access)
+    expect(session.projectEditable.value).toBe(true)
+    current.scenes[0]!.description = '保留本机输入'
+    access = { role: 'custom', isOwner: false, permissions: ['view', 'edit'] }
+    await session.poll()
+    expect(changed).toHaveBeenLastCalledWith(access)
+    expect(current.scenes[0]!.description).toBe('保留本机输入')
+  })
+
   it('preserves a revert to the original text after a lost receipt, including reopening', async () => {
     const session = createSession()
     await session.openEditSession('p')

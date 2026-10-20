@@ -38,14 +38,18 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
       if (!snapshot.enabled) throw createError({ statusCode: 409, message: '项目尚未启用协作' })
       return updateCollaborationWindowPresence(db, { projectId: project.id, ownerId: ownerUserId, userId: auth.user.id, deviceId: body.deviceId, sessionId: body.sessionId, editable, editing: body.editing, leaving: body.leaving === true, resources: snapshot.resources })
     }
-    if (body.action === 'read') return { ...readCollaboration(db, project.id), editable }
+    const members = () => manageCollaboration(db, auth, { id: project.id, ownerId: ownerUserId, deletedAt: project.deleted_at }, { action: 'members' })
+    if (body.action === 'read') {
+      const snapshot = readCollaboration(db, project.id)
+      return { ...snapshot, editable, ...(snapshot.enabled ? members() : {}) }
+    }
     if (body.action === 'changes') {
       const result = collaborationChanges(db, project.id, body.after as number)
       // Legacy clients may omit presence metadata and continue using the same protocol.
       const participants = typeof body.deviceId === 'string' && typeof body.sessionId === 'string'
         ? updateCollaborationPresence(db, project.id, auth.user.id, collaborationId(body.deviceId), collaborationId(body.sessionId), body.activeScopes, editable)
         : []
-      return { ...result, editable, participants }
+      return { ...result, editable, participants, ...members() }
     }
     if (['members', 'memberPut', 'memberRemove', 'delete'].includes(body.action as string)) return manageCollaboration(db, auth, { id: project.id, ownerId: ownerUserId, deletedAt: project.deleted_at }, body)
     const canTakeover = auth.user.id === ownerUserId || auth.user.role === 'admin'
