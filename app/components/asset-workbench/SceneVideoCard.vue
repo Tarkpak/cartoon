@@ -399,54 +399,15 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       >
         <span class="text-xs font-medium text-muted-foreground">环境引用</span>
         <div class="flex min-w-0 flex-wrap items-center gap-2">
-          <Button
-            v-if="activeModeReferenceImage"
-            type="button"
-            variant="ghost"
-            class="h-7 w-7 shrink-0 rounded border p-0"
-            title="预览当前环境引用图"
-            @click.stop="onPreviewImage(activeModeReferenceImage, `${scene.title} · 环境图`)"
-          >
-            <LazyImage
-              :key="activeModeReferenceImage"
-              :image="activeModeReferenceImage"
-              :alt="`${scene.title} 环境图`"
-              class="h-full w-full rounded object-cover"
-            />
-          </Button>
-          <Select
+          <AssetWorkbenchSceneEnvironmentPicker
+            class="min-w-[180px] flex-1"
             :model-value="sceneEnvironmentReferenceAssetSelection"
+            :options="sceneEnvironmentAssetOptions"
+            :image="activeModeReferenceImage"
+            :disabled="sceneBusy"
             @update:model-value="handleSetSceneEnvironmentReferenceAsset"
-          >
-            <SelectTrigger
-              class="h-7 min-w-[180px] max-w-[280px] flex-1 px-2 text-xs"
-              :disabled="sceneBusy"
-            >
-              <SelectValue placeholder="选择环境资产" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__auto__">
-                自动（按场景环境）
-              </SelectItem>
-              <SelectItem
-                v-for="asset in sceneEnvironmentAssetOptions"
-                :key="`scene_env_asset_${scene.id}_${asset.id}`"
-                :value="asset.id"
-              >
-                <div class="flex items-center gap-2">
-                  <LazyImage
-                    v-if="asset.previewImage"
-                    :image="asset.previewImage"
-                    :alt="`${asset.label} 预览`"
-                    class="h-5 w-5 rounded border object-cover"
-                  />
-                  <span class="truncate">
-                    {{ asset.label }}{{ asset.hasReference ? '' : '（未就绪）' }}
-                  </span>
-                </div>
-              </SelectItem>
-            </SelectContent>
-          </Select>
+            @preview="(image, label) => onPreviewImage(image, label)"
+          />
           <div class="inline-flex h-7 shrink-0 overflow-hidden rounded-xl bg-muted/25 p-0.5">
             <Button
               size="sm"
