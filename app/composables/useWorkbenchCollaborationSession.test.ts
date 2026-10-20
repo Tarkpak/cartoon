@@ -50,6 +50,37 @@ afterEach(async () => { for (const session of sessions.splice(0)) await session.
 const createSession = () => { const session = useWorkbenchCollaborationSession(async () => true); sessions.push(session); return session }
 
 describe('collaboration in the original workbench', () => {
+  it('preserves newer live input when confirming a lost receipt and reopening', async () => {
+    let current = view()
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before: view(), after: current }), apply: vi.fn() })
+    sessions.push(session)
+    await session.openEditSession('p')
+    current.scenes[0]!.description = '已提交内容'
+    loseReply = true
+    await expect(session.saveSnapshot(view(), current)).rejects.toThrow('response lost')
+    current = view()
+    current.scenes[0]!.description = '提交后继续输入'
+    await session.confirmPending()
+    await session.openEditSession('p')
+    expect(session.snapshot().scenes).toMatchObject([{ description: '提交后继续输入' }, { description: 'B' }])
+    expect(server.find(item => item.id === 'a')!.body!.scenes).toMatchObject([{ description: '已提交内容' }])
+    expect(writes[1]!.operationId).toBe(writes[0]!.operationId)
+  })
+
+  it('preserves the latest save payload when retrying an uncertain submission', async () => {
+    const session = createSession()
+    await session.openEditSession('p')
+    const submitted = view()
+    submitted.scenes[0]!.description = '已提交'
+    loseReply = true
+    await expect(session.saveSnapshot(view(), submitted)).rejects.toThrow('response lost')
+    const advanced = view()
+    advanced.scenes[0]!.description = '重试时的新输入'
+    await expect(session.saveSnapshot(view(), advanced)).rejects.toThrow('上次提交已确认')
+    await session.openEditSession('p')
+    expect(session.snapshot().scenes).toMatchObject([{ description: '重试时的新输入' }, { description: 'B' }])
+  })
+
   it('reports recent typing after autosave and stops reporting it when idle', async () => {
     const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before: view(), after: view() }), apply: vi.fn() })
     sessions.push(session)
@@ -135,6 +166,7 @@ describe('collaboration in the original workbench', () => {
     local.scenes[0]!.description = '待保存内容'
     blocked = 'a'
     await expect(session.saveSnapshot(view(), local)).rejects.toThrow('正在由其他成员编辑')
+    expect(session.editSession.value.syncStatus).toBe('editing')
     expect(session.editSession.value.scopeConflict).not.toBe(true)
     expect(session.editSession.value.reason).toContain('当前修改已保留')
     blocked = ''

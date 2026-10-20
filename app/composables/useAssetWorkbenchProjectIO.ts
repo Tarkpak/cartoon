@@ -683,8 +683,12 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   }
 
   async function requestProjectEditing(takeover = false) {
-    if (!(editSession.value.scopeConflict && editSession.value.collaboration && projectEditable.value)) loading.value = true
     try {
+      // Loading suspends sync.draft(); persist the live form before confirming and reloading.
+      if (editSession.value.pendingSave && lastSavedProjectSnapshot !== null) {
+        collaboration.stashDraft(lastSavedWorkbenchBody, JSON.parse(JSON.stringify(buildProjectSaveBody())))
+      }
+      if (!(editSession.value.scopeConflict && editSession.value.collaboration && projectEditable.value)) loading.value = true
       const id = activeProjectId.value || options.projectId.value
       if (!id) return
       if (editSession.value.pendingSave) {

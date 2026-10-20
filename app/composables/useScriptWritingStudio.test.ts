@@ -41,7 +41,7 @@ describe('useScriptWritingStudio', () => {
     expect(await writing.generateStoryBible()).toBe(true)
     expect(studio.value.storyBible?.characters[0]?.name).toBe('林默')
     expect(studio.value.storyBible?.characters[0]?.id).toBe('character_1')
-    expect(studio.value.versions[0]?.label).toBe('生成故事圣经前')
+    expect(studio.value.versions).toHaveLength(0)
     expect(saveProject).toHaveBeenCalledOnce()
   })
 
@@ -163,7 +163,7 @@ describe('useScriptWritingStudio', () => {
 
     expect(await writing.generateStoryBible()).toBe(true)
     expect(assignedStudio?.storyBible?.characters[0]?.name).toBe('林默')
-    expect(assignedStudio?.versions[0]?.label).toBe('生成故事圣经前')
+    expect(assignedStudio?.versions).toHaveLength(0)
   })
 
   it('discards draft content returned by outline generation', async () => {
@@ -226,7 +226,9 @@ describe('useScriptWritingStudio', () => {
     expect(await writing.generateRemainingEpisodeDrafts()).toBe(true)
     expect(studio.value.episodes.map(episode => episode.draft))
       .toEqual(['已有正文', '第二集正文', '第三集正文'])
-    expect(studio.value.versions[0]?.label).toBe('批量生成未成稿前')
+    expect(studio.value.versions).toHaveLength(2)
+    expect(studio.value.versions.map(version => version.episodeId).sort()).toEqual(['episode_2', 'episode_3'])
+    expect(studio.value.versions.every(version => version.source === 'episode' && version.snapshot.episodes.length === 1)).toBe(true)
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(saveProject).toHaveBeenCalledTimes(2)
     expect(writing.batchCompleted.value).toBe(2)
@@ -516,71 +518,38 @@ describe('useScriptWritingStudio', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('creates a named pinned milestone with a note and skips duplicate content', async () => {
+  it('keeps retired project-wide history actions from modifying content or episode history', async () => {
     const studio = ref(createEmptyScriptWritingStudio())
     studio.value.brief.idea = '版本测试'
+    studio.value.episodes = [{ id: 'episode_1', index: 1, title: '开局', summary: '', hook: '', beats: [], draft: '当前正文', review: '' }]
     const saveProject = vi.fn(async () => true)
     const writing = useScriptWritingStudio({ studio, saveProject })
-
-    expect(await writing.createMilestone('人物关系定稿', '主角动机已经确认', 'bible'))
-      .toEqual({ created: true, saved: true })
-    expect(studio.value.versions[0]).toMatchObject({
-      label: '人物关系定稿',
-      note: '主角动机已经确认',
-      kind: 'milestone',
-      pinned: true,
-      source: 'bible'
-    })
-
-    expect(await writing.createMilestone('重复版本')).toEqual({ created: false, saved: true })
-    expect(studio.value.versions).toHaveLength(1)
-    expect(saveProject).toHaveBeenCalledOnce()
+    writing.checkpointEpisode('episode_1')
+    const versionId = studio.value.versions[0]!.id
+    const original = JSON.stringify(studio.value)
+    expect(await writing.createMilestone('旧里程碑')).toEqual({ created: false, saved: true })
+    expect(await writing.restoreVersion(versionId, 'all')).toBe(false)
+    expect(await writing.setVersionPinned(versionId, true)).toBe(false)
+    expect(await writing.deleteVersion(versionId)).toBe(false)
+    expect(JSON.stringify(studio.value)).toBe(original)
+    expect(saveProject).not.toHaveBeenCalled()
   })
 
-  it('creates a protection version before partial and full restores', async () => {
+  it('saves and deduplicates episode history without snapshotting other episodes', async () => {
     const studio = ref(createEmptyScriptWritingStudio())
-    studio.value.brief.idea = '历史创意'
     studio.value.episodes = [
-      { id: 'episode_1', index: 1, title: '开局', summary: '', hook: '', beats: [], draft: '历史正文', review: '' },
-      { id: 'episode_2', index: 2, title: '结局', summary: '', hook: '', beats: [], draft: '历史结局', review: '' }
+      { id: 'episode_1', index: 1, title: '开局', summary: '', hook: '', beats: [], draft: '当前正文', review: '' },
+      { id: 'episode_2', index: 2, title: '结局', summary: '', hook: '', beats: [], draft: '其他成员正文', review: '' }
     ]
-    const writing = useScriptWritingStudio({ studio, saveProject: vi.fn(async () => true) })
-    await writing.createMilestone('历史版')
-    const versionId = studio.value.versions[0]!.id
-    studio.value.brief.idea = '当前创意'
-    studio.value.episodes[0]!.draft = '当前正文'
-    studio.value.episodes[1]!.draft = '当前结局'
-
-    expect(await writing.restoreVersion(versionId, 'episode', 'episode_1')).toBe(true)
-    expect(studio.value.episodes[0]?.draft).toBe('历史正文')
-    expect(studio.value.episodes[1]?.draft).toBe('当前结局')
-    expect(studio.value.brief.idea).toBe('当前创意')
-    expect(studio.value.versions[0]).toMatchObject({
-      kind: 'protection',
-      pinned: false,
-      source: 'restore',
-      episodeId: 'episode_1'
-    })
-
-    studio.value.brief.idea = '再次修改'
-    expect(await writing.restoreVersion(versionId, 'all')).toBe(true)
-    expect(studio.value.brief.idea).toBe('历史创意')
-    expect(studio.value.versions[0]).toMatchObject({ kind: 'protection', source: 'restore' })
-  })
-
-  it('persists pin and delete operations', async () => {
-    const studio = ref(createEmptyScriptWritingStudio())
-    studio.value.brief.idea = '版本管理'
     const saveProject = vi.fn(async () => true)
     const writing = useScriptWritingStudio({ studio, saveProject })
-    await writing.createMilestone('管理测试')
-    const versionId = studio.value.versions[0]!.id
-
-    expect(await writing.setVersionPinned(versionId, false)).toBe(true)
-    expect(studio.value.versions[0]?.pinned).toBe(false)
-    expect(await writing.deleteVersion(versionId)).toBe(true)
-    expect(studio.value.versions).toHaveLength(0)
-    expect(saveProject).toHaveBeenCalledTimes(3)
+    expect(await writing.saveEpisodeVersion('episode_1')).toBe(true)
+    expect(studio.value.versions[0]).toMatchObject({ label: '手动保存', source: 'episode', episodeId: 'episode_1', snapshot: { episodes: [{ id: 'episode_1', draft: '当前正文' }] } })
+    expect(studio.value.versions[0]!.snapshot.episodes).toHaveLength(1)
+    expect(await writing.saveEpisodeVersion('episode_1')).toBe(true)
+    expect(studio.value.versions).toHaveLength(1)
+    expect(studio.value.episodes[1]?.draft).toBe('其他成员正文')
+    expect(saveProject).toHaveBeenCalledTimes(2)
   })
 
   it('keeps an edited stale draft stale until it is explicitly confirmed', async () => {

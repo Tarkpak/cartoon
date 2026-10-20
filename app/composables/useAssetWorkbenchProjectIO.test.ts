@@ -5,7 +5,7 @@ import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import { useAssetWorkbenchProjectIO } from './useAssetWorkbenchProjectIO'
 
-const collaborationMock = vi.hoisted(() => ({ enabled: false, editable: true, sync: undefined as any, snapshot: vi.fn(), saveSnapshot: vi.fn(), canAdoptAsset: vi.fn() }))
+const collaborationMock = vi.hoisted(() => ({ enabled: false, editable: true, sync: undefined as any, snapshot: vi.fn(), saveSnapshot: vi.fn(), canAdoptAsset: vi.fn(), stashDraft: vi.fn(), confirmPending: vi.fn() }))
 
 vi.mock('./useWorkbenchCollaborationSession', () => ({
   useWorkbenchCollaborationSession: (_save: unknown, sync: unknown) => {
@@ -13,6 +13,7 @@ vi.mock('./useWorkbenchCollaborationSession', () => ({
     return ({
     editSession: ref({ editable: collaborationMock.editable, canTakeover: false, collaboration: collaborationMock.enabled }),
     snapshot: collaborationMock.snapshot, saveSnapshot: collaborationMock.saveSnapshot,
+    stashDraft: collaborationMock.stashDraft, confirmPending: collaborationMock.confirmPending,
     canAdoptAsset: collaborationMock.canAdoptAsset, ready: ref(collaborationMock.enabled),
     projectEditable: ref(collaborationMock.editable), acquiring: ref(false),
     openEditSession: vi.fn(async () => {}), releaseEditSession: vi.fn(async () => {})
@@ -160,6 +161,8 @@ describe('useAssetWorkbenchProjectIO', () => {
     collaborationMock.canAdoptAsset.mockReset().mockReturnValue(true)
     collaborationMock.snapshot.mockReset()
     collaborationMock.saveSnapshot.mockReset()
+    collaborationMock.stashDraft.mockReset()
+    collaborationMock.confirmPending.mockReset()
     hadOriginalFetch = Object.prototype.hasOwnProperty.call(testGlobal, '$fetch')
     originalFetch = testGlobal.$fetch
     testGlobal.$fetch = fetchMock
@@ -170,6 +173,40 @@ describe('useAssetWorkbenchProjectIO', () => {
       testGlobal.$fetch = originalFetch
     } else {
       delete testGlobal.$fetch
+    }
+  })
+
+  it.each([false, true])('backs up live edits before confirming a receipt (failure: %s)', async (fails) => {
+    collaborationMock.enabled = true
+    const loaded = createLoadResponse()
+    collaborationMock.snapshot.mockReturnValue(loaded.data)
+    fetchMock.mockResolvedValue(loaded)
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    fetchMock.mockClear()
+    collaborationMock.stashDraft.mockClear()
+    state.scenes.value[0]!.description = '回执丢失后继续输入'
+    io.editSession.value.pendingSave = true
+    collaborationMock.stashDraft.mockImplementation(() => {
+      expect(io.loading.value).toBe(false)
+    })
+    collaborationMock.confirmPending.mockImplementation(async () => {
+      expect(collaborationMock.stashDraft).toHaveBeenCalledOnce()
+      const draft = collaborationMock.stashDraft.mock.calls[0]![1]
+      expect(draft.scenes[0].description).toBe('回执丢失后继续输入')
+      if (fails) throw new Error('网络仍然不可用')
+    })
+
+    await io.requestProjectEditing()
+
+    expect(collaborationMock.confirmPending).toHaveBeenCalledOnce()
+    expect(io.loading.value).toBe(false)
+    if (fails) {
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(state.scenes.value[0]!.description).toBe('回执丢失后继续输入')
+      expect(io.saveError.value).toBe('网络仍然不可用')
+    } else {
+      expect(fetchMock).toHaveBeenCalled()
     }
   })
 

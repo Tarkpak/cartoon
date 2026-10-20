@@ -113,7 +113,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     const lease = await request<CollaborationLease>({ action: 'lease', leaseAction: takeover ? 'takeover' : 'acquire', type: scope.type, id: scope.id })
     if (version !== sequence) throw new Error('项目已切换，原项目的修改仍保留在本机')
     const holder = editSession.value.collaborators?.find(item => item.userId === lease.holderUserId)?.displayName || '其他成员'
-    if (!lease.editable) throw new Error(`${resourceLabel(scope)}正在由${holder}编辑，其他集仍可编辑；当前修改已保留，请稍后重试。`)
+    if (!lease.editable) throw Object.assign(new Error(`${resourceLabel(scope)}正在由${holder}编辑，其他集仍可编辑；当前修改已保留，请稍后重试。`), { statusCode: 423 })
     held.set(keyOf(scope), { type: scope.type, id: scope.id })
   }
   function resourceLabel(scope: { type: CollaborationResource['type'], id: string }) {
@@ -375,6 +375,9 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       }
       if (version !== sequence) throw new Error('项目已切换，原提交结果会在重新打开后确认')
       if (!Array.isArray(result.resources) || sent.mutations.some(scope => !result.resources.some(item => keyOf(item) === keyOf(scope)))) throw new Error('保存回执不完整，请重试原提交')
+      // Capture edits made while waiting for the receipt, before advancing revisions.
+      const liveDraft = sync?.draft()
+      if (liveDraft) stashDraft(liveDraft.before, liveDraft.after)
       const updated = new Map(resources.value.map(item => [keyOf(item), item]))
       for (const item of result.resources) {
         if ((updated.get(keyOf(item))?.revision ?? 0) <= item.revision) updated.set(keyOf(item), item)
@@ -428,12 +431,12 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     editSession.value.syncStatus = 'saving'
     const version = sequence
     try {
+      stashDraft(before, after)
       if (pending) {
         await sendPending(true)
         // The recovered operation may differ from the current UI; reload before another edit.
         throw new Error('上次提交已确认，请重新加载项目核对已保存内容后继续')
       }
-      stashDraft(before, after)
       const mutations = buildWorkbenchMutations(resources.value, before, after)
       if (!mutations.length) return
       for (const scope of mutations) await acquire(scope)
