@@ -1689,6 +1689,81 @@ fn update_subtitle_erasure_task_status(
     Ok(())
 }
 
+fn build_subtitle_erasure_request(body: &Value, video_url: &str) -> Result<Value, ApiError> {
+    let invalid = |message: &str| ApiError::new(StatusCode::BAD_REQUEST, message);
+    let mut request = json!({ "video_url": video_url });
+    for (key, default, allowed) in [
+        ("mode", "Subtitle", vec!["Subtitle", "Text"]),
+        ("model_version", "v4", vec!["v4", "v5", "v5.6"]),
+        ("output_encode_mode", "Quality", vec!["Quality", "Size"]),
+    ] {
+        let value = match body.get(key) {
+            None => default,
+            Some(value) => value.as_str().ok_or_else(|| invalid("字幕擦除选项必须为字符串"))?.trim(),
+        };
+        if !allowed.contains(&value) { return Err(invalid("不支持的字幕擦除选项")); }
+        request[key] = json!(value);
+    }
+    let validate_boxes = |boxes: &Value| -> Result<(), ApiError> {
+        let boxes = boxes.as_array().ok_or_else(|| invalid("擦除框必须为数组"))?;
+        if boxes.len() > 20 { return Err(invalid("每组最多支持 20 个擦除框")); }
+        for rect in boxes {
+            let mut coords = Vec::new();
+            for key in ["top_left_x", "top_left_y", "bottom_right_x", "bottom_right_y"] {
+                let n = rect.get(key).and_then(Value::as_f64).filter(|n| (0.0..=1.0).contains(n))
+                    .ok_or_else(|| invalid("擦除框坐标必须在 0～1 之间"))?;
+                coords.push(n);
+            }
+            if coords[0] >= coords[2] || coords[1] >= coords[3] { return Err(invalid("擦除框右下角坐标必须大于左上角")); }
+        }
+        Ok(())
+    };
+    let mut has_global_boxes = false;
+    if let Some(boxes) = body.get("erase_ratio_location") {
+        validate_boxes(boxes)?;
+        has_global_boxes = boxes.as_array().is_some_and(|boxes| !boxes.is_empty());
+        if has_global_boxes { request["erase_ratio_location"] = boxes.clone(); }
+    }
+    if let Some(filter) = body.get("time_segment_filter") {
+        let mode = filter.get("mode").and_then(Value::as_str).unwrap_or("");
+        if !["selected", "skip"].contains(&mode) { return Err(invalid("无效的擦除时间模式")); }
+        let segments = filter.get("segments").and_then(Value::as_array).filter(|v| !v.is_empty())
+            .ok_or_else(|| invalid("请至少提供一个擦除时间段"))?;
+        for segment in segments {
+            let start = segment.get("start_time").and_then(Value::as_f64);
+            let end = segment.get("end_time").and_then(Value::as_f64);
+            if !matches!((start, end), (Some(a), Some(b)) if a >= 0.0 && b > a) {
+                return Err(invalid("无效的擦除时间范围"));
+            }
+            if let Some(boxes) = segment.get("erase_ratio_location") {
+                validate_boxes(boxes)?;
+                if boxes.as_array().is_some_and(|v| !v.is_empty()) && (has_global_boxes || mode != "selected") {
+                    return Err(invalid("分段擦除框仅支持 selected 模式且不能与全局擦除框同时使用"));
+                }
+            }
+        }
+        request["time_segment_filter"] = filter.clone();
+    }
+    if request["mode"] == "Subtitle" {
+        if let Some(filter) = body.get("subtitle_filter") {
+            let fields = filter.as_object().ok_or_else(|| invalid("字幕识别条件必须为对象"))?;
+            let mut normalized = json!({});
+            for key in ["min_text_height_ratio", "max_text_height_ratio", "center_offset_ratio"] {
+                if let Some(value) = fields.get(key) {
+                    let n = value.as_f64().filter(|n| (0.0..=1.0).contains(n))
+                        .ok_or_else(|| invalid("字幕识别比例必须在 0～1 之间"))?;
+                    normalized[key] = json!(n);
+                }
+            }
+            let min = normalized["min_text_height_ratio"].as_f64().unwrap_or(0.01);
+            let max = normalized["max_text_height_ratio"].as_f64().unwrap_or(if request["model_version"] == "v4" { 0.2 } else { 0.1 });
+            if min > max { return Err(invalid("字幕最小高度不能超过最大高度")); }
+            request["subtitle_filter"] = normalized;
+        }
+    }
+    Ok(request)
+}
+
 pub(super) async fn api_tools_subtitle_erasure_submit(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
@@ -1728,15 +1803,7 @@ pub(super) async fn api_tools_subtitle_erasure_submit(
         "{}/api/v1/tools/erase-video-subtitle-pro",
         MEDIAKIT_BASE_URL
     );
-    let request_body = json!({
-      "video_url": video_url,
-      "mode": body
-        .get("mode")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("Subtitle")
-    });
+    let request_body = build_subtitle_erasure_request(&body, video_url)?;
     let response = llm_http_client()
         .post(&endpoint)
         .bearer_auth(api_key)
@@ -16433,6 +16500,35 @@ mod tests {
             video_enhance_download_name("无扩展名"),
             "无扩展名-enhanced.mp4"
         );
+    }
+
+    #[test]
+    fn subtitle_erasure_request_defaults_and_custom_options() {
+        let defaults = build_subtitle_erasure_request(&json!({}), "https://example.com/a.mp4").unwrap();
+        assert_eq!(defaults["model_version"], "v4");
+        assert_eq!(defaults["mode"], "Subtitle");
+        let custom = build_subtitle_erasure_request(&json!({
+            "model_version": "v5.6", "mode": "Text", "output_encode_mode": "Size",
+            "erase_ratio_location": [{"top_left_x": 0, "top_left_y": 0, "bottom_right_x": 1, "bottom_right_y": 0.5}],
+            "time_segment_filter": {"mode": "selected", "segments": [{"start_time": 0, "end_time": 4}]}
+        }), "https://example.com/a.mp4").unwrap();
+        assert_eq!(custom["model_version"], "v5.6");
+        assert_eq!(custom["output_encode_mode"], "Size");
+        assert_eq!(custom["erase_ratio_location"][0]["bottom_right_y"], 0.5);
+        assert_eq!(custom["time_segment_filter"]["segments"][0]["end_time"], 4);
+    }
+
+    #[test]
+    fn subtitle_erasure_request_rejects_invalid_options() {
+        for body in [
+            json!({"model_version": "v99"}),
+            json!({"erase_ratio_location": [{"top_left_x": 1.1}]}),
+            json!({"time_segment_filter": {"mode": "selected", "segments": []}}),
+            json!({"subtitle_filter": {"min_text_height_ratio": 0.5}}),
+            json!({"time_segment_filter": {"mode": "selected", "segments": [{"start_time": 3, "end_time": 1}]}}),
+        ] {
+            assert!(build_subtitle_erasure_request(&body, "https://example.com/a.mp4").is_err());
+        }
     }
 
     #[test]

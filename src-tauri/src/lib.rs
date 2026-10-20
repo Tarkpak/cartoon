@@ -127,11 +127,16 @@ fn set_download_directory(app: AppHandle, directory: Option<String>) -> Result<S
 }
 
 #[tauri::command]
-async fn save_project_video(app: AppHandle, url: String, file_name: String) -> Result<String, String> {
+async fn save_project_video(app: AppHandle, url: String, file_name: String, project_name: String) -> Result<String, String> {
     if file_name.is_empty() || file_name.contains(['/', '\\']) || !file_name.ends_with(".mp4") {
         return Err("无效的视频文件名".to_string());
     }
-    let directory = PathBuf::from(get_download_directory(app)?);
+    let folder_name: String = project_name.trim().chars().map(|character| {
+        if character.is_control() || "<>:\"/\\|?*".contains(character) { '_' } else { character }
+    }).collect();
+    let folder_name = folder_name.trim_end_matches(['.', ' ']);
+    let folder_name = if folder_name.is_empty() { "未命名项目" } else { folder_name };
+    let directory = PathBuf::from(get_download_directory(app)?).join(folder_name);
     let parsed = reqwest::Url::parse(&url).map_err(|error| error.to_string())?;
     if parsed.scheme() != "http"
         || parsed.host_str() != Some(DESKTOP_HOST)

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { Eraser, FileVideo, FolderOpen, ListChecks, Loader2, Trash2, Upload } from 'lucide-vue-next'
+import SubtitleErasureSettings from '@/components/tools/SubtitleErasureSettings.vue'
+import { useSubtitleErasureSettings } from '~/composables/useSubtitleErasureSettings'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
@@ -43,6 +45,7 @@ type FetchErrorWithData = Error & {
   }
 }
 
+const { getOptions } = useSubtitleErasureSettings()
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024
 const route = useRoute()
 const router = useRouter()
@@ -221,7 +224,7 @@ function uploadSourceVideo(item: QueueItem) {
   })
 }
 
-async function submitQueueItem(item: QueueItem, currentBatchId: string) {
+async function submitQueueItem(item: QueueItem, currentBatchId: string, options: Record<string, unknown>) {
   item.errorMessage = ''
   if (!item.sourceVideoUrl) {
     item.status = 'uploading'
@@ -237,6 +240,7 @@ async function submitQueueItem(item: QueueItem, currentBatchId: string) {
   const response = await $fetch<SubmitResponse>('/api/tools/subtitle-erasure', {
     method: 'POST',
     body: {
+      ...options,
       videoUrl: item.sourceVideoUrl,
       sourceFileName: item.fileName,
       sourceObjectKey: item.sourceObjectKey || undefined,
@@ -249,6 +253,11 @@ async function submitQueueItem(item: QueueItem, currentBatchId: string) {
 
 async function submitTasks() {
   if (!canSubmit.value) return
+  let options: Record<string, unknown>
+  try { options = getOptions() } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '字幕擦除配置无效'
+    return
+  }
   const confirmed = await confirm({
     title: `提交 ${pendingQueue.value.length} 个字幕擦除任务？`,
     description: '视频将依次上传到 TOS，并为每个视频创建独立的精细化字幕擦除任务。',
@@ -272,7 +281,7 @@ async function submitTasks() {
     for (const item of queue.value) {
       if (item.status === 'submitted') continue
       try {
-        await submitQueueItem(item, currentBatchId)
+        await submitQueueItem(item, currentBatchId, options)
         successCount += 1
       } catch (error) {
         item.status = 'failed'
@@ -344,6 +353,7 @@ onBeforeRouteLeave(confirmDiscardQueue)
     </AppPageHeader>
 
     <AppPageContent scroll inner-class="space-y-6">
+      <SubtitleErasureSettings :disabled="activeQueue" />
       <Card>
         <CardContent class="space-y-5 pt-6">
           <div class="flex items-start gap-3 rounded-xl bg-muted/25 p-4">

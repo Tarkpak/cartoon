@@ -3901,6 +3901,7 @@ function reportWorkbenchActivity() {
           v-else
           :key="`videos-stage:${projectId || 'new'}`"
           :scenes="scenes"
+          :project-name="projectName"
           :project-aspect-ratio="projectAspectRatio"
           :script-parse-mode="scriptParseMode"
           :episode-plan="episodePlan"

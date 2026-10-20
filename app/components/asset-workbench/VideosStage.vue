@@ -14,6 +14,7 @@ import type {
   SceneVideoBadge,
   SceneVoiceReferenceSummary
 } from '~/lib/asset-workbench-types'
+import { useSubtitleErasureSettings } from '~/composables/useSubtitleErasureSettings'
 import { ensureVideoHistoryEntry } from '~/lib/asset-history'
 import { resolveVideoPreviewAspectRatio } from '~/lib/video-preview-aspect-ratio'
 
@@ -61,6 +62,7 @@ interface EpisodeDirectoryItem {
 
 const props = defineProps<{
   scenes: SceneData[]
+  projectName: string
   projectAspectRatio: string
   scriptParseMode?: ScriptParseMode
   episodePlan: EpisodePlanItemForVideoStage[]
@@ -184,6 +186,7 @@ const desktopRuntime = isTauri()
 const openingDownloadDirectory = ref(false)
 
 // Keep submitted tasks across navigation and desktop restarts.
+const { getOptions: getErasureOptions } = useSubtitleErasureSettings()
 const erasureTasks = useStorage<Record<string, { taskId: string, sourceUrl: string }>>('scene-subtitle-erasure-tasks', {})
 const submittingErasure = ref<string[]>([])
 const checkingErasure = new Set<string>()
@@ -197,6 +200,7 @@ async function eraseSelectedVideo() {
   const sourceUrl = scene.videoUrl
   submittingErasure.value.push(scene.id)
   try {
+    const erasureOptions = getErasureOptions()
     const source = new URL(sourceUrl, window.location.href)
     const downloadUrl = source.origin === window.location.origin
       ? sourceUrl
@@ -210,7 +214,7 @@ async function eraseSelectedVideo() {
     })
     const task = await $fetch<{ taskId: string }>('/api/tools/subtitle-erasure', {
       method: 'POST',
-      body: { videoUrl: upload.videoUrl, sourceObjectKey: upload.sourceObjectKey, sourceFileName: `${scene.title}.mp4` }
+      body: { ...erasureOptions, videoUrl: upload.videoUrl, sourceObjectKey: upload.sourceObjectKey, sourceFileName: `${scene.title}.mp4` }
     })
     erasureTasks.value = { ...erasureTasks.value, [scene.id]: { taskId: task.taskId, sourceUrl } }
     toast.success('已开始去字幕，完成后自动更新分镜视频')
@@ -282,10 +286,11 @@ async function downloadSelectedVideo() {
   if (!scene?.videoUrl || downloadingVideo.value) return
   const videoUrl = scene.videoUrl
   const episode = resolveSceneEpisodeMeta(scene)
-  const sceneName = (scene.title?.trim() || `场景${props.scenes.findIndex(item => item.id === scene.id) + 1}`)
+  const sceneNumber = resolveSceneGlobalIndex(scene.id) + 1
+  const sceneName = (scene.title?.trim() || `场景${sceneNumber}`)
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
     .replace(/[. ]+$/g, '') || '场景'
-  const fileName = `第${episode.index}集-${sceneName}.mp4`
+  const fileName = `第${episode.index}集-分镜${sceneNumber}-${sceneName}.mp4`
   downloadingVideo.value = true
   try {
     if (isTauri()) {
@@ -293,9 +298,9 @@ async function downloadSelectedVideo() {
       const url = source.origin === window.location.origin && source.pathname.startsWith('/api/video/file/')
         ? `http://127.0.0.1:43127${source.pathname}`
         : `http://127.0.0.1:43127/api/video/download?${new URLSearchParams({ url: source.href })}`
-      await invoke<string>('save_project_video', { url, fileName })
+      const savedPath = await invoke<string>('save_project_video', { url, fileName, projectName: props.projectName })
       downloadedVideos.value = { ...downloadedVideos.value, [scene.id]: videoUrl }
-      toast.success('视频已保存到下载目录')
+      toast.success('视频已保存到项目文件夹', { description: savedPath })
       return
     }
     const source = new URL(videoUrl, window.location.href)
