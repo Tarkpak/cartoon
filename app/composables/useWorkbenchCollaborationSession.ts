@@ -112,6 +112,11 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       if (version === sequence) editSession.value.reason = getDisplayErrorMessage(cause, '本机草稿备份失败，请保留当前窗口。')
     })
   }
+  async function backupDraft(before: CollaborationBody, after: CollaborationBody) {
+    if (!activeId || !actorId) throw new Error('协作草稿尚未初始化，请保留当前窗口并重试连接。')
+    stashDraft(before, after)
+    await storage.flush()
+  }
   async function acquire(scope: { type: CollaborationResource['type'], id: string }, takeover = false) {
     const version = sequence
     const lease = await request<CollaborationLease>({ action: 'lease', leaseAction: takeover ? 'takeover' : 'acquire', type: scope.type, id: scope.id })
@@ -611,5 +616,5 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     if (draft) stashDraft(draft.before, draft.after)
     void releaseEditSession()
   })
-  return { editSession, projectEditable: computed(() => editSession.value.editable), acquiring, openEditSession, releaseEditSession, heartbeat, poll, refreshPresence, confirmPending: () => sendPending(true), canAdoptAsset, ready: computed(() => resources.value.length > 0), snapshot, saveSnapshot, stashDraft, restoredBaseline, downloadDraft, discardDraft, mergePreview, previewMerge, cancelMerge, applyMerge, collaborationParticipants, updateCollaborationActivity }
+  return { editSession, projectEditable: computed(() => editSession.value.editable), acquiring, openEditSession, releaseEditSession, heartbeat, poll, refreshPresence, confirmPending: () => sendPending(true), canAdoptAsset, ready: computed(() => resources.value.length > 0), snapshot, saveSnapshot, stashDraft, backupDraft, restoredBaseline, downloadDraft, discardDraft, mergePreview, previewMerge, cancelMerge, applyMerge, collaborationParticipants, updateCollaborationActivity }
 }

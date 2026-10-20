@@ -62,6 +62,24 @@ afterEach(async () => { for (const session of sessions.splice(0)) await session.
 const createSession = () => { const session = useWorkbenchCollaborationSession(async () => true); sessions.push(session); return session }
 
 describe('collaboration in the original workbench', () => {
+  it('durably backs up an offline draft and restores it when reopening', async () => {
+    const session = createSession()
+    await session.openEditSession('p')
+    readError = new Error('offline')
+    await session.poll()
+    const after = view()
+    after.scenes[0]!.description = '断线时保留的修改'
+    await session.backupDraft(view(), after)
+    readError = undefined
+    await session.openEditSession('p')
+    expect(session.snapshot().scenes).toMatchObject([{ description: '断线时保留的修改' }, { description: 'B' }])
+  })
+
+  it('rejects a backup before the project and account are initialized', async () => {
+    const session = createSession()
+    await expect(session.backupDraft(view(), view())).rejects.toThrow('尚未初始化')
+  })
+
   it('copies recovery drafts without sharing writable keys or resurrecting discarded drafts', async () => {
     setDraftRuntime('original')
     const first = createSession()

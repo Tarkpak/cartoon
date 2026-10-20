@@ -773,7 +773,11 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       const body = buildProjectSaveBody()
       if (buildProjectSaveSnapshot(id, body) !== lastSavedProjectSnapshot) {
         try {
-          await $fetch(`/api/project/${encodeURIComponent(id)}/edit-session/backup`, { method: 'POST', body })
+          if (editSession.value.collaboration) await collaboration.backupDraft(lastSavedWorkbenchBody, JSON.parse(JSON.stringify(body)))
+          else {
+            const response = await $fetch<{ backupId: string }>(`/api/project/${encodeURIComponent(id)}/edit-session/backup`, { method: 'POST', body })
+            editSession.value.backupId = response.backupId
+          }
         } catch { saveError.value = '未同步修改尚未备份，暂时不能离开项目。'; return false }
       }
     }

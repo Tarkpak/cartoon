@@ -183,7 +183,6 @@ pub(super) async fn api_project_edit_session(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let _guard = interactive_cloud_session_guard().await?;
     ensure_project_access(&db_connection(&state)?, &id)?;
     let session_id = requested_session_id()?;
     let action = body
@@ -205,6 +204,7 @@ pub(super) async fn api_project_edit_session(
             "reason": "项目已启用按集协作，请使用协作入口"
         }})));
     }
+    let _guard = interactive_cloud_session_guard().await?;
     if ensure_project_permission(&db_connection(&state)?, &id, ProjectPermission::Edit).is_err() {
         return Ok(Json(
             json!({"success": true, "data": {"editable": false, "canTakeover": false, "reason": "当前账号仅有查看权限"}}),
