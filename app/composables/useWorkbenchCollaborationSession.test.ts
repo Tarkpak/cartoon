@@ -50,6 +50,93 @@ afterEach(async () => { for (const session of sessions.splice(0)) await session.
 const createSession = () => { const session = useWorkbenchCollaborationSession(async () => true); sessions.push(session); return session }
 
 describe('collaboration in the original workbench', () => {
+  it('preserves a revert to the original text after a lost receipt, including reopening', async () => {
+    const session = createSession()
+    await session.openEditSession('p')
+    const submitted = view()
+    submitted.scenes[0]!.description = '已提交'
+    loseReply = true
+    await expect(session.saveSnapshot(view(), submitted)).rejects.toThrow('response lost')
+    session.stashDraft(view(), view())
+    await session.releaseEditSession()
+    const reopened = createSession()
+    await reopened.openEditSession('p')
+    expect(reopened.snapshot().scenes).toMatchObject([{ description: 'A' }, { description: 'B' }])
+    const baseline = reopened.restoredBaseline()!
+    expect(baseline.scenes).toMatchObject([{ description: '已提交' }, { description: 'B' }])
+    await reopened.saveSnapshot(baseline, view())
+    expect(server.find(item => item.id === 'a')!.body!.scenes).toMatchObject([{ description: 'A' }])
+  })
+
+  it('preserves a partial revert alongside edits in another episode after a lost receipt', async () => {
+    const first = createSession()
+    await first.openEditSession('p')
+    const submitted = view()
+    submitted.scenes[0]!.description = '第一集已提交'
+    submitted.scenes[1]!.description = '第二集已提交'
+    loseReply = true
+    await expect(first.saveSnapshot(view(), submitted)).rejects.toThrow('response lost')
+    const current = view()
+    current.scenes[1]!.description = '第二集继续输入'
+    first.stashDraft(view(), current)
+    await first.releaseEditSession()
+    const reopened = createSession()
+    await reopened.openEditSession('p')
+    expect(reopened.snapshot().scenes).toMatchObject([{ description: 'A' }, { description: '第二集继续输入' }])
+    await reopened.saveSnapshot(reopened.restoredBaseline()!, current)
+    expect(server.find(item => item.id === 'a')!.body!.scenes).toMatchObject([{ description: 'A' }])
+    expect(server.find(item => item.id === 'b')!.body!.scenes).toMatchObject([{ description: '第二集继续输入' }])
+  })
+
+  it('preserves a live revert while confirming a lost receipt', async () => {
+    let current = view()
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before: view(), after: current }), apply: vi.fn() })
+    sessions.push(session)
+    await session.openEditSession('p')
+    current.scenes[0]!.description = '已提交'
+    loseReply = true
+    await expect(session.saveSnapshot(view(), current)).rejects.toThrow('response lost')
+    current = view()
+    await session.confirmPending()
+    await session.openEditSession('p')
+    expect(session.snapshot().scenes).toMatchObject([{ description: 'A' }, { description: 'B' }])
+  })
+
+  it('updates upgraded permissions and retains content conflicts across permission changes', async () => {
+    editable = false
+    const current = view()
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before: view(), after: current }), apply: vi.fn() })
+    sessions.push(session)
+    await session.openEditSession('p')
+    editable = true
+    await session.poll()
+    expect(session.projectEditable.value).toBe(true)
+    expect(session.editSession.value.reason).toBeUndefined()
+    editable = false
+    await session.poll()
+    expect(session.projectEditable.value).toBe(false)
+    expect(session.editSession.value.scopeConflict).toBe(true)
+    editable = true
+    await session.poll()
+    expect(session.projectEditable.value).toBe(true)
+    expect(session.editSession.value.scopeConflict).toBe(false)
+    expect(session.editSession.value.reason).toBeUndefined()
+    current.scenes[0]!.description = '本机修改'
+    const remote = structuredClone(server.find(item => item.id === 'a')!)
+    remote.revision++
+    changes = [remote]
+    await session.poll()
+    expect(session.editSession.value.scopeConflict).toBe(true)
+    editable = false
+    await session.poll()
+    expect(session.projectEditable.value).toBe(false)
+    editable = true
+    await session.poll()
+    expect(session.projectEditable.value).toBe(true)
+    expect(session.editSession.value.scopeConflict).toBe(true)
+    expect(session.editSession.value.reason).toContain('合并')
+  })
+
   it('preserves newer live input when confirming a lost receipt and reopening', async () => {
     let current = view()
     const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before: view(), after: current }), apply: vi.fn() })

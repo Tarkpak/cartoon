@@ -64,6 +64,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
   let cursor = 0
   let polling = false
   let connectionLost = false
+  let permissionOnlyConflict = false
   let exportedDraftKey = ''
   let exportedConflictKey = ''
   let heartbeatBusy = false
@@ -98,7 +99,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
   }
   function stashDraft(before: CollaborationBody, after: CollaborationBody) {
     if (!activeId || !actorId) return
-    if (JSON.stringify(before) === JSON.stringify(after)) {
+    if (!pending && JSON.stringify(before) === JSON.stringify(after)) {
       localStorage.removeItem(draftKey())
       if (!saving && !pending && !connectionLost) editSession.value.syncStatus = 'synced'
       schedulePresence()
@@ -178,7 +179,12 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         if (page.editable === false) {
           const draft = sync.draft()
           if (draft) stashDraft(draft.before, draft.after)
+          if (!editSession.value.scopeConflict) permissionOnlyConflict = true
           editSession.value = { ...editSession.value, editable: false, scopeConflict: true, reason: '当前账号已调整为只读权限，本机草稿已保留。' }
+        } else if (page.editable === true && !editSession.value.editable) {
+          const scopeConflict = !!editSession.value.scopeConflict && !permissionOnlyConflict
+          permissionOnlyConflict = false
+          editSession.value = { ...editSession.value, editable: true, scopeConflict, reason: scopeConflict ? '本机草稿与云端内容有冲突，点击“对比并合并”处理。' : undefined }
         }
         for (const item of page.changes) updates.set(keyOf(item), item)
         nextCursor = page.cursor
@@ -213,6 +219,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       editSession.value.syncStatus = dirty.size ? 'editing' : 'synced'
       if (changed) editSession.value.lastRemoteUpdate = '已收到其他成员的更新'
       if (conflict) {
+        permissionOnlyConflict = false
         stashDraft(draft.before, draft.after)
         editSession.value.scopeConflict = true
         editSession.value.reason = '其他成员更新了你正在修改的内容。本机草稿已保留，点击“对比并合并”选择要保留的修改。'
@@ -248,6 +255,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     if (activeId && actorId) { exportedDraftKey = draftKey(); exportedConflictKey = `${storageKey()}:conflict` }
     sequence++
     cursor = 0
+    permissionOnlyConflict = false
     if (presenceTimer) clearTimeout(presenceTimer)
     presenceTimer = undefined
     unregister?.()
@@ -391,15 +399,25 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       const storedDraft = localStorage.getItem(savedDraftKey)
       const draft = storedDraft ? JSON.parse(storedDraft) as NonNullable<typeof recovered> : undefined
       if (draft) {
-        const draftChanges = buildWorkbenchMutations(draft.resources, draft.before, draft.after)
-        const advanced = draftChanges.some(change => {
-          const mutation = sent.mutations.find(item => keyOf(item) === keyOf(change))
-          return !mutation || JSON.stringify(mutation.body) !== JSON.stringify(change.body)
-        })
-        if (advanced) {
-          // Keep the original baseline rather than silently dropping newer text.
-          // A version conflict will require explicit review before it can save.
-          recovered = draft
+        // Rebase on the acknowledged operation, including fields reverted to
+        // their old values. Comparing only the old dirty set misses those reverts.
+        const baseline = new Map(draft.resources.map(item => [keyOf(item), item]))
+        for (const mutation of sent.mutations) {
+          const receipt = result.resources.find(item => keyOf(item) === keyOf(mutation))!
+          baseline.set(keyOf(mutation), { ...receipt, body: copy(mutation.body), deleted: mutation.body === null })
+        }
+        const flatten = (items: CollaborationResource[]) => {
+          const snapshot = composeWorkbenchSnapshot(items)
+          return { ...(snapshot.project as CollaborationBody), ...(snapshot.script as CollaborationBody), scenes: snapshot.scenes, characters: snapshot.characters }
+        }
+        const rebased = {
+          before: patchWorkbenchFields(draft.before, flatten(draft.resources), flatten([...baseline.values()])) as CollaborationBody,
+          after: draft.after,
+          resources: [...baseline.values()]
+        }
+        if (buildWorkbenchMutations(rebased.resources, rebased.before, rebased.after).length) {
+          recovered = rebased
+          localStorage.setItem(savedDraftKey, JSON.stringify(rebased))
         } else { localStorage.removeItem(savedDraftKey); recovered = undefined }
       } else recovered = undefined
       editSession.value.scopeConflict = false
