@@ -807,6 +807,23 @@ fn cloud_data_http_client() -> &'static Client {
     })
 }
 
+fn media_http_client(use_system_proxy: bool) -> &'static Client {
+    static DIRECT: OnceLock<Client> = OnceLock::new();
+    static SYSTEM: OnceLock<Client> = OnceLock::new();
+    let slot = if use_system_proxy { &SYSTEM } else { &DIRECT };
+    slot.get_or_init(|| {
+        let mut builder = Client::builder()
+            .connect_timeout(Duration::from_secs(20))
+            .timeout(Duration::from_secs(300))
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .pool_max_idle_per_host(0);
+        if !use_system_proxy {
+            builder = builder.no_proxy();
+        }
+        builder.build().expect("failed to build media download client")
+    })
+}
+
 const LLM_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
 
 fn llm_default_headers() -> HeaderMap {

@@ -695,6 +695,57 @@ fn llm_dev_write_db_log_impl(
     cloud_spawn_model_call_log_upload(log_id, log_payload, owner_user_id);
 }
 
+async fn download_media_bytes(
+    source: &str,
+    max_bytes: usize,
+) -> Result<(Vec<u8>, Option<String>), ApiError> {
+    let mut last_error = String::new();
+    // Keep internal/local downloads direct; only public media may need a proxy.
+    let allow_proxy = assert_safe_image_proxy_url(source).is_ok();
+    for attempt in 0..3 {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_secs(attempt)).await;
+        }
+        let result = async {
+            let mut response = media_http_client(allow_proxy && attempt == 1)
+                .get(source)
+                .send()
+                .await
+                .map_err(|error| (true, format!("{error:#}")))?;
+            let status = response.status();
+            if !status.is_success() {
+                return Err((status.is_server_error() || status.as_u16() == 429,
+                    format!("HTTP {status}")));
+            }
+            if response.content_length().is_some_and(|length| length > max_bytes as u64) {
+                return Ok(Err(ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "资源体积超过上限")));
+            }
+            let mime = response.headers().get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(|value| value.split(';').next().unwrap_or("").trim().to_ascii_lowercase())
+                .filter(|value| !value.is_empty());
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await
+                .map_err(|error| (true, format!("{error:#}")))? {
+                if chunk.len() > max_bytes.saturating_sub(bytes.len()) {
+                    return Ok(Err(ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "资源体积超过上限")));
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            Ok(Ok((bytes, mime)))
+        }.await;
+        match result {
+            Ok(result) => return result,
+            Err((retryable, message)) => {
+                last_error = message;
+                if !retryable { break; }
+            }
+        }
+    }
+    Err(ApiError::new(StatusCode::BAD_GATEWAY,
+        format!("下载生成资源失败：{last_error}")))
+}
+
 async fn resolve_source_bytes(
     state: &BackendState,
     source: &str,
@@ -716,52 +767,7 @@ async fn resolve_source_bytes(
     }
 
     if is_http_url(trimmed) {
-        let response = http_client()
-            .get(trimmed)
-            .send()
-            .await
-            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
-        if !response.status().is_success() {
-            return Err(ApiError::new(
-                StatusCode::BAD_GATEWAY,
-                format!("下载资源失败: {}", response.status()),
-            ));
-        }
-        if response
-            .content_length()
-            .is_some_and(|length| length > max_bytes as u64)
-        {
-            return Err(ApiError::new(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "资源体积超过上限",
-            ));
-        }
-
-        let mime = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .map(|value| {
-                value
-                    .split(';')
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_ascii_lowercase()
-            })
-            .filter(|value| !value.is_empty());
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?
-            .to_vec();
-        if bytes.len() > max_bytes {
-            return Err(ApiError::new(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "资源体积超过上限",
-            ));
-        }
-        return Ok((bytes, mime));
+        return download_media_bytes(trimmed, max_bytes).await;
     }
 
     if let Some(path) = resolve_api_file_path(
@@ -16367,6 +16373,51 @@ fn models_test_selected_model_key(model_type: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn media_download_retries_transient_errors_and_preserves_content_type() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = calls.clone();
+        let app = axum::Router::new().route("/video", axum::routing::get(move || {
+            let counter = counter.clone();
+            async move {
+                if counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    (StatusCode::SERVICE_UNAVAILABLE, [(header::CONTENT_TYPE, "text/plain")], "retry")
+                } else {
+                    (StatusCode::OK, [(header::CONTENT_TYPE, "video/mp4; charset=binary")], "video")
+                }
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        let result = download_media_bytes(&format!("http://{address}/video"), 32).await;
+        server.abort();
+        let (bytes, mime) = result.unwrap();
+        assert_eq!(bytes, b"video");
+        assert_eq!(mime.as_deref(), Some("video/mp4"));
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn media_download_rejects_oversized_content_without_retrying() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = calls.clone();
+        let app = axum::Router::new().route("/video", axum::routing::get(move || {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                "oversized video"
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        let result = download_media_bytes(&format!("http://{address}/video"), 3).await;
+        server.abort();
+        assert_eq!(result.unwrap_err().status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn video_enhance_download_uses_original_file_name() {
