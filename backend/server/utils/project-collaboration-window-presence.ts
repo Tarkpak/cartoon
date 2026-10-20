@@ -24,6 +24,7 @@ export function updateCollaborationWindowPresence(db: Database, input: {
   db.query('DELETE FROM project_collaboration_window_presence WHERE project_id = ? AND last_seen_at <= ?').run(input.projectId, now - COLLABORATION_PRESENCE_TTL_MS)
   if (input.leaving) {
     db.query('DELETE FROM project_collaboration_window_presence WHERE project_id = ? AND user_id = ? AND device_id = ? AND session_id = ?').run(input.projectId, input.userId, deviceId, sessionId)
+    db.query('DELETE FROM project_collaboration_presence WHERE project_id = ? AND user_id = ? AND device_id = ? AND session_id = ?').run(input.projectId, input.userId, deviceId, sessionId)
   } else {
     db.query(`INSERT INTO project_collaboration_window_presence (project_id, user_id, device_id, session_id, editing_json, last_seen_at)
       VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id, device_id, session_id) DO UPDATE SET editing_json = excluded.editing_json, last_seen_at = excluded.last_seen_at`)

@@ -566,6 +566,34 @@ describe('collaboration in the original workbench', () => {
     expect(await prepareWorkbenchRequest('/api/asset-workflow/reference/generate', { projectId: 'p', scene: { id: 's2' } })).toMatchObject({ collaborationInput: { type: 'episode', id: 'b', episodeId: 'b', revision: 1, settingsRevision: 1 } })
     expect(await prepareWorkbenchRequest('/api/script/write', { projectId: 'p', action: 'episode_draft', context: { targetEpisode: { id: 'a' } } })).toMatchObject({ collaborationInput: { id: 'a' } })
   })
+  it('releases a generation lease after the last request settles without another save', async () => {
+    const session = createSession(); await session.openEditSession('p')
+    const cleanups: Array<() => Promise<void>> = []
+    const prepare = () => prepareWorkbenchRequest('/api/script/write', { projectId: 'p', context: { targetEpisode: { id: 'a' } } }, cleanup => cleanups.push(cleanup))
+    await prepare()
+    await prepare()
+    const fetch = vi.mocked($fetch)
+    const releases = () => fetch.mock.calls.filter(([, options]) => {
+      const body = options?.body
+      return body && typeof body === 'object' && 'action' in body && body.action === 'lease' && 'leaseAction' in body && body.leaseAction === 'release'
+    })
+    await cleanups[0]!()
+    expect(releases()).toHaveLength(0)
+    await cleanups[1]!()
+    expect(releases()).toHaveLength(1)
+    fetch.mockClear()
+    await session.heartbeat()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+  it('does not release a new session lease when an old generation settles', async () => {
+    const session = createSession(); await session.openEditSession('p')
+    let cleanup: (() => Promise<void>) | undefined
+    await prepareWorkbenchRequest('/api/script/write', { projectId: 'p' }, value => { cleanup = value })
+    await session.openEditSession('other')
+    vi.mocked($fetch).mockClear()
+    await cleanup!()
+    expect($fetch).not.toHaveBeenCalled()
+  })
   it('restores conflicting drafts without overwriting cloud content and can read the latest version', async () => {
     const first = createSession(); await first.openEditSession('p')
     const remote = server.find(item => item.id === 'a')!

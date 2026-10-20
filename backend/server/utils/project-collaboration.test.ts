@@ -54,6 +54,19 @@ describe('per resource collaboration', () => {
     expect(removed.map(item => item.userId)).toEqual(['owner'])
   })
 
+  it('removes both presence records on leave while preserving other windows', () => {
+    const { db } = setup()
+    const identity = { ownerUserId: 'owner', localProjectId: 'p1', deviceId: 'd', sessionId: 'a' }
+    for (const sessionId of ['a', 'other']) {
+      handleProjectCollaboration(db, auth('alice'), { ...identity, sessionId, action: 'changes', after: 0, activeScopes: [{ type: 'episode', id: 'e1' }] })
+      handleProjectCollaboration(db, auth('alice'), { ...identity, sessionId, action: 'presence' })
+    }
+    handleProjectCollaboration(db, auth('alice'), { ...identity, action: 'presence', leaving: true })
+    for (const table of ['project_collaboration_presence', 'project_collaboration_window_presence']) {
+      expect(db.query(`SELECT session_id FROM ${table} WHERE user_id = ?`).all('alice')).toEqual([{ session_id: 'other' }])
+    }
+  })
+
   const databases: Database[] = []
   afterEach(() => databases.splice(0).forEach(db => db.close()))
   function setup(migrate = true) {

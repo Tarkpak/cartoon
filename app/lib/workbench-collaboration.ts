@@ -96,7 +96,8 @@ export function buildWorkbenchMutations(resources: CollaborationResource[], befo
   return mutations
 }
 
-export type WorkbenchRequestPreparation = (path: string, body: CollaborationBody) => Promise<CollaborationBody>
+export type WorkbenchRequestCleanup = () => Promise<void>
+export type WorkbenchRequestPreparation = (path: string, body: CollaborationBody, onSettled?: (cleanup: WorkbenchRequestCleanup) => void) => Promise<CollaborationBody>
 const preparations = new Map<string, WorkbenchRequestPreparation>()
 export function registerWorkbenchCollaboration(id: string, prepare: WorkbenchRequestPreparation) {
   preparations.set(id, prepare)
@@ -104,11 +105,11 @@ export function registerWorkbenchCollaboration(id: string, prepare: WorkbenchReq
 }
 
 /** Both JSON and streaming requests from the original workbench use this hook. */
-export async function prepareWorkbenchRequest(path: string, body: unknown): Promise<unknown> {
+export async function prepareWorkbenchRequest(path: string, body: unknown, onSettled?: (cleanup: WorkbenchRequestCleanup) => void): Promise<unknown> {
   const value = typeof body === 'string' ? (() => { try { return JSON.parse(body) } catch { return undefined } })() : body
   const input = record(value)
   const id = input.projectId
   if (typeof id !== 'string' || !preparations.has(id) || !/^\/api\/(script\/(write|parse|parse-stream|episode-plan)|character\/(generate|voice\/upload)|asset-workflow\/)/.test(path)) return body
-  const prepared = await preparations.get(id)!(path, input)
+  const prepared = await preparations.get(id)!(path, input, onSettled)
   return typeof body === 'string' ? JSON.stringify(prepared) : prepared
 }

@@ -45,6 +45,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
   const mergePreview = shallowRef<{ conflicts: MergeConflict[] }>()
   let mergeContext: { version: number, draft: WorkbenchDraft, latest: CollaborationResource[], cursor: number, local: CollaborationResource[], baseline: CollaborationResource[] } | undefined
   const held = new Map<string, { type: CollaborationResource['type'], id: string }>()
+  const generating = new Map<string, number>()
   let activeId = ''
   let actorId = ''
   let sequence = 0
@@ -262,6 +263,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     const scopes = [...held.values()]
     held.clear()
     activeId = ''
+    generating.clear()
     actorId = ''
     resources.value = []
     participants.value = []
@@ -337,7 +339,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       }
       const conflicts = recovered ? buildWorkbenchMutations(recovered.resources, recovered.before, recovered.after).some(change => response.data.resources.find(item => keyOf(item) === keyOf(change))?.revision !== change.expectedRevision) : false
       editSession.value = { editable: response.data.editable !== false, collaboration: true, syncStatus: recovered ? 'editing' : 'synced', canTakeover: false, scopeConflict: conflicts, reason: response.data.editable === false ? '当前账号只有查看权限。' : conflicts ? '本机草稿与云端内容有冲突。草稿已保留，可点击“对比并合并”处理。' : undefined }
-      unregister = registerWorkbenchCollaboration(id, async (_path, body) => {
+      unregister = registerWorkbenchCollaboration(id, async (_path, body, onSettled) => {
         if (!await saveCurrent()) throw new Error('请先保存当前修改并处理协作冲突后再生成')
         if (version !== sequence) throw new Error('项目已切换，请在当前项目重新生成')
         const scene = body.scene && typeof body.scene === 'object' ? body.scene as CollaborationBody : {}
@@ -354,6 +356,18 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         )) ?? resources.value.find(item => item.type === 'settings' && !item.deleted)
         if (!resource) throw new Error('协作对象不存在，请刷新项目')
         await acquire(resource)
+        const key = keyOf(resource)
+        generating.set(key, (generating.get(key) || 0) + 1)
+        onSettled?.(async () => {
+          if (version !== sequence) return
+          const remaining = (generating.get(key) || 1) - 1
+          if (remaining) { generating.set(key, remaining); return }
+          generating.delete(key)
+          // A concurrent save owns its leases until its receipt is confirmed.
+          if (saving || pending || !held.has(key)) return
+          held.delete(key)
+          await request({ action: 'lease', leaseAction: 'release', type: resource.type, id: resource.id }).catch(() => {})
+        })
         const settings = resources.value.find(item => item.type === 'settings' && !item.deleted)!
         if (resource.type === 'character' && body.regeneration && typeof body.regeneration === 'object') {
           body = { ...body, regeneration: { referenceImage: resource.body?.baseImage || resource.body?.imageUrl, ...body.regeneration } }
@@ -431,7 +445,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       editSession.value.reason = undefined
       // A successful save ends this edit operation. Do not hold every episode
       // visited by an otherwise idle workbench window until it is closed.
-      const scopes = sent.mutations.filter(scope => held.has(keyOf(scope)))
+      const scopes = [...held.values()].filter(scope => !generating.has(keyOf(scope)))
       for (const scope of scopes) held.delete(keyOf(scope))
       await Promise.allSettled(scopes.map(scope => request({ action: 'lease', leaseAction: 'release', type: scope.type, id: scope.id })))
     } catch (cause) {
@@ -480,8 +494,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     } finally {
       // Failed partial acquisition must not leave unrelated resources locked.
       if (version === sequence && !pending) {
-        const scopes = [...held.values()]
-        held.clear()
+        const scopes = [...held.values()].filter(scope => !generating.has(keyOf(scope)))
+        for (const scope of scopes) held.delete(keyOf(scope))
         await Promise.allSettled(scopes.map(scope => request({ action: 'lease', leaseAction: 'release', ...scope })))
       }
       saving = false

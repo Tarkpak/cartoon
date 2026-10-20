@@ -1,6 +1,6 @@
 import { projectEditSessionId, noteProjectLeaseLost } from './project-edit-session'
 import { ofetch } from 'ofetch'
-import { prepareWorkbenchRequest } from './workbench-collaboration'
+import { prepareWorkbenchRequest, type WorkbenchRequestCleanup } from './workbench-collaboration'
 import type { App } from 'vue'
 
 const REQUEST_ID_HEADER = 'x-request-id'
@@ -136,6 +136,24 @@ export function recordFrontendLog(input: FrontendLogInput) {
   })
 }
 
+function settleAfterStream(stream: ReadableStream<Uint8Array>, cleanup: WorkbenchRequestCleanup) {
+  const reader = stream.getReader()
+  let settled = false
+  const settle = async () => { if (!settled) { settled = true; await cleanup() } }
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (result.done) { await settle(); controller.close() }
+        else controller.enqueue(result.value)
+      } catch (cause) { await settle(); controller.error(cause) }
+    },
+    async cancel(reason) {
+      try { await reader.cancel(reason) } finally { await settle() }
+    }
+  })
+}
+
 export async function observedFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   if (!isApiRequest(input)) {
     return await fetch(input, init)
@@ -150,8 +168,9 @@ export async function observedFetch(input: RequestInfo | URL, init: RequestInit 
     headers: headersWithRequestId(init.headers, requestId)
   }
 
+  let cleanup: WorkbenchRequestCleanup | undefined
   try {
-    nextInit.body = await prepareWorkbenchRequest(normalizeUrl(input)?.pathname || '', nextInit.body) as BodyInit | null | undefined
+    nextInit.body = await prepareWorkbenchRequest(normalizeUrl(input)?.pathname || '', nextInit.body, value => { cleanup = value }) as BodyInit | null | undefined
     const response = await fetch(input, nextInit)
     const responseRequestId = response.headers.get(REQUEST_ID_HEADER) || requestId
     if (!response.ok) {
@@ -169,6 +188,11 @@ export async function observedFetch(input: RequestInfo | URL, init: RequestInit 
         metadata: { response: payload }
       })
     }
+    if (cleanup && response.ok && response.body) {
+      const body = settleAfterStream(response.body, cleanup)
+      cleanup = undefined
+      return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers })
+    }
     return response
   } catch (error) {
     recordFrontendLog({
@@ -182,7 +206,16 @@ export async function observedFetch(input: RequestInfo | URL, init: RequestInit 
       error
     })
     throw error
+  } finally {
+    await cleanup?.()
   }
+}
+
+const workbenchRequestCleanups = new WeakMap<object, WorkbenchRequestCleanup>()
+async function settleWorkbenchRequest(options: object) {
+  const cleanup = workbenchRequestCleanups.get(options)
+  workbenchRequestCleanups.delete(options)
+  await cleanup?.()
 }
 
 export const $fetch = ofetch.create({
@@ -190,9 +223,22 @@ export const $fetch = ofetch.create({
     if (!isApiRequest(request)) return
     const requestId = requestIdFromHeaders(options.headers) || createRequestId()
     options.headers = headersWithRequestId(options.headers, requestId)
-    options.body = await prepareWorkbenchRequest(normalizeUrl(request)?.pathname || '', options.body) as typeof options.body
+    try {
+      options.body = await prepareWorkbenchRequest(normalizeUrl(request)?.pathname || '', options.body, cleanup => { workbenchRequestCleanups.set(options, cleanup) }) as typeof options.body
+    } catch (cause) {
+      await settleWorkbenchRequest(options)
+      throw cause
+    }
   },
-  onRequestError({ request, options, error }) {
+  async onResponse({ options, response }) {
+    const cleanup = workbenchRequestCleanups.get(options)
+    if (cleanup && response.ok && options.responseType === 'stream' && response._data) {
+      workbenchRequestCleanups.delete(options)
+      response._data = settleAfterStream(response._data, cleanup)
+    } else await settleWorkbenchRequest(options)
+  },
+  async onRequestError({ request, options, error }) {
+    await settleWorkbenchRequest(options)
     if (!isApiRequest(request)) return
     const method = String(options.method || 'GET').toUpperCase()
     const path = apiPath(request)
