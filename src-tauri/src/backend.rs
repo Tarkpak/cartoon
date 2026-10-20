@@ -1437,11 +1437,7 @@ async fn cloud_request_json_with_client(
     let payload =
         serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({ "message": text }));
     if !status.is_success() {
-        let message = payload
-            .get("statusMessage")
-            .or_else(|| payload.get("message"))
-            .and_then(Value::as_str)
-            .unwrap_or("后台接口返回失败");
+        let message = cloud_response_error_message(&payload);
         let local_status = if status.is_client_error() {
             status
         } else {
@@ -1456,6 +1452,13 @@ async fn cloud_request_json_with_client(
         return Err(error);
     }
     Ok(payload)
+}
+
+fn cloud_response_error_message(payload: &Value) -> &str {
+    ["message", "statusMessage"].into_iter()
+        .filter_map(|key| payload.get(key).and_then(Value::as_str))
+        .find(|message| !message.trim().is_empty())
+        .unwrap_or("后台接口返回失败")
 }
 
 fn cloud_secret_transport_key(
@@ -12108,6 +12111,12 @@ async fn sync_project_deletion_locked(state: &BackendState, project_id: &str) ->
     result
 }
 
+fn background_project_sync_has_lease(lease: &Value, now_ms: i64) -> bool {
+    lease.get("editable").and_then(Value::as_bool) == Some(true)
+        && lease.get("token").and_then(Value::as_str).is_some_and(|token| !token.trim().is_empty())
+        && lease.get("expiresAt").and_then(Value::as_i64).unwrap_or(0) > now_ms
+}
+
 fn pending_cloud_project_ids(state: &BackendState, limit: i64) -> Result<Vec<String>, ApiError> {
     let conn = db_connection(state)?;
     let owner = match current_project_owner_context(&conn) {
@@ -12122,16 +12131,29 @@ fn pending_cloud_project_ids(state: &BackendState, limit: i64) -> Result<Vec<Str
              WHERE p.cloud_sync_status = 'pending'
                AND (?2 = 1 OR p.owner_user_id = ?1 OR pm.role IN ('manager', 'editor')
                     OR instr(COALESCE(pm.permissions_json, '[]'), '\"edit\"') > 0)
-             ORDER BY p.updated_at ASC LIMIT ?3",
+             ORDER BY p.updated_at ASC",
         )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let rows = statement
-        .query_map(params![owner.user_id, owner.is_admin, limit], |row| {
+        .query_map(params![owner.user_id, owner.is_admin], |row| {
             row.get::<_, String>(0)
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+    let mut pending = Vec::new();
+    let now_ms = Utc::now().timestamp_millis();
+    for row in rows {
+        let id = row.map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        // Legacy snapshots require an active edit lease. Opening the project
+        // acquires one and flushes pending edits; background retries cannot do so.
+        let collaboration = get_config_json(&conn, &format!("project_collaboration_enabled:{id}"))?
+            .and_then(|value| value.as_bool()) == Some(true);
+        let lease = get_config_json(&conn, &format!("project_edit_session:{id}"))?.unwrap_or(Value::Null);
+        if !collaboration && background_project_sync_has_lease(&lease, now_ms) {
+            pending.push(id);
+            if pending.len() >= limit.max(1) as usize { break; }
+        }
+    }
+    Ok(pending)
 }
 
 async fn retry_pending_cloud_projects_locked(
@@ -14575,6 +14597,27 @@ mod tests {
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use std::collections::HashSet;
+
+    #[test]
+    fn cloud_sync_preserves_actionable_error_instead_of_generic_status() {
+        assert_eq!(super::cloud_response_error_message(&json!({
+            "statusMessage": "Server Error",
+            "message": "项目编辑权已失效，请重新取得编辑权后同步"
+        })), "项目编辑权已失效，请重新取得编辑权后同步");
+        assert_eq!(super::cloud_response_error_message(&json!({
+            "message": " ", "statusMessage": "Unavailable"
+        })), "Unavailable");
+    }
+
+    #[test]
+    fn background_project_sync_waits_for_an_active_edit_lease() {
+        let active = json!({"editable": true, "token": "lease", "expiresAt": 2000});
+        assert!(super::background_project_sync_has_lease(&active, 1000));
+        assert!(!super::background_project_sync_has_lease(&active, 2000));
+        assert!(!super::background_project_sync_has_lease(&Value::Null, 1000));
+        assert!(!super::background_project_sync_has_lease(&json!({"editable": false, "token": "lease", "expiresAt": 2000}), 1000));
+        assert!(!super::background_project_sync_has_lease(&json!({"editable": true, "expiresAt": 2000}), 1000));
+    }
 
     #[test]
     fn llm_http_client_default_headers_include_user_agent() {
