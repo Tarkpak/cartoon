@@ -1,3 +1,4 @@
+import { applyCollaborationPatch, diffCollaborationBody, type CollaborationPatch } from '../../../shared/utils/collaboration-patch'
 import { randomUUID, createHash } from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { createError } from 'h3'
@@ -57,6 +58,8 @@ export function ensureProjectCollaborationSchema(db: Database) {
     CREATE INDEX IF NOT EXISTS idx_project_collaboration_changes
       ON project_collaboration_changes(project_id, sequence);
   `)
+  const columns = db.query('PRAGMA table_info(project_collaboration_changes)').all() as Array<{ name: string }>
+  if (!columns.some(column => column.name === 'patch_json')) db.exec('ALTER TABLE project_collaboration_changes ADD COLUMN patch_json TEXT')
 }
 
 export function nextCollaborationTimestamp(nowMs: number, ...previous: Array<string | null | undefined>) {
@@ -226,8 +229,10 @@ export function writeCollaboration(db: Database, input: {
         const type = collaborationResourceType(mutation.type)
         const id = collaborationId(mutation.id)
         if (!Number.isSafeInteger(mutation.expectedRevision) || (mutation.expectedRevision as number) < 0 || mutation.expectedRevision === Number.MAX_SAFE_INTEGER) throw new Error('基础版本无效')
-        const body = mutation.body === null ? null : collaborationObject(mutation.body, '对象内容')
-        return { type, id, expectedRevision: mutation.expectedRevision as number, body, leaseToken: collaborationId(mutation.leaseToken, '编辑权 token') }
+        const patch = mutation.patch as CollaborationPatch[] | undefined
+        if (patch !== undefined && Object.hasOwn(mutation, 'body')) throw new Error('不能同时提交完整对象和字段修改')
+        const body = patch !== undefined ? undefined : mutation.body === null ? null : collaborationObject(mutation.body, '对象内容')
+        return { type, id, expectedRevision: mutation.expectedRevision as number, body, ...(patch !== undefined ? { patch } : {}), leaseToken: collaborationId(mutation.leaseToken, '编辑权 token') }
       } catch (cause) { return invalid(cause) }
     })
     if (new Set(mutations.map(item => JSON.stringify([item.type, item.id]))).size !== mutations.length) return invalid(new Error('一次提交不能重复修改同一对象'))
@@ -241,6 +246,7 @@ export function writeCollaboration(db: Database, input: {
     const now = input.nowMs ?? Date.now()
     const resources = collaborationResources(db, input.projectId)
     const changed: CollaborationResource[] = []
+    const patches = new Map<string, string>()
     for (const mutation of mutations) {
       const lease = db.query('SELECT * FROM project_collaboration_leases WHERE project_id = ? AND resource_type = ? AND resource_id = ?')
         .get(input.projectId, mutation.type, mutation.id) as LeaseRow | null
@@ -251,6 +257,12 @@ export function writeCollaboration(db: Database, input: {
       const current = resources[index]
       if (current?.deleted || (current?.revision ?? 0) !== mutation.expectedRevision) {
         throw createError({ statusCode: 409, message: `对象 ${mutation.id} 已变化或删除，请核对该对象`, data: { type: mutation.type, id: mutation.id, revision: current?.revision ?? 0, deleted: current?.deleted ?? false } })
+      }
+      if (mutation.patch !== undefined) {
+        try {
+          if (!current?.body) throw new Error('字段修改对象不存在')
+          mutation.body = applyCollaborationPatch(current.body, mutation.patch)
+        } catch (cause) { return invalid(cause) }
       }
       if (mutation.body === null && (!current || mutation.type === 'settings' || mutation.type === 'directory')) return invalid(new Error('不能删除项目设置、目录或不存在的对象'))
       if (mutation.type === 'settings' && current?.body && mutation.body) {
@@ -264,7 +276,12 @@ export function writeCollaboration(db: Database, input: {
             !== canonicalJson(collaborationObject(mutation.body.script, '剧本设置').id)) throw new Error('不能通过项目设置修改剧本身份')
         } catch (cause) { return invalid(cause) }
       }
-      const resource: CollaborationResource = { type: mutation.type, id: mutation.id, revision: mutation.expectedRevision + 1, body: mutation.body, deleted: mutation.body === null }
+      const resource: CollaborationResource = { type: mutation.type, id: mutation.id, revision: mutation.expectedRevision + 1, body: mutation.body!, deleted: mutation.body === null }
+      if (current?.body && resource.body) {
+        const patch = diffCollaborationBody(current.body, resource.body, true)
+        const encoded = JSON.stringify(patch)
+        if (patch.length && patch.length <= 10000 && encoded.length < JSON.stringify(resource.body).length) patches.set(JSON.stringify([resource.type, resource.id]), encoded)
+      }
       if (index < 0) resources.push(resource)
       else resources[index] = resource
       changed.push(resource)
@@ -284,8 +301,8 @@ export function writeCollaboration(db: Database, input: {
     for (const item of changed) {
       const body = item.body == null ? null : JSON.stringify(item.body)
       upsert.run(input.projectId, item.type, item.id, item.revision, body, Number(item.deleted))
-      db.query(`INSERT INTO project_collaboration_changes (project_id, resource_type, resource_id, revision, body_json, deleted, user_id, operation_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.projectId, item.type, item.id, item.revision, body, Number(item.deleted), input.userId, input.operationId, timestamp)
+      db.query(`INSERT INTO project_collaboration_changes (project_id, resource_type, resource_id, revision, body_json, deleted, user_id, operation_id, created_at, patch_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.projectId, item.type, item.id, item.revision, body, Number(item.deleted), input.userId, input.operationId, timestamp, patches.get(JSON.stringify([item.type, item.id])) ?? null)
     }
     db.query(`UPDATE user_projects SET local_updated_at = ?, updated_at = ?, last_synced_at = ?,
       name = ?, description = ?, script_parse_mode = ?, style_id = ?, aspect_ratio = ?, status = ?, summary_json = ? WHERE id = ?`)
@@ -299,16 +316,22 @@ export function writeCollaboration(db: Database, input: {
   }).immediate()
 }
 
-export function collaborationChanges(db: Database, projectId: string, after: number, limit = 100) {
+export function collaborationChanges(db: Database, projectId: string, after: number, limit = 100, fieldPatches = false) {
   return db.transaction(() => {
     requireCollaboration(db, projectId)
     if (!Number.isSafeInteger(after) || after < 0) return invalid(new Error('增量游标无效'))
     const latestCursor = cursor(db, projectId)
     if (after > latestCursor) throw createError({ statusCode: 409, message: '增量游标已失效，请重新读取项目' })
-    const rows = db.query('SELECT * FROM project_collaboration_changes WHERE project_id = ? AND sequence > ? ORDER BY sequence LIMIT ?')
-      .all(projectId, after, Math.min(500, Math.max(1, limit))) as Array<ResourceRow & { sequence: number, user_id: string, operation_id: string, created_at: string }>
-    const changes: CollaborationChange[] = rows.map(row => ({ ...resourceFromRow(row), sequence: row.sequence, userId: row.user_id, operationId: row.operation_id, createdAt: row.created_at }))
-    const nextCursor = changes.at(-1)?.sequence ?? after
-    return { changes, cursor: nextCursor, hasMore: nextCursor < latestCursor }
+    const rows = db.query(`SELECT sequence, resource_type, resource_id, revision, deleted, user_id, operation_id, created_at, patch_json,
+      CASE WHEN ? = 1 AND patch_json IS NOT NULL THEN NULL ELSE body_json END AS body_json
+      FROM project_collaboration_changes WHERE project_id = ? AND sequence > ? ORDER BY sequence LIMIT ?`)
+      .all(Number(fieldPatches), projectId, after, Math.min(500, Math.max(1, limit))) as Array<ResourceRow & { sequence: number, user_id: string, operation_id: string, created_at: string, patch_json: string | null }>
+    const wireChanges = rows.map(row => {
+      const metadata = { type: row.resource_type, id: row.resource_id, revision: row.revision, deleted: !!row.deleted, sequence: row.sequence, userId: row.user_id, operationId: row.operation_id, createdAt: row.created_at }
+      if (fieldPatches && row.patch_json) return { ...metadata, baseRevision: row.revision - 1, patch: JSON.parse(row.patch_json) as CollaborationPatch[] }
+      return { ...metadata, body: row.body_json == null ? null : JSON.parse(row.body_json) } as CollaborationChange
+    })
+    const nextCursor = rows.at(-1)?.sequence ?? after
+    return { changes: wireChanges, cursor: nextCursor, hasMore: nextCursor < latestCursor }
   })()
 }

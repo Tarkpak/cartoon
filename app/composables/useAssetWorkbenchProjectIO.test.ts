@@ -228,7 +228,8 @@ describe('useAssetWorkbenchProjectIO', () => {
       expect(state.scenes.value[0]!.description).toBe('回执丢失后继续输入')
       expect(io.saveError.value).toBe('网络仍然不可用')
     } else {
-      expect(fetchMock).toHaveBeenCalled()
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(collaborationMock.snapshot).toHaveBeenCalled()
     }
   })
 

@@ -1,3 +1,4 @@
+import { applyCollaborationPatch, diffCollaborationBody, type CollaborationPatch } from '#shared/utils/collaboration-patch'
 import { createCollaborationStorage } from '~/lib/collaboration-storage'
 import { computed, getCurrentInstance, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import type { CollaborationBody, CollaborationLease, CollaborationPresence, CollaborationWindowPresence, CollaborationResource } from '../../shared/types/project-collaboration'
@@ -11,7 +12,8 @@ import { mergeCollaborationValue, type MergeChoices, type MergeConflict } from '
 import { validateCollaborationResources } from '#shared/utils/project-collaboration'
 
 type Mutation = ReturnType<typeof buildWorkbenchMutations>[number]
-interface PendingSave { operationId: string, mutations: Mutation[] }
+type WireMutation = Mutation | (Omit<Mutation, 'body'> & { patch: CollaborationPatch[] })
+interface PendingSave { operationId: string, mutations: WireMutation[] }
 interface WorkbenchDraft { before: CollaborationBody, after: CollaborationBody }
 interface WorkbenchSync {
   windowId?: string
@@ -60,6 +62,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
   const cloud = useCloudAdmin()
   const windowId = sync?.windowId || projectDraftSession.windowId
   const recoveryKey = sync?.windowId ? undefined : projectDraftSession.recoveryKey
+  let fieldPatchV2 = false
+  let fieldPatch = false
   let cursor = 0
   let polling = false
   let connectionLost = false
@@ -182,7 +186,32 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       const activeScopes = [...held.values(), ...(localDraft && editSession.value.editable ? buildWorkbenchMutations(resources.value, localDraft.before, localDraft.after).map(item => ({ type: item.type, id: item.id })) : [])]
       if (activity && activity.at > Date.now() - 30_000 && editSession.value.editable) activeScopes.push({ type: activity.type, id: activity.id })
       while (hasMore) {
-        const page = await request<{ changes: CollaborationResource[], cursor: number, hasMore: boolean, editable?: boolean, access?: ProjectAccess, participants?: CollaborationPresence[] }>({ action: 'changes', after: nextCursor, activeScopes })
+        type WireChange = CollaborationResource | (Omit<CollaborationResource, 'body'> & { baseRevision: number, patch: CollaborationPatch[] })
+        type ChangesPage = { changes: WireChange[], cursor: number, hasMore: boolean, editable?: boolean, access?: ProjectAccess, participants?: CollaborationPresence[] }
+        let page = await request<ChangesPage>({ action: 'changes', after: nextCursor, activeScopes, ...(fieldPatchV2 ? { fieldPatches: true } : {}) })
+        if (version !== sequence || saving || pending) return
+        // Decode the whole page before applying anything. A stale/missing base
+        // retries this same cursor with full resources, never advances past data.
+        const decode = (changes: WireChange[]) => {
+          const decoded = new Map(updates)
+          for (const item of changes) {
+            if (!('patch' in item)) { decoded.set(keyOf(item), item); continue }
+            const base = decoded.get(keyOf(item)) ?? resources.value.find(value => keyOf(value) === keyOf(item))
+            if (base && base.revision >= item.revision) continue // Already acknowledged by our own save.
+            if (!base?.body || base.revision !== item.baseRevision || item.revision !== item.baseRevision + 1 || item.deleted) throw new Error('协作差量基础版本不匹配')
+            const { patch, baseRevision: _baseRevision, ...metadata } = item
+            decoded.set(keyOf(item), { ...metadata, body: applyCollaborationPatch(base.body, patch) })
+          }
+          return decoded
+        }
+        let decoded: Map<string, CollaborationResource>
+        try { decoded = decode(page.changes) }
+        catch (cause) {
+          if (!fieldPatchV2 || !Array.isArray(page.changes) || !page.changes.some(item => 'patch' in item)) throw cause
+          page = await request<ChangesPage>({ action: 'changes', after: nextCursor, activeScopes, fieldPatches: false })
+          if (version !== sequence || saving || pending) return
+          decoded = decode(page.changes)
+        }
         if (version !== sequence || saving || pending) return
         participants.value = Array.isArray(page.participants) ? page.participants : []
         presenceUpdatedAt = Date.now()
@@ -198,7 +227,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
           permissionOnlyConflict = false
           editSession.value = { ...editSession.value, editable: true, scopeConflict, reason: scopeConflict ? '本机草稿与云端内容有冲突，点击“对比并合并”处理。' : undefined }
         }
-        for (const item of page.changes) updates.set(keyOf(item), item)
+        for (const [key, item] of decoded) updates.set(key, item)
         nextCursor = page.cursor
         hasMore = page.hasMore
       }
@@ -305,7 +334,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       if (version !== sequence) return
       actorId = status?.user?.id || ''
       if (!actorId) throw new Error('请先登录云端账号')
-      type PreparedProject = { data: { enabled: boolean, protocolVersion: number, editable?: boolean, access?: ProjectAccess, cursor?: number, resources: CollaborationResource[] } }
+      type PreparedProject = { data: { enabled: boolean, protocolVersion: number, capabilities?: { fieldPatch?: boolean, fieldPatchV2?: boolean }, editable?: boolean, access?: ProjectAccess, cursor?: number, resources: CollaborationResource[] } }
       let response: PreparedProject
       let attempt = 0
       while (true) {
@@ -325,6 +354,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       }
       if (version !== sequence) return
       if (!response.data?.enabled || response.data.protocolVersion !== 1 || !Array.isArray(response.data.resources)) throw new Error('项目尚未准备完成，请重试')
+      fieldPatchV2 = response.data.capabilities?.fieldPatchV2 === true
+      fieldPatch = response.data.capabilities?.fieldPatch === true
       resources.value = copy(response.data.resources)
       if (response.data.access) sync?.access?.(response.data.access)
       cursor = response.data.cursor ?? 0
@@ -456,7 +487,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         const baseline = new Map(draft.resources.map(item => [keyOf(item), item]))
         for (const mutation of sent.mutations) {
           const receipt = result.resources.find(item => keyOf(item) === keyOf(mutation))!
-          baseline.set(keyOf(mutation), { ...receipt, body: copy(mutation.body), deleted: mutation.body === null })
+          baseline.set(keyOf(mutation), { ...receipt, body: 'patch' in mutation ? applyCollaborationPatch(baseline.get(keyOf(mutation))!.body!, mutation.patch) : copy(mutation.body), deleted: 'body' in mutation && mutation.body === null })
         }
         const flatten = (items: CollaborationResource[]) => {
           const snapshot = composeWorkbenchSnapshot(items)
@@ -511,7 +542,15 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       if (!mutations.length) return
       for (const scope of mutations) await acquire(scope)
       if (version !== sequence) throw new Error('项目已切换，请重新打开原项目继续保存')
-      pending = { operationId: crypto.randomUUID(), mutations }
+      const wireMutations: WireMutation[] = mutations.map(mutation => {
+        const old = resources.value.find(item => keyOf(item) === keyOf(mutation))
+        if (!fieldPatch || !old?.body || !mutation.body) return mutation
+        const patch = diffCollaborationBody(old.body, mutation.body, fieldPatchV2)
+        if (!patch.length || patch.length > 10000 || JSON.stringify(patch).length >= JSON.stringify(mutation.body).length) return mutation
+        const { body: _body, ...metadata } = mutation
+        return { ...metadata, patch }
+      })
+      pending = { operationId: crypto.randomUUID(), mutations: wireMutations }
       editSession.value.pendingSave = true
       storage.setItem(storageKey(), JSON.stringify(pending))
       await sendPending()

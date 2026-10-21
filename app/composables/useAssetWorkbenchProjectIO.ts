@@ -376,7 +376,11 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
     finalVideo.value = null
 
     try {
-      const response = await $fetch<{
+      const cachedCollaboration = collaboration.ready?.value && editSession.value.collaboration
+        ? { success: true, data: { ...collaboration.snapshot(), access: projectAccess.value } }
+        : undefined
+      const response = cachedCollaboration as unknown as Awaited<ReturnType<typeof readProject>> || await readProject()
+      async function readProject() { return await $fetch<{
         success: boolean
         data?: {
           project: {
@@ -443,7 +447,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           }>
           access?: ProjectAccess
         }
-      }>(`/api/project/${id}`)
+      }>(`/api/project/${id}`) }
 
       if (requestSequence !== loadRequestSequence) return
       if (!response.success || !response.data) return

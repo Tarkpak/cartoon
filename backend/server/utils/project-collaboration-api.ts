@@ -41,10 +41,10 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
     const members = () => manageCollaboration(db, auth, { id: project.id, ownerId: ownerUserId, deletedAt: project.deleted_at }, { action: 'members' })
     if (body.action === 'read') {
       const snapshot = readCollaboration(db, project.id)
-      return { ...snapshot, editable, ...(snapshot.enabled ? members() : {}) }
+      return { ...snapshot, capabilities: { fieldPatch: true, fieldPatchV2: true }, editable, ...(snapshot.enabled ? members() : {}) }
     }
     if (body.action === 'changes') {
-      const result = collaborationChanges(db, project.id, body.after as number)
+      const result = collaborationChanges(db, project.id, body.after as number, 100, body.fieldPatches === true)
       // Legacy clients may omit presence metadata and continue using the same protocol.
       const participants = typeof body.deviceId === 'string' && typeof body.sessionId === 'string'
         ? updateCollaborationPresence(db, project.id, auth.user.id, collaborationId(body.deviceId), collaborationId(body.sessionId), body.activeScopes, editable)
@@ -60,7 +60,7 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
     if (body.action === 'enable') {
       if (!canTakeover) throw createError({ statusCode: 403, message: '仅项目所有者或管理员可以迁移项目' })
       if (typeof body.expectedUpdatedAt !== 'string' || typeof body.leaseToken !== 'string' || typeof body.snapshotHash !== 'string') throw createError({ statusCode: 400, message: '迁移需要已核对的版本和编辑权' })
-      return enableProjectCollaboration(db, { projectId: project.id, userId: auth.user.id, expectedUpdatedAt: body.expectedUpdatedAt, leaseToken: body.leaseToken, snapshotHash: body.snapshotHash })
+      return { ...enableProjectCollaboration(db, { projectId: project.id, userId: auth.user.id, expectedUpdatedAt: body.expectedUpdatedAt, leaseToken: body.leaseToken, snapshotHash: body.snapshotHash }), capabilities: { fieldPatch: true, fieldPatchV2: true } }
     }
     let deviceId: string
     let sessionId: string

@@ -458,9 +458,27 @@ pub(super) async fn api_project_collaboration(
         let mut conn = db_connection(&state)?;
         prepare_collaboration_write(&mut conn, &user_id, &id, &session_id, &mut body)?;
     }
-    let mut response =
-        cloud_post_client_data_json(&state, "/api/client/project-collaboration", body.clone())
-            .await?;
+    let request_id = Uuid::new_v4().to_string();
+    let started = std::time::Instant::now();
+    let request_bytes = serde_json::to_vec(&body).map(|bytes| bytes.len()).unwrap_or(0);
+    let result = cloud_post_client_data_json(&state, "/api/client/project-collaboration", body.clone()).await;
+    let response_bytes = result.as_ref().ok().and_then(|value| serde_json::to_vec(value).ok()).map(|bytes| bytes.len()).unwrap_or(0);
+    let status = result.as_ref().err().map(|error| error.status.as_u16()).unwrap_or(200);
+    // Deliberately exclude bodies, lease tokens, URLs and server error text.
+    let metadata = json!({
+        "requestId": request_id, "projectId": id, "action": action,
+        "operationId": body.get("operationId").and_then(Value::as_str),
+        "elapsedMs": started.elapsed().as_millis(), "requestBytes": request_bytes,
+        "responseBytes": response_bytes, "status": status,
+        "mutationCount": body.get("mutations").and_then(Value::as_array).map(Vec::len).unwrap_or(0),
+        "fieldPatches": body.get("fieldPatches").and_then(Value::as_bool),
+        "afterCursor": body.get("after").and_then(Value::as_u64),
+        "nextCursor": result.as_ref().ok().and_then(|value| value.pointer("/data/cursor")).and_then(Value::as_u64),
+        "patchFieldCount": body.get("mutations").and_then(Value::as_array).map(|items| items.iter().filter_map(|item| item.get("patch").and_then(Value::as_array)).map(Vec::len).sum::<usize>()).unwrap_or(0),
+        "deltaChangeCount": result.as_ref().ok().and_then(|value| value.pointer("/data/changes")).and_then(Value::as_array).map(|items| items.iter().filter(|item| item.get("patch").is_some()).count()).unwrap_or(0)
+    });
+    let _ = insert_app_log(&state, if status >= 400 { "warn" } else { "info" }, "backend", "collaboration", "Cloud collaboration request", Some(&request_id), Some("POST"), Some("/api/client/project-collaboration"), Some(status), Some(started.elapsed().as_millis().min(i64::MAX as u128) as i64), Some(&metadata), None);
+    let mut response = result?;
     ensure_collaboration_account(&db_connection(&state)?, &user_id)?;
     if response.get("success").and_then(Value::as_bool) != Some(true) {
         return Err(ApiError::new(

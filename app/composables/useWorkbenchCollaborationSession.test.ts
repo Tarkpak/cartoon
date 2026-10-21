@@ -1,3 +1,4 @@
+import { applyCollaborationPatch } from '#shared/utils/collaboration-patch'
 import { ref, nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { splitProjectSnapshot } from '../../shared/utils/project-collaboration'
@@ -24,6 +25,8 @@ let store: Map<string, string>
 let currentUser = ref<{ id: string } | null>({ id: 'owner' })
 let changes: typeof server
 let readError: unknown
+let patchV2Supported = false
+let patchSupported = false
 let editable: boolean
 let access: ProjectAccess | undefined
 const sessions: ReturnType<typeof useWorkbenchCollaborationSession>[] = []
@@ -31,12 +34,14 @@ beforeEach(() => {
   vi.useFakeTimers()
   setDraftRuntime('test-runtime'); access = undefined
   currentUser = ref<{ id: string } | null>({ id: 'owner' }); changes = []; readError = undefined; editable = true
+  patchV2Supported = false
+  patchSupported = false
   server = fixture(); writes = []; blocked = ''; loseReply = false; store = new Map()
   vi.stubGlobal('useCloudAdmin', () => ({ currentUser, loadStatus: async () => ({ user: currentUser.value }) }))
   vi.stubGlobal('localStorage', { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value), removeItem: (key: string) => store.delete(key) })
   const receipts = new Map<string, unknown>()
   vi.stubGlobal('$fetch', vi.fn(async (path: string, options: { body?: Record<string, any> }) => {
-    if (path.endsWith('/prepare')) return { data: { enabled: true, editable, access, protocolVersion: 1, resources: structuredClone(server) } }
+    if (path.endsWith('/prepare')) return { data: { enabled: true, capabilities: { fieldPatch: patchSupported, fieldPatchV2: patchV2Supported }, editable, access, protocolVersion: 1, resources: structuredClone(server) } }
     const body = options.body!
     if (body.action === 'read') return { data: { enabled: true, editable, resources: structuredClone(server), cursor: 1 } }
     if (body.action === 'presence') return { data: { collaborators: [{ userId: 'owner', displayName: 'Owner', self: true, editing: [], locked: [] }] } }
@@ -49,7 +54,7 @@ beforeEach(() => {
       writes.push(structuredClone(body))
       if (receipts.has(body.operationId)) return { data: receipts.get(body.operationId) }
       if (body.mutations.some((item: any) => item.expectedRevision !== (server.find(resource => resource.type === item.type && resource.id === item.id)?.revision ?? 0))) throw { statusCode: 409, message: '对象版本冲突' }
-      const changed = body.mutations.map((item: any) => ({ type: item.type, id: item.id, revision: item.expectedRevision + 1, body: item.body, deleted: item.body === null }))
+      const changed = body.mutations.map((item: any) => ({ type: item.type, id: item.id, revision: item.expectedRevision + 1, body: item.patch ? applyCollaborationPatch(server.find(resource => resource.type === item.type && resource.id === item.id)!.body!, item.patch) : item.body, deleted: item.body === null }))
       for (const resource of changed) { const index = server.findIndex(item => item.type === resource.type && item.id === resource.id); if (index < 0) server.push(resource); else server[index] = resource }
       receipts.set(body.operationId, { resources: changed })
       if (loseReply) { loseReply = false; throw new Error('response lost') }
@@ -62,6 +67,105 @@ afterEach(async () => { for (const session of sessions.splice(0)) await session.
 const createSession = () => { const session = useWorkbenchCollaborationSession(async () => true); sessions.push(session); return session }
 
 describe('collaboration in the original workbench', () => {
+  it('sends only changed fields to capable servers and confirms lost receipts', async () => {
+    patchSupported = true
+    server.find(item => item.type === 'settings')!.body!.padding = 'x'.repeat(10000)
+    const session = createSession()
+    await session.openEditSession('p')
+    const after = { ...view(), name: 'updated' }
+    loseReply = true
+    await expect(session.saveSnapshot(view(), after)).rejects.toThrow('response lost')
+    expect(writes[0]!.mutations[0].body).toBeUndefined()
+    expect(writes[0]!.mutations[0].patch).toEqual([{ path: ['project', 'name'], value: 'updated' }])
+    await session.confirmPending()
+    expect(writes[1]!.operationId).toBe(writes[0]!.operationId)
+    expect(session.snapshot().project).toMatchObject({ name: 'updated' })
+  })
+
+  it('sends only an edited scene field and preserves other scene data', async () => {
+    patchSupported = true; patchV2Supported = true
+    const scenes = server.find(item => item.id === 'a')!.body!.scenes as Array<Record<string, unknown>>
+    scenes[0]!.videoUrl = 'https://example.com/' + 'x'.repeat(1000)
+    const session = createSession()
+    await session.openEditSession('p')
+    const after = view()
+    after.scenes[0]!.description = 'edited'
+    await session.saveSnapshot(view(), after)
+    expect(writes[0]!.mutations[0].patch).toEqual([{ path: ['scenes', '0', 'description'], value: 'edited' }])
+    expect((session.snapshot().scenes as any[])[0].videoUrl).toBe(scenes[0]!.videoUrl)
+  })
+
+  it('decodes consecutive delta pages before applying a remote update', async () => {
+    patchV2Supported = true
+    const before = view()
+    const apply = vi.fn()
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before, after: before }), apply })
+    sessions.push(session)
+    await session.openEditSession('p')
+    const fetch = vi.mocked($fetch)
+    const original = fetch.getMockImplementation()!
+    fetch.mockImplementation((...args: any[]) => {
+      const body = args[1].body
+      if (body?.action !== 'changes') return (original as any)(...args)
+      expect(body.fieldPatches).toBe(true)
+      const first = body.after === 0
+      return Promise.resolve({ data: { changes: [{ type: 'episode', id: 'a', deleted: false, baseRevision: first ? 1 : 2, revision: first ? 2 : 3, patch: [{ path: ['scenes', '0', 'description'], value: first ? 'first' : 'second' }] }], cursor: first ? 1 : 2, hasMore: first } })
+    })
+    await session.poll()
+    expect(apply).toHaveBeenCalledOnce()
+    expect((session.snapshot().scenes as any[])[0].description).toBe('second')
+  })
+
+  it('retries a mismatched delta at the same cursor with full resources', async () => {
+    patchV2Supported = true
+    const before = view()
+    const apply = vi.fn()
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before, after: before }), apply })
+    sessions.push(session)
+    await session.openEditSession('p')
+    const fetch = vi.mocked($fetch)
+    const original = fetch.getMockImplementation()!
+    const cursors: number[] = []
+    fetch.mockImplementation((...args: any[]) => {
+      const body = args[1].body
+      if (body?.action !== 'changes') return (original as any)(...args)
+      cursors.push(body.after)
+      const resource = structuredClone(server.find(item => item.id === 'a')!)
+      resource.revision = 4
+      ;(resource.body!.scenes as any[])[0].description = 'recovered'
+      return Promise.resolve({ data: { changes: body.fieldPatches ? [{ type: 'episode', id: 'a', revision: 4, deleted: false, baseRevision: 3, patch: [{ path: ['scenes', '0', 'description'], value: 'recovered' }] }] : [resource], cursor: 3, hasMore: false } })
+    })
+    await session.poll()
+    expect(cursors).toEqual([0, 0])
+    expect(apply).toHaveBeenCalledOnce()
+    expect((session.snapshot().scenes as any[])[0].description).toBe('recovered')
+  })
+
+  it('does not advance the cursor or apply partial changes when delta recovery fails', async () => {
+    patchV2Supported = true
+    const before = view()
+    const apply = vi.fn()
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before, after: before }), apply })
+    sessions.push(session)
+    await session.openEditSession('p')
+    const fetch = vi.mocked($fetch)
+    const original = fetch.getMockImplementation()!
+    const cursors: number[] = []
+    fetch.mockImplementation((...args: any[]) => {
+      const body = args[1].body
+      if (body?.action !== 'changes') return (original as any)(...args)
+      cursors.push(body.after)
+      if (body.fieldPatches === false) return Promise.reject({ statusCode: 503 })
+      return Promise.resolve({ data: { changes: [{ type: 'episode', id: 'a', revision: 4, deleted: false, baseRevision: 3, patch: [{ path: ['scenes', '0', 'description'], value: 'must not apply' }] }], cursor: 3, hasMore: false } })
+    })
+    await session.poll()
+    await session.poll()
+    expect(cursors).toEqual([0, 0, 0, 0])
+    expect(apply).not.toHaveBeenCalled()
+    expect((session.snapshot().scenes as any[])[0].description).toBe('A')
+    expect(session.editSession.value.syncStatus).toBe('offline')
+  })
+
   it('automatically retries temporary prepare failures without manual reconnection', async () => {
     const fetch = vi.mocked($fetch)
     const original = fetch.getMockImplementation()!

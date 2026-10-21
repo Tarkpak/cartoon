@@ -1,3 +1,4 @@
+import { applyCollaborationPatch, type CollaborationPatch } from '../../../shared/utils/collaboration-patch'
 import { updateCollaborationPresence } from './project-collaboration-presence'
 import { updateCollaborationWindowPresence } from './project-collaboration-window-presence'
 import { afterEach, describe, expect, it } from 'bun:test'
@@ -175,6 +176,68 @@ describe('per resource collaboration', () => {
     expect(() => enableProjectCollaboration(db, migration)).toThrow('不存在')
     expect(projectUsesCollaboration(db, 'cloud-p1')).toBe(false)
     expect(collaborationResources(db, 'cloud-p1')).toHaveLength(0)
+  })
+
+  it('applies field patches atomically and replays receipts without applying twice', () => {
+    const { db } = setup()
+    const full = mutation(db, 'e1', 'alice')
+    const { body: _body, ...metadata } = full
+    const change = { ...metadata, patch: [{ path: ['plan', 'title'], value: 'small update' }] } as unknown as CollaborationMutation
+    const original = collaborationResources(db, 'cloud-p1').find(item => item.id === 'e1')!
+    const request = { ...actor('alice'), operationId: 'field-patch', mutations: [change] }
+    const result = writeCollaboration(db, request)
+    expect(result.resources[0]?.body).toEqual({ ...original.body, plan: { ...(original.body!.plan as Record<string, unknown>), title: 'small update' } })
+    expect(writeCollaboration(db, request)).toEqual(result)
+    expect(() => writeCollaboration(db, { ...request, operationId: 'stale-patch' })).toThrow('已变化')
+  })
+
+  it('applies array element patches with version fencing and atomic rollback', () => {
+    const { db } = setup()
+    const full = mutation(db, 'e1')
+    const { body: _body, ...metadata } = full
+    const change = { ...metadata, patch: [{ path: ['scenes', '0', 'description'], value: 'precise change' }] } as unknown as CollaborationMutation
+    const request = { ...actor(), operationId: 'scene-field', mutations: [change] }
+    const result = writeCollaboration(db, request)
+    expect((result.resources[0]!.body!.scenes as Array<Record<string, unknown>>)[0]!.description).toBe('precise change')
+    expect(writeCollaboration(db, request)).toEqual(result)
+    expect(() => writeCollaboration(db, { ...request, operationId: 'stale-scene-field' })).toThrow('已变化')
+    const invalid = { ...metadata, expectedRevision: 2, patch: [
+      { path: ['scenes', '0', 'description'], value: 'must roll back' },
+      { path: ['scenes', '100', 'description'], value: 'invalid index' }
+    ] } as unknown as CollaborationMutation
+    expect(() => writeCollaboration(db, { ...actor(), operationId: 'invalid-index', mutations: [invalid] })).toThrow('下标')
+    expect(collaborationResources(db, 'cloud-p1').find(item => item.id === 'e1')).toEqual(result.resources[0])
+  })
+
+  it('delivers element patches to opted-in clients and full resources to legacy clients', () => {
+    const { db } = setup()
+    // Simulate the pre-upgrade schema and verify the additive migration is repeatable.
+    db.exec('ALTER TABLE project_collaboration_changes DROP COLUMN patch_json')
+    ensureProjectCollaborationSchema(db)
+    ensureProjectCollaborationSchema(db)
+    const original = collaborationResources(db, 'cloud-p1').find(item => item.id === 'e1')!
+    const firstMutation = mutation(db, 'e1', 'alice', 'first')
+    const first = writeCollaboration(db, { ...actor(), operationId: 'array-change-1', mutations: [firstMutation] })
+    const secondBody = structuredClone(first.resources[0]!.body!)
+    ;(secondBody.scenes as Array<Record<string, unknown>>)[0]!.description = 'second'
+    const second = writeCollaboration(db, { ...actor(), operationId: 'array-change-2', mutations: [{ ...firstMutation, expectedRevision: 2, body: secondBody }] })
+    const delta = collaborationChanges(db, 'cloud-p1', 0, 1, true)
+    expect(delta.hasMore).toBe(true)
+    expect(delta.changes[0]).toMatchObject({ id: 'e1', baseRevision: 1, revision: 2, patch: [{ path: ['scenes', '0', 'description'], value: 'first' }] })
+    expect(delta.changes[0]).not.toHaveProperty('body')
+    const next = collaborationChanges(db, 'cloud-p1', delta.cursor, 1, true)
+    expect(next.changes[0]).toMatchObject({ baseRevision: 2, revision: 3 })
+    expect(next.hasMore).toBe(false)
+    const legacy = collaborationChanges(db, 'cloud-p1', 0)
+    expect(legacy.changes[0]).toMatchObject(first.resources[0]!)
+    expect(legacy.changes[1]).toMatchObject(second.resources[0]!)
+    expect(legacy.changes[0]).not.toHaveProperty('patch')
+    let body = original.body!
+    for (const page of [delta, next]) body = applyCollaborationPatch(body, (page.changes[0] as unknown as { patch: CollaborationPatch[] }).patch)
+    expect(body).toEqual(second.resources[0]!.body)
+    // Pre-upgrade history without patches remains readable by the new client.
+    db.query('UPDATE project_collaboration_changes SET patch_json = NULL').run()
+    expect(collaborationChanges(db, 'cloud-p1', 0, 100, true).changes[0]).toHaveProperty('body')
   })
 
   it('allows two members to save different episodes from the same initial project version', () => {
