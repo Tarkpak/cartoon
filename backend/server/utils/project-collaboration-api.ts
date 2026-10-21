@@ -7,6 +7,7 @@ import { manageCollaboration } from './project-collaboration-management'
 import { requireCloudProjectPermission, projectMemberCan, type ProjectPermission } from './project-permissions'
 import {
   collaborationChanges,
+  collaborationResourceHeaders,
   enableProjectCollaboration,
   previewProjectCollaboration,
   operateCollaborationLease,
@@ -34,14 +35,13 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
     const editable = auth.user.role === 'admin' || auth.user.id === ownerUserId || (!!access.role && projectMemberCan({ role: access.role, permissions_json: access.permissions_json }, 'edit'))
     if (project.deleted_at && body.action !== 'delete') throw createError({ statusCode: 410, message: '项目已删除' })
     if (body.action === 'presence') {
-      const snapshot = readCollaboration(db, project.id)
-      if (!snapshot.enabled) throw createError({ statusCode: 409, message: '项目尚未启用协作' })
-      return updateCollaborationWindowPresence(db, { projectId: project.id, ownerId: ownerUserId, userId: auth.user.id, deviceId: body.deviceId, sessionId: body.sessionId, editable, editing: body.editing, leaving: body.leaving === true, resources: snapshot.resources })
+      const resources = collaborationResourceHeaders(db, project.id)
+      return updateCollaborationWindowPresence(db, { projectId: project.id, ownerId: ownerUserId, userId: auth.user.id, deviceId: body.deviceId, sessionId: body.sessionId, editable, editing: body.editing, leaving: body.leaving === true, resources })
     }
     const members = () => manageCollaboration(db, auth, { id: project.id, ownerId: ownerUserId, deletedAt: project.deleted_at }, { action: 'members' })
     if (body.action === 'read') {
-      const snapshot = readCollaboration(db, project.id)
-      return { ...snapshot, capabilities: { fieldPatch: true, fieldPatchV2: true }, editable, ...(snapshot.enabled ? members() : {}) }
+      const snapshot = readCollaboration(db, project.id, body.knownResources)
+      return { ...snapshot, capabilities: { fieldPatch: true, fieldPatchV2: true, compactReceipt: true, combinedPresence: true }, editable, ...(snapshot.enabled ? members() : {}) }
     }
     if (body.action === 'changes') {
       const result = collaborationChanges(db, project.id, body.after as number, 100, body.fieldPatches === true)
@@ -49,7 +49,10 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
       const participants = typeof body.deviceId === 'string' && typeof body.sessionId === 'string'
         ? updateCollaborationPresence(db, project.id, auth.user.id, collaborationId(body.deviceId), collaborationId(body.sessionId), body.activeScopes, editable)
         : []
-      return { ...result, editable, participants, ...members() }
+      const windowPresence = body.includePresence === true
+        ? updateCollaborationWindowPresence(db, { projectId: project.id, ownerId: ownerUserId, userId: auth.user.id, deviceId: body.deviceId, sessionId: body.sessionId, editable, editing: body.editing, resources: collaborationResourceHeaders(db, project.id) })
+        : {}
+      return { ...result, editable, participants, ...windowPresence, ...members() }
     }
     if (['members', 'memberPut', 'memberRemove', 'delete'].includes(body.action as string)) return manageCollaboration(db, auth, { id: project.id, ownerId: ownerUserId, deletedAt: project.deleted_at }, body)
     const canTakeover = auth.user.id === ownerUserId || auth.user.role === 'admin'
@@ -60,7 +63,7 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
     if (body.action === 'enable') {
       if (!canTakeover) throw createError({ statusCode: 403, message: '仅项目所有者或管理员可以迁移项目' })
       if (typeof body.expectedUpdatedAt !== 'string' || typeof body.leaseToken !== 'string' || typeof body.snapshotHash !== 'string') throw createError({ statusCode: 400, message: '迁移需要已核对的版本和编辑权' })
-      return { ...enableProjectCollaboration(db, { projectId: project.id, userId: auth.user.id, expectedUpdatedAt: body.expectedUpdatedAt, leaseToken: body.leaseToken, snapshotHash: body.snapshotHash }), capabilities: { fieldPatch: true, fieldPatchV2: true } }
+      return { ...enableProjectCollaboration(db, { projectId: project.id, userId: auth.user.id, expectedUpdatedAt: body.expectedUpdatedAt, leaseToken: body.leaseToken, snapshotHash: body.snapshotHash }), capabilities: { fieldPatch: true, fieldPatchV2: true, compactReceipt: true, combinedPresence: true } }
     }
     let deviceId: string
     let sessionId: string
@@ -88,10 +91,14 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
         action: body.leaseAction as 'acquire' | 'heartbeat' | 'check' | 'release' | 'takeover', canTakeover
       })
     }
-    return writeCollaboration(db, {
+    const result = writeCollaboration(db, {
       projectId: project.id, userId: auth.user.id, deviceId, sessionId,
       operationId: body.operationId as string, mutations: body.mutations as CollaborationMutation[]
     })
+    // Keep the stored receipt canonical so retries can choose either representation.
+    return body.compactReceipt === true
+      ? { cursor: result.cursor, compactReceipt: true, resources: result.resources.map(({ type, id, revision, deleted }) => ({ type, id, revision, deleted })) }
+      : result
   })
   try {
     return ['read', 'members'].includes(body.action as string) ? transaction() : transaction.immediate()

@@ -104,15 +104,42 @@ export function collaborationResources(db: Database, projectId: string): Collabo
     .all(projectId) as ResourceRow[]).map(resourceFromRow)
 }
 
+/** Presence needs identities and deletion state, never scene bodies or media histories. */
+export function collaborationResourceHeaders(db: Database, projectId: string): CollaborationResource[] {
+  requireCollaboration(db, projectId)
+  return (db.query('SELECT resource_type, resource_id, revision, deleted FROM project_collaboration_resources WHERE project_id = ? ORDER BY resource_type, resource_id')
+    .all(projectId) as Omit<ResourceRow, 'body_json'>[])
+    .map(item => ({ type: item.resource_type, id: item.resource_id, revision: item.revision, deleted: !!item.deleted, body: null }))
+}
+
 function cursor(db: Database, projectId: string) {
   return (db.query('SELECT COALESCE(MAX(sequence), 0) AS cursor FROM project_collaboration_changes WHERE project_id = ?')
     .get(projectId) as { cursor: number }).cursor
 }
 
-export function readCollaboration(db: Database, projectId: string) {
+export function readCollaboration(db: Database, projectId: string, knownResources?: unknown) {
   return db.transaction(() => {
     const enabled = projectUsesCollaboration(db, projectId)
-    return { enabled, protocolVersion: COLLABORATION_PROTOCOL_VERSION, cursor: enabled ? cursor(db, projectId) : 0, resources: enabled ? collaborationResources(db, projectId) : [] }
+    const result = { enabled, protocolVersion: COLLABORATION_PROTOCOL_VERSION, cursor: enabled ? cursor(db, projectId) : 0 }
+    if (!enabled || knownResources === undefined) return { ...result, resources: enabled ? collaborationResources(db, projectId) : [] }
+    if (!Array.isArray(knownResources) || knownResources.length > 50000) return invalid(new Error('缓存资源版本列表无效'))
+    const known = new Map<string, number>()
+    for (const value of knownResources) {
+      try {
+        const item = collaborationObject(value, '缓存资源版本')
+        const key = JSON.stringify([collaborationResourceType(item.type), collaborationId(item.id)])
+        if (!Number.isSafeInteger(item.revision) || (item.revision as number) < 1 || known.has(key)) throw new Error('缓存资源版本无效')
+        known.set(key, item.revision as number)
+      } catch (cause) { return invalid(cause) }
+    }
+    // Check small headers first; do not parse unchanged scene/media histories.
+    const headers = db.query('SELECT resource_type, resource_id, revision, deleted FROM project_collaboration_resources WHERE project_id = ? ORDER BY resource_type, resource_id')
+      .all(projectId) as Omit<ResourceRow, 'body_json'>[]
+    const getResource = db.query('SELECT * FROM project_collaboration_resources WHERE project_id = ? AND resource_type = ? AND resource_id = ?')
+    const resources = headers.filter(item => known.get(JSON.stringify([item.resource_type, item.resource_id])) !== item.revision)
+      .map(item => resourceFromRow(getResource.get(projectId, item.resource_type, item.resource_id) as ResourceRow))
+    return { ...result, resources, resourceManifest: headers.map(item => ({ type: item.resource_type, id: item.resource_id, revision: item.revision, deleted: !!item.deleted })) }
+
   })()
 }
 

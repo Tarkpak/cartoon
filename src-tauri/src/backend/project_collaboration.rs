@@ -227,7 +227,7 @@ fn prepare_collaboration_write_locked(
     }
     let normalized = |value: &Value| {
         let mut value = value.clone();
-        if let Some(object) = value.as_object_mut() { object.remove("deviceId"); object.remove("sessionId"); }
+        if let Some(object) = value.as_object_mut() { object.remove("deviceId"); object.remove("sessionId"); object.remove("compactReceipt"); }
         if let Some(mutations) = value["mutations"].as_array_mut() {
             for mutation in mutations { if let Some(object) = mutation.as_object_mut() { object.remove("leaseToken"); } }
         }
@@ -266,7 +266,12 @@ fn prepare_collaboration_write_locked(
     match tokens {
         Ok(tokens) => for (mutation, token) in body["mutations"].as_array_mut().unwrap().iter_mut().zip(tokens) { mutation["leaseToken"] = json!(token); },
         Err(error) => {
-            if let Some(cached) = cached { *body = cached["request"].clone(); }
+            if let Some(cached) = cached {
+                let compact_receipt = body.get("compactReceipt").cloned();
+                *body = cached["request"].clone();
+                body.as_object_mut().unwrap().remove("compactReceipt");
+                if let Some(value) = compact_receipt { body["compactReceipt"] = value; }
+            }
             else { return Err(error); }
         }
     }
@@ -292,6 +297,78 @@ fn cache_collaboration_lease_response(
     };
     cached["requestId"] = json!(request_id);
     set_config_json(conn, key, &cached)
+}
+
+async fn logged_collaboration_request(state: &BackendState, id: &str, body: &Value) -> Result<Value, ApiError> {
+    let request_id = Uuid::new_v4().to_string();
+    let started = std::time::Instant::now();
+    let request_bytes = serde_json::to_vec(&body).map(|bytes| bytes.len()).unwrap_or(0);
+    let result = cloud_post_client_data_json(&state, "/api/client/project-collaboration", body.clone()).await;
+    let response_bytes = result.as_ref().ok().and_then(|value| serde_json::to_vec(value).ok()).map(|bytes| bytes.len()).unwrap_or(0);
+    let status = result.as_ref().err().map(|error| error.status.as_u16()).unwrap_or(200);
+    // Deliberately exclude bodies, lease tokens, URLs and server error text.
+    let metadata = json!({
+        "requestId": request_id, "projectId": id, "action": body.get("action"),
+        "operationId": body.get("operationId").and_then(Value::as_str),
+        "elapsedMs": started.elapsed().as_millis(), "requestBytes": request_bytes,
+        "responseBytes": response_bytes, "status": status,
+        "knownResourceCount": body.get("knownResources").and_then(Value::as_array).map(Vec::len).unwrap_or(0),
+        "returnedResourceCount": result.as_ref().ok().and_then(|value| value.pointer("/data/resources")).and_then(Value::as_array).map(Vec::len).unwrap_or(0),
+        "compactReceipt": body.get("compactReceipt").and_then(Value::as_bool),
+        "mutationCount": body.get("mutations").and_then(Value::as_array).map(Vec::len).unwrap_or(0),
+        "fieldPatches": body.get("fieldPatches").and_then(Value::as_bool),
+        "afterCursor": body.get("after").and_then(Value::as_u64),
+        "nextCursor": result.as_ref().ok().and_then(|value| value.pointer("/data/cursor")).and_then(Value::as_u64),
+        "patchFieldCount": body.get("mutations").and_then(Value::as_array).map(|items| items.iter().filter_map(|item| item.get("patch").and_then(Value::as_array)).map(Vec::len).sum::<usize>()).unwrap_or(0),
+        "deltaChangeCount": result.as_ref().ok().and_then(|value| value.pointer("/data/changes")).and_then(Value::as_array).map(|items| items.iter().filter(|item| item.get("patch").is_some()).count()).unwrap_or(0)
+    });
+    let _ = insert_app_log(&state, if status >= 400 { "warn" } else { "info" }, "backend", "collaboration", "Cloud collaboration request", Some(&request_id), Some("POST"), Some("/api/client/project-collaboration"), Some(status), Some(started.elapsed().as_millis().min(i64::MAX as u128) as i64), Some(&metadata), None);
+    result
+}
+
+fn cached_collaboration_resources(value: &Value) -> Option<Vec<Value>> {
+    let resources = value.get("resources")?.as_array()?;
+    let checksum = format!("{:x}", Sha256::digest(serde_json::to_vec(resources).ok()?));
+    if value.get("checksum")?.as_str()? != checksum { return None; }
+    Some(resources.clone())
+}
+
+fn collaboration_resource_manifest(resources: &[Value]) -> Option<Vec<Value>> {
+    if resources.len() > 50000 { return None; }
+    let mut keys = std::collections::HashSet::new();
+    let mut manifest = Vec::with_capacity(resources.len());
+    for item in resources {
+        let kind = item.get("type")?.as_str()?;
+        let id = item.get("id")?.as_str()?;
+        let revision = item.get("revision")?.as_u64()?;
+        if !["episode", "character", "settings", "directory"].contains(&kind) || id.is_empty() || revision == 0 || !keys.insert((kind, id)) { return None; }
+        manifest.push(json!({"type":kind,"id":id,"revision":revision}));
+    }
+    Some(manifest)
+}
+
+/// The cloud manifest is authoritative for membership, deletion and ordering.
+fn hydrate_collaboration_read(data: &mut Value, cached: &[Value]) -> Option<()> {
+    let Some(manifest) = data.get("resourceManifest") else { return Some(()); };
+    let manifest = manifest.as_array()?;
+    collaboration_resource_manifest(manifest)?;
+    let changed = data.get("resources")?.as_array()?;
+    collaboration_resource_manifest(changed)?;
+    let key = |item: &Value| serde_json::to_string(&json!([item["type"], item["id"]])).ok();
+    let mut candidates = std::collections::HashMap::new();
+    for item in cached.iter().chain(changed.iter()) { candidates.insert(key(item)?, item); }
+    let mut resources = Vec::with_capacity(manifest.len());
+    for header in manifest {
+        let item = candidates.get(&key(header)?)?;
+        if item.get("revision") != header.get("revision") || item.get("deleted") != header.get("deleted") { return None; }
+        let deleted = item.get("deleted")?.as_bool()?;
+        if !deleted && !item.get("body")?.is_object() { return None; }
+        if deleted && !item.get("body")?.is_null() { return None; }
+        resources.push((*item).clone());
+    }
+    data["resources"] = json!(resources);
+    data.as_object_mut()?.remove("resourceManifest");
+    Some(())
 }
 
 pub(super) async fn api_project_collaboration(
@@ -458,27 +535,26 @@ pub(super) async fn api_project_collaboration(
         let mut conn = db_connection(&state)?;
         prepare_collaboration_write(&mut conn, &user_id, &id, &session_id, &mut body)?;
     }
-    let request_id = Uuid::new_v4().to_string();
-    let started = std::time::Instant::now();
-    let request_bytes = serde_json::to_vec(&body).map(|bytes| bytes.len()).unwrap_or(0);
-    let result = cloud_post_client_data_json(&state, "/api/client/project-collaboration", body.clone()).await;
-    let response_bytes = result.as_ref().ok().and_then(|value| serde_json::to_vec(value).ok()).map(|bytes| bytes.len()).unwrap_or(0);
-    let status = result.as_ref().err().map(|error| error.status.as_u16()).unwrap_or(200);
-    // Deliberately exclude bodies, lease tokens, URLs and server error text.
-    let metadata = json!({
-        "requestId": request_id, "projectId": id, "action": action,
-        "operationId": body.get("operationId").and_then(Value::as_str),
-        "elapsedMs": started.elapsed().as_millis(), "requestBytes": request_bytes,
-        "responseBytes": response_bytes, "status": status,
-        "mutationCount": body.get("mutations").and_then(Value::as_array).map(Vec::len).unwrap_or(0),
-        "fieldPatches": body.get("fieldPatches").and_then(Value::as_bool),
-        "afterCursor": body.get("after").and_then(Value::as_u64),
-        "nextCursor": result.as_ref().ok().and_then(|value| value.pointer("/data/cursor")).and_then(Value::as_u64),
-        "patchFieldCount": body.get("mutations").and_then(Value::as_array).map(|items| items.iter().filter_map(|item| item.get("patch").and_then(Value::as_array)).map(Vec::len).sum::<usize>()).unwrap_or(0),
-        "deltaChangeCount": result.as_ref().ok().and_then(|value| value.pointer("/data/changes")).and_then(Value::as_array).map(|items| items.iter().filter(|item| item.get("patch").is_some()).count()).unwrap_or(0)
-    });
-    let _ = insert_app_log(&state, if status >= 400 { "warn" } else { "info" }, "backend", "collaboration", "Cloud collaboration request", Some(&request_id), Some("POST"), Some("/api/client/project-collaboration"), Some(status), Some(started.elapsed().as_millis().min(i64::MAX as u128) as i64), Some(&metadata), None);
-    let mut response = result?;
+    // Cache is scoped by service, account and project. It is never used to bypass
+    // online authorization, and cached bodies never enter the cloud request.
+    let cache_key = format!("project_collaboration_read_cache:{}", json!([cloud_base_url(&db_connection(&state)?), user_id, id]));
+    let stored_cache = if action == "read" { get_config_json(&db_connection(&state)?, &cache_key).ok().flatten() } else { None };
+    let cached = stored_cache.as_ref().and_then(cached_collaboration_resources).filter(|items| collaboration_resource_manifest(items).is_some());
+    if stored_cache.is_some() && cached.is_none() {
+        let _ = insert_app_log(&state, "warn", "backend", "collaboration", "Collaboration read cache failed integrity validation; fetching full read", None, None, None, None, None, Some(&json!({"projectId":id,"cacheFallback":true})), None);
+    }
+    if let Some(manifest) = cached.as_ref().and_then(|items| collaboration_resource_manifest(items)) {
+        body["knownResources"] = json!(manifest);
+    }
+    let mut response = logged_collaboration_request(&state, &id, &body).await?;
+    if action == "read" && response.pointer("/data/resourceManifest").is_some() {
+        if hydrate_collaboration_read(&mut response["data"], cached.as_deref().unwrap_or(&[])).is_none() {
+            body.as_object_mut().unwrap().remove("knownResources");
+            let _ = insert_app_log(&state, "warn", "backend", "collaboration", "Cached collaboration base invalid; fetching full read", None, None, None, None, None, Some(&json!({"projectId":id,"cacheFallback":true})), None);
+            response = logged_collaboration_request(&state, &id, &body).await?;
+            if response.pointer("/data/resourceManifest").is_some() { return Err(ApiError::new(StatusCode::BAD_GATEWAY, "云端完整读取响应无效")); }
+        }
+    }
     ensure_collaboration_account(&db_connection(&state)?, &user_id)?;
     if response.get("success").and_then(Value::as_bool) != Some(true) {
         return Err(ApiError::new(
@@ -534,6 +610,15 @@ pub(super) async fn api_project_collaboration(
     }
     if data.get("enabled").and_then(Value::as_bool) == Some(true) {
         remember_collaboration_mode(&state, &id)?;
+        if matches!(action.as_str(), "read" | "enable" | "migrationPreview") {
+            if let Some(items) = data.get("resources").and_then(Value::as_array).filter(|items| collaboration_resource_manifest(items).is_some()) {
+                if cached.as_ref().is_some_and(|previous| previous == items) { return Ok(Json(response)); }
+                let checksum = format!("{:x}", Sha256::digest(serde_json::to_vec(items).unwrap_or_default()));
+                if set_config_json(&db_connection(&state)?, &cache_key, &json!({"resources":items,"checksum":checksum})).is_err() {
+                    let _ = insert_app_log(&state, "warn", "backend", "collaboration", "Collaboration read cache could not be persisted", None, None, None, None, None, Some(&json!({"projectId":id})), None);
+                }
+            }
+        }
     }
     Ok(Json(response))
 }
@@ -636,6 +721,69 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0.data_dir);
         }
+    }
+
+    #[test]
+    fn collaboration_read_cache_validates_integrity_and_authoritative_manifest() {
+        let cached = vec![json!({"type":"episode","id":"a","revision":1,"deleted":false,"body":{"text":"old"}})];
+        let checksum = format!("{:x}", Sha256::digest(serde_json::to_vec(&cached).unwrap()));
+        assert_eq!(cached_collaboration_resources(&json!({"resources":cached,"checksum":checksum})).unwrap(), cached);
+        assert!(cached_collaboration_resources(&json!({"resources":cached,"checksum":"corrupt"})).is_none());
+        let mut updated = json!({"resourceManifest":[{"type":"episode","id":"a","revision":2,"deleted":true}],"resources":[{"type":"episode","id":"a","revision":2,"deleted":true,"body":null}]});
+        hydrate_collaboration_read(&mut updated, &cached).unwrap();
+        assert_eq!(updated["resources"][0]["deleted"], true);
+        assert!(updated.get("resourceManifest").is_none());
+        let mut invalid = json!({"resourceManifest":[{"type":"episode","id":"a","revision":3,"deleted":false}],"resources":[]});
+        assert!(hydrate_collaboration_read(&mut invalid, &cached).is_none());
+        let mut removed = json!({"resourceManifest":[],"resources":[]});
+        hydrate_collaboration_read(&mut removed, &cached).unwrap();
+        assert_eq!(removed["resources"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn collaboration_cached_read_reuses_bodies_and_recovers_missing_bases_online() {
+        let test = ManagementProject::new("owner");
+        let calls = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let captured = calls.clone();
+        let router = Router::new().route("/api/client/project-collaboration", post(move |Json(body): Json<Value>| {
+            let mut requests = captured.lock().unwrap();
+            let index = requests.len();
+            requests.push(body.clone());
+            async move {
+                if index == 4 { return Err(ApiError::new(StatusCode::FORBIDDEN, "permission revoked")); }
+                let resource = json!({"type":"settings","id":"settings","revision":if index >= 3 {2} else {1},"deleted":false,"body":{"project":{"name":"cached body"}}});
+                let mut data = json!({"enabled":true,"protocolVersion":1,"cursor":index,"resources":[resource]});
+                if index == 1 {
+                    data["resources"] = json!([]);
+                    data["resourceManifest"] = json!([{"type":"settings","id":"settings","revision":1,"deleted":false}]);
+                } else if index == 2 {
+                    data["resources"] = json!([]);
+                    data["resourceManifest"] = json!([{"type":"settings","id":"settings","revision":99,"deleted":false}]);
+                }
+                Ok(Json(json!({"success":true,"data":data})))
+            }
+        }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap(); });
+        set_config_json(&db_connection(&test.0).unwrap(), CLOUD_ADMIN_CONFIG_KEY, &json!({"baseUrl":format!("http://{addr}")})).unwrap();
+        for expected_revision in [1, 1, 2] {
+            let Json(response) = CURRENT_EDIT_SESSION.scope(Some("cached-window".into()), api_project_collaboration(Path("p1".into()), State(test.0.clone()), Json(json!({"action":"read"})))).await.unwrap();
+            assert_eq!(response["data"]["resources"][0]["revision"], expected_revision);
+            assert_eq!(response["data"]["resources"][0]["body"]["project"]["name"], "cached body");
+        }
+        let denied = CURRENT_EDIT_SESSION.scope(Some("cached-window".into()), api_project_collaboration(Path("p1".into()), State(test.0.clone()), Json(json!({"action":"read"})))).await;
+        assert_eq!(denied.unwrap_err().status, StatusCode::FORBIDDEN);
+        let requests = calls.lock().unwrap();
+        assert_eq!(requests.len(), 5);
+        assert!(requests[0].get("knownResources").is_none());
+        assert_eq!(requests[1]["knownResources"][0]["revision"], 1);
+        assert!(requests[1]["knownResources"][0].get("body").is_none());
+        assert!(requests[3].get("knownResources").is_none());
+        let conn = db_connection(&test.0).unwrap();
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM app_logs WHERE category = 'collaboration' AND message LIKE 'Cached collaboration base invalid%'", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1);
+        server.abort();
     }
 
     #[tokio::test]
@@ -1034,6 +1182,12 @@ mod tests {
         retry["sessionId"] = json!("new-window");
         prepare_collaboration_write(&mut conn, "actor", "p", "new-window", &mut retry).unwrap();
         assert_eq!(retry, original);
+        retry["compactReceipt"] = json!(true);
+        prepare_collaboration_write(&mut conn, "actor", "p", "new-window", &mut retry).unwrap();
+        assert_eq!(retry["compactReceipt"], true);
+        retry.as_object_mut().unwrap().remove("compactReceipt");
+        prepare_collaboration_write(&mut conn, "actor", "p", "new-window", &mut retry).unwrap();
+        assert!(retry.get("compactReceipt").is_none());
         set_config_json(&conn, &collaboration_lease_key("p","new-window","episode","e"), &json!({"token":"new-token","expiresAt":Utc::now().timestamp_millis()+90_000})).unwrap();
         let mut renewed = original.clone();
         renewed["sessionId"] = json!("new-window");

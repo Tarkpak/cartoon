@@ -240,6 +240,49 @@ describe('per resource collaboration', () => {
     expect(collaborationChanges(db, 'cloud-p1', 0, 100, true).changes[0]).toHaveProperty('body')
   })
 
+  it('returns only changed resources after checking a cached version manifest', () => {
+    const { db } = setup()
+    const identity = { ownerUserId: 'owner', localProjectId: 'p1', action: 'read' }
+    const initial = handleProjectCollaboration(db, auth('alice'), identity) as { resources: Array<{ type: string, id: string, revision: number }> }
+    const knownResources = initial.resources.map(({ type, id, revision }) => ({ type, id, revision }))
+    const unchanged = handleProjectCollaboration(db, auth('alice'), { ...identity, knownResources }) as any
+    expect(unchanged.resources).toEqual([])
+    expect(unchanged.resourceManifest).toHaveLength(initial.resources.length)
+    writeCollaboration(db, { ...actor(), operationId: 'cached-read-change', mutations: [mutation(db, 'e1')] })
+    const changed = handleProjectCollaboration(db, auth('alice'), { ...identity, knownResources }) as any
+    expect(changed.resources).toHaveLength(1)
+    expect(changed.resources[0]).toMatchObject({ type: 'episode', id: 'e1', revision: 2 })
+    expect(changed.resourceManifest.find((item: any) => item.id === 'e1').revision).toBe(2)
+    expect(() => handleProjectCollaboration(db, auth('alice'), { ...identity, knownResources: [knownResources[0], knownResources[0]] })).toThrow('缓存资源版本无效')
+    expect(() => handleProjectCollaboration(db, auth('stranger'), { ...identity, knownResources })).toThrow()
+    db.query("DELETE FROM project_members WHERE user_id = 'alice'").run()
+    expect(() => handleProjectCollaboration(db, auth('alice'), { ...identity, knownResources })).toThrow()
+  })
+
+  it('returns compact receipts and can replay the same operation in either format', () => {
+    const { db } = setup()
+    const change = mutation(db, 'e1')
+    const request = { action: 'write', ownerUserId: 'owner', localProjectId: 'p1', ...actor(), operationId: 'compact-write', mutations: [change] }
+    const compact = handleProjectCollaboration(db, auth('alice'), { ...request, compactReceipt: true }) as any
+    expect(compact.compactReceipt).toBe(true)
+    expect(compact.resources).toEqual([{ type: 'episode', id: 'e1', revision: 2, deleted: false }])
+    const full = handleProjectCollaboration(db, auth('alice'), request) as any
+    expect(full.resources[0].body).toEqual(change.body)
+    expect(handleProjectCollaboration(db, auth('alice'), { ...request, compactReceipt: true })).toEqual(compact)
+    expect(collaborationChanges(db, 'cloud-p1', 0).changes).toHaveLength(1)
+  })
+
+  it('combines online window presence with change polling and filters read-only edit scopes', () => {
+    const { db } = setup()
+    const identity = { ownerUserId: 'owner', localProjectId: 'p1', action: 'changes', after: 0, includePresence: true, editing: [{ type: 'episode', id: 'e1' }], deviceId: 'device-alice', sessionId: 'window-alice' }
+    const first = handleProjectCollaboration(db, auth('alice'), identity) as any
+    expect(first.collaborators).toMatchObject([{ self: true, editing: [{ type: 'episode', id: 'e1' }] }])
+    expect(first.changes).toEqual([])
+    const viewer = handleProjectCollaboration(db, auth('viewer'), { ...identity, deviceId: 'device-viewer', sessionId: 'window-viewer' }) as any
+    expect(viewer.collaborators.find((item: any) => item.userId === 'viewer')).toMatchObject({ self: true, editing: [] })
+    expect(viewer.collaborators.find((item: any) => item.userId === 'alice').editing).toHaveLength(1)
+  })
+
   it('allows two members to save different episodes from the same initial project version', () => {
     const { db } = setup()
     const first = mutation(db, 'e1', 'alice')

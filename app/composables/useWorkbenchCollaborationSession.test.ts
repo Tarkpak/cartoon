@@ -25,6 +25,8 @@ let store: Map<string, string>
 let currentUser = ref<{ id: string } | null>({ id: 'owner' })
 let changes: typeof server
 let readError: unknown
+let combinedSupported = false
+let compactSupported = false
 let patchV2Supported = false
 let patchSupported = false
 let editable: boolean
@@ -34,6 +36,8 @@ beforeEach(() => {
   vi.useFakeTimers()
   setDraftRuntime('test-runtime'); access = undefined
   currentUser = ref<{ id: string } | null>({ id: 'owner' }); changes = []; readError = undefined; editable = true
+  combinedSupported = false
+  compactSupported = false
   patchV2Supported = false
   patchSupported = false
   server = fixture(); writes = []; blocked = ''; loseReply = false; store = new Map()
@@ -41,24 +45,27 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value), removeItem: (key: string) => store.delete(key) })
   const receipts = new Map<string, unknown>()
   vi.stubGlobal('$fetch', vi.fn(async (path: string, options: { body?: Record<string, any> }) => {
-    if (path.endsWith('/prepare')) return { data: { enabled: true, capabilities: { fieldPatch: patchSupported, fieldPatchV2: patchV2Supported }, editable, access, protocolVersion: 1, resources: structuredClone(server) } }
+    if (path.endsWith('/prepare')) return { data: { enabled: true, capabilities: { fieldPatch: patchSupported, fieldPatchV2: patchV2Supported, compactReceipt: compactSupported, combinedPresence: combinedSupported }, editable, access, protocolVersion: 1, resources: structuredClone(server) } }
     const body = options.body!
     if (body.action === 'read') return { data: { enabled: true, editable, resources: structuredClone(server), cursor: 1 } }
     if (body.action === 'presence') return { data: { collaborators: [{ userId: 'owner', displayName: 'Owner', self: true, editing: [], locked: [] }] } }
     if (body.action === 'changes') {
       if (readError) throw readError
-      return { data: { changes: structuredClone(changes), cursor: 1, hasMore: false, editable, access } }
+      return { data: { changes: structuredClone(changes), cursor: 1, hasMore: false, editable, access, ...(body.includePresence ? { collaborators: [{ userId: 'owner', displayName: 'Owner', self: true, editing: [], locked: [] }] } : {}) } }
     }
     if (body.action === 'lease') return { data: { editable: body.id !== blocked, expiresAt: Date.now() + 90000, canTakeover: true } }
     if (body.action === 'write') {
       writes.push(structuredClone(body))
-      if (receipts.has(body.operationId)) return { data: receipts.get(body.operationId) }
+      const represent = (result: any) => body.compactReceipt
+        ? { ...result, compactReceipt: true, resources: result.resources.map(({ type, id, revision, deleted }: any) => ({ type, id, revision, deleted })) }
+        : result
+      if (receipts.has(body.operationId)) return { data: represent(receipts.get(body.operationId)) }
       if (body.mutations.some((item: any) => item.expectedRevision !== (server.find(resource => resource.type === item.type && resource.id === item.id)?.revision ?? 0))) throw { statusCode: 409, message: '对象版本冲突' }
       const changed = body.mutations.map((item: any) => ({ type: item.type, id: item.id, revision: item.expectedRevision + 1, body: item.patch ? applyCollaborationPatch(server.find(resource => resource.type === item.type && resource.id === item.id)!.body!, item.patch) : item.body, deleted: item.body === null }))
       for (const resource of changed) { const index = server.findIndex(item => item.type === resource.type && item.id === resource.id); if (index < 0) server.push(resource); else server[index] = resource }
       receipts.set(body.operationId, { resources: changed })
       if (loseReply) { loseReply = false; throw new Error('response lost') }
-      return { data: { resources: changed } }
+      return { data: represent({ resources: changed }) }
     }
     throw new Error(`Unexpected request: ${path}`)
   }))
@@ -164,6 +171,90 @@ describe('collaboration in the original workbench', () => {
     expect(apply).not.toHaveBeenCalled()
     expect((session.snapshot().scenes as any[])[0].description).toBe('A')
     expect(session.editSession.value.syncStatus).toBe('offline')
+  })
+
+  it('recovers a compact receipt after restart without losing edits made after submission', async () => {
+    compactSupported = true; patchSupported = true; patchV2Supported = true
+    const first = createSession()
+    await first.openEditSession('p')
+    const submitted = view()
+    submitted.scenes[0]!.description = 'submitted'
+    loseReply = true
+    await expect(first.saveSnapshot(view(), submitted)).rejects.toThrow('response lost')
+    expect(writes[0]!.compactReceipt).toBe(true)
+    expect(writes[0]!.submittedResources).toBeUndefined()
+    const advanced = view()
+    advanced.scenes[0]!.description = 'typed after submission'
+    first.stashDraft(view(), advanced)
+    await first.releaseEditSession()
+    setDraftRuntime('compact-reloaded', draftSession.windowId)
+    const reopened = createSession()
+    await reopened.openEditSession('p')
+    expect(reopened.editSession.value.pendingSave).toBeFalsy()
+    expect(reopened.snapshot().scenes).toMatchObject([{ description: 'typed after submission' }, { description: 'B' }])
+    expect(writes[1]!.operationId).toBe(writes[0]!.operationId)
+    expect(writes[1]!.compactReceipt).toBe(true)
+  })
+
+  it('keeps an uncertain submission when a compact receipt has the wrong version', async () => {
+    compactSupported = true
+    const session = createSession()
+    await session.openEditSession('p')
+    const fetch = vi.mocked($fetch)
+    const original = fetch.getMockImplementation()!
+    fetch.mockImplementation(async (...args: any[]) => {
+      const result = await (original as any)(...args)
+      if (args[1].body?.action === 'write') result.data.resources[0].revision++
+      return result
+    })
+    const submitted = view()
+    submitted.scenes[0]!.description = 'submitted'
+    await expect(session.saveSnapshot(view(), submitted)).rejects.toThrow('保存回执版本无效')
+    expect(session.editSession.value.pendingSave).toBe(true)
+    expect([...store.keys()].some(key => key.startsWith('workbench-collaboration-pending:'))).toBe(true)
+    fetch.mockImplementation(original)
+    await session.confirmPending()
+    expect(session.editSession.value.pendingSave).toBe(false)
+    expect((session.snapshot().scenes as any[])[0].description).toBe('submitted')
+  })
+
+  it('combines idle presence and changes in one request while retaining presence during pending saves', async () => {
+    combinedSupported = true
+    const before = view()
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before, after: before }), apply: vi.fn() })
+    sessions.push(session)
+    await session.openEditSession('p')
+    const fetch = vi.mocked($fetch)
+    fetch.mockClear()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(fetch.mock.calls.filter(([, options]: any) => options.body.action === 'changes')).toHaveLength(1)
+    expect(fetch.mock.calls.filter(([, options]: any) => options.body.action === 'presence')).toHaveLength(0)
+    expect(session.editSession.value.presenceAvailable).toBe(true)
+    const after = view()
+    after.scenes[0]!.description = 'uncertain'
+    loseReply = true
+    await expect(session.saveSnapshot(before, after)).rejects.toThrow('response lost')
+    await vi.advanceTimersByTimeAsync(600)
+    fetch.mockClear()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(fetch.mock.calls.filter(([, options]: any) => options.body.action === 'changes')).toHaveLength(0)
+    expect(fetch.mock.calls.filter(([, options]: any) => options.body.action === 'presence')).toHaveLength(1)
+  })
+
+  it('uses full receipts for pending operations created before compact receipt support', async () => {
+    const first = createSession()
+    await first.openEditSession('p')
+    const after = view()
+    after.scenes[0]!.description = 'legacy pending'
+    loseReply = true
+    await expect(first.saveSnapshot(view(), after)).rejects.toThrow('response lost')
+    await first.releaseEditSession()
+    compactSupported = true
+    const reopened = createSession()
+    await reopened.openEditSession('p')
+    expect(writes[1]!.compactReceipt).toBeUndefined()
+    expect(reopened.editSession.value.pendingSave).toBeFalsy()
+    expect((reopened.snapshot().scenes as any[])[0].description).toBe('legacy pending')
   })
 
   it('automatically retries temporary prepare failures without manual reconnection', async () => {

@@ -13,7 +13,7 @@ import { validateCollaborationResources } from '#shared/utils/project-collaborat
 
 type Mutation = ReturnType<typeof buildWorkbenchMutations>[number]
 type WireMutation = Mutation | (Omit<Mutation, 'body'> & { patch: CollaborationPatch[] })
-interface PendingSave { operationId: string, mutations: WireMutation[] }
+interface PendingSave { operationId: string, mutations: WireMutation[], submittedResources?: CollaborationResource[] }
 interface WorkbenchDraft { before: CollaborationBody, after: CollaborationBody }
 interface WorkbenchSync {
   windowId?: string
@@ -62,6 +62,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
   const cloud = useCloudAdmin()
   const windowId = sync?.windowId || projectDraftSession.windowId
   const recoveryKey = sync?.windowId ? undefined : projectDraftSession.recoveryKey
+  let combinedPresence = false
+  let compactReceipt = false
   let fieldPatchV2 = false
   let fieldPatch = false
   let cursor = 0
@@ -144,6 +146,15 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     if (presenceTimer || !sync) return
     presenceTimer = setTimeout(() => { presenceTimer = undefined; void refreshPresence() }, 500)
   }
+  function applyWindowPresence(collaborators: CollaborationWindowPresence[]) {
+    editSession.value.presenceAvailable = true
+    editSession.value.onlineCount = new Set(collaborators.map(item => item.userId)).size
+    editSession.value.collaborators = collaborators.filter(item => !item.self).map(item => ({
+      userId: item.userId, displayName: item.userId === actorId ? '你（其他窗口）' : item.displayName,
+      activity: item.locked.length ? `占用 ${item.locked.map(resourceLabel).join('、')}` : item.editing.length ? `正在编辑 ${item.editing.map(resourceLabel).join('、')}` : '正在查看',
+      locked: item.locked.length > 0
+    }))
+  }
   async function refreshPresence() {
     if (!activeId || presenceBusy) return
     presenceBusy = true
@@ -154,13 +165,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       const response = await request<{ collaborators: CollaborationWindowPresence[] }>({ action: 'presence', editing })
       if (version !== sequence) return
       if (!Array.isArray(response.collaborators)) throw new Error('成员状态响应无效')
-      editSession.value.presenceAvailable = true
-      editSession.value.onlineCount = new Set(response.collaborators.map(item => item.userId)).size
-      editSession.value.collaborators = response.collaborators.filter(item => !item.self).map(item => ({
-        userId: item.userId, displayName: item.userId === actorId ? '你（其他窗口）' : item.displayName,
-        activity: item.locked.length ? `占用 ${item.locked.map(resourceLabel).join('、')}` : item.editing.length ? `正在编辑 ${item.editing.map(resourceLabel).join('、')}` : '正在查看',
-        locked: item.locked.length > 0
-      }))
+      applyWindowPresence(response.collaborators)
     } catch (cause) {
       if (version === sequence) { editSession.value.presenceAvailable = false; editSession.value.collaborators = []; fenceAccess(cause) }
     } finally { presenceBusy = false }
@@ -187,8 +192,9 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       if (activity && activity.at > Date.now() - 30_000 && editSession.value.editable) activeScopes.push({ type: activity.type, id: activity.id })
       while (hasMore) {
         type WireChange = CollaborationResource | (Omit<CollaborationResource, 'body'> & { baseRevision: number, patch: CollaborationPatch[] })
-        type ChangesPage = { changes: WireChange[], cursor: number, hasMore: boolean, editable?: boolean, access?: ProjectAccess, participants?: CollaborationPresence[] }
-        let page = await request<ChangesPage>({ action: 'changes', after: nextCursor, activeScopes, ...(fieldPatchV2 ? { fieldPatches: true } : {}) })
+        type ChangesPage = { changes: WireChange[], cursor: number, hasMore: boolean, editable?: boolean, access?: ProjectAccess, participants?: CollaborationPresence[], collaborators?: CollaborationWindowPresence[] }
+        const presenceBody = combinedPresence ? { includePresence: true, editing: localDraft && editSession.value.editable ? buildWorkbenchMutations(resources.value, localDraft.before, localDraft.after).map(({ type, id }) => ({ type, id })) : [] } : {}
+        let page = await request<ChangesPage>({ action: 'changes', after: nextCursor, activeScopes, ...presenceBody, ...(fieldPatchV2 ? { fieldPatches: true } : {}) })
         if (version !== sequence || saving || pending) return
         // Decode the whole page before applying anything. A stale/missing base
         // retries this same cursor with full resources, never advances past data.
@@ -208,7 +214,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         try { decoded = decode(page.changes) }
         catch (cause) {
           if (!fieldPatchV2 || !Array.isArray(page.changes) || !page.changes.some(item => 'patch' in item)) throw cause
-          page = await request<ChangesPage>({ action: 'changes', after: nextCursor, activeScopes, fieldPatches: false })
+          page = await request<ChangesPage>({ action: 'changes', after: nextCursor, activeScopes, ...presenceBody, fieldPatches: false })
           if (version !== sequence || saving || pending) return
           decoded = decode(page.changes)
         }
@@ -216,6 +222,10 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         participants.value = Array.isArray(page.participants) ? page.participants : []
         presenceUpdatedAt = Date.now()
         if (!Array.isArray(page.changes) || !Number.isSafeInteger(page.cursor) || page.cursor < nextCursor || (page.hasMore && page.cursor === nextCursor)) throw new Error('协作增量响应无效，请重新连接')
+        if (combinedPresence) {
+          if (!Array.isArray(page.collaborators)) throw new Error('成员状态响应无效')
+          applyWindowPresence(page.collaborators)
+        }
         if (page.access) sync.access?.(page.access)
         if (page.editable === false) {
           const draft = sync.draft()
@@ -271,6 +281,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         if (draft) stashDraft(draft.before, draft.after)
         fenceAccess(cause)
         connectionLost = true
+        if (combinedPresence) { editSession.value.presenceAvailable = false; editSession.value.collaborators = [] }
         participants.value = []
         editSession.value.syncStatus = 'offline'
         editSession.value.reason = getDisplayErrorMessage(cause, '协作连接中断，本机草稿已保留，正在重试。')
@@ -334,7 +345,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       if (version !== sequence) return
       actorId = status?.user?.id || ''
       if (!actorId) throw new Error('请先登录云端账号')
-      type PreparedProject = { data: { enabled: boolean, protocolVersion: number, capabilities?: { fieldPatch?: boolean, fieldPatchV2?: boolean }, editable?: boolean, access?: ProjectAccess, cursor?: number, resources: CollaborationResource[] } }
+      type PreparedProject = { data: { enabled: boolean, protocolVersion: number, capabilities?: { fieldPatch?: boolean, fieldPatchV2?: boolean, compactReceipt?: boolean, combinedPresence?: boolean }, editable?: boolean, access?: ProjectAccess, cursor?: number, resources: CollaborationResource[] } }
       let response: PreparedProject
       let attempt = 0
       while (true) {
@@ -354,6 +365,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       }
       if (version !== sequence) return
       if (!response.data?.enabled || response.data.protocolVersion !== 1 || !Array.isArray(response.data.resources)) throw new Error('项目尚未准备完成，请重试')
+      combinedPresence = response.data.capabilities?.combinedPresence === true
+      compactReceipt = response.data.capabilities?.compactReceipt === true
       fieldPatchV2 = response.data.capabilities?.fieldPatchV2 === true
       fieldPatch = response.data.capabilities?.fieldPatch === true
       resources.value = copy(response.data.resources)
@@ -442,7 +455,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         if (Date.now() - presenceUpdatedAt > 45_000) participants.value = []
         void heartbeat()
         void poll()
-        void refreshPresence()
+        if (!combinedPresence || !sync || saving || pending || mergePreview.value) void refreshPresence()
       }, 10_000)
     } catch (cause) {
       if (version === sequence) editSession.value = { editable: false, collaboration: true, canTakeover: false, reason: getDisplayErrorMessage(cause, '项目打开失败，请重试') }
@@ -456,16 +469,27 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     const savedDraftKey = draftKey()
     try {
       await storage.flush()
-      let result: { resources: CollaborationResource[] }
-      try { result = await request<{ resources: CollaborationResource[] }>({ action: 'write', ...sent }) }
+      type WriteResult = { resources: CollaborationResource[], compactReceipt?: boolean }
+      const useCompactReceipt = compactReceipt && sent.submittedResources?.length === sent.mutations.length
+      const writeBody = { action: 'write', operationId: sent.operationId, mutations: sent.mutations, ...(useCompactReceipt ? { compactReceipt: true } : {}) }
+      let result: WriteResult
+      try { result = await request<WriteResult>(writeBody) }
       catch (cause) {
         const status = (cause as { statusCode?: number, status?: number }).statusCode ?? (cause as { status?: number }).status
         if (version !== sequence || !confirmReceipt || status !== 423) throw cause
         for (const scope of sent.mutations) await acquire(scope)
-        result = await request<{ resources: CollaborationResource[] }>({ action: 'write', ...sent })
+        result = await request<WriteResult>(writeBody)
       }
       if (version !== sequence) throw new Error('项目已切换，原提交结果会在重新打开后确认')
       if (!Array.isArray(result.resources) || sent.mutations.some(scope => !result.resources.some(item => keyOf(item) === keyOf(scope)))) throw new Error('保存回执不完整，请重试原提交')
+      if (result.compactReceipt) {
+        if (!useCompactReceipt || !sent.submittedResources) throw new Error('保存回执缺少本机提交快照，请重试')
+        result.resources = result.resources.map(receipt => {
+          const submitted = sent.submittedResources!.find(item => keyOf(item) === keyOf(receipt))
+          if (!submitted || submitted.revision !== receipt.revision || submitted.deleted !== receipt.deleted) throw new Error('保存回执版本无效，请重试')
+          return copy(submitted)
+        })
+      }
       // Capture edits made while waiting for the receipt, before advancing revisions.
       const liveDraft = sync?.draft()
       if (liveDraft) stashDraft(liveDraft.before, liveDraft.after)
@@ -550,7 +574,8 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         const { body: _body, ...metadata } = mutation
         return { ...metadata, patch }
       })
-      pending = { operationId: crypto.randomUUID(), mutations: wireMutations }
+      pending = { operationId: crypto.randomUUID(), mutations: wireMutations,
+        ...(compactReceipt ? { submittedResources: mutations.map(item => ({ type: item.type, id: item.id, revision: item.expectedRevision + 1, body: copy(item.body), deleted: item.body === null })) } : {}) }
       editSession.value.pendingSave = true
       storage.setItem(storageKey(), JSON.stringify(pending))
       await sendPending()
