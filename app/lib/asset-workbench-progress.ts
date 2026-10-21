@@ -162,3 +162,8 @@ export function resolveSceneVideoBadge(
   }
   return { variant: 'outline', label: '待生成' }
 }
+
+/** Migration holding episodes are not generated script directories. */
+export function generatedEpisodePlans<T extends { id: string, title: string, charCount?: number }>(episodes: T[] = []): T[] {
+  return episodes.filter(item => !(item.id.startsWith('legacy-unassigned') && item.title === '未分集内容' && !item.charCount))
+}

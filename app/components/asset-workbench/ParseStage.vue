@@ -2,6 +2,7 @@
 import type { ScriptParseMode } from '#shared/types/script'
 import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
 import { Loader2, Sparkles } from 'lucide-vue-next'
+import { generatedEpisodePlans } from '~/lib/asset-workbench-progress'
 
 const novelText = defineModel<string>('novelText', { required: true })
 
@@ -64,7 +65,8 @@ const parseProgressLogs = computed(() => {
     .slice(-6)
     .reverse()
 })
-const hasEpisodePlan = computed(() => (props.episodePlan?.length || 0) > 0)
+const plannedEpisodes = computed(() => generatedEpisodePlans(props.episodePlan))
+const hasEpisodePlan = computed(() => plannedEpisodes.value.length > 0)
 const workflowPreset = computed(() => resolveVideoWorkflowPreset(props.scriptParseMode))
 const isOriginExplainer = computed(() => props.scriptParseMode === 'origin_explainer')
 const inputPlaceholder = computed(() => {
@@ -85,7 +87,7 @@ const planReadyMessage = computed(() => {
   if (isOriginExplainer.value) {
     return `已生成镜头规划入口。请到“分镜视频”步骤按主题拆解并生成 ${workflowPreset.value.name} 多镜头场景。`
   }
-  return `已生成分集目录（共 ${props.episodePlan?.length || 0} 集）。精品剧模式会根据剧情节奏与情绪起伏自然拆分，请到“分镜视频”步骤管理分集边界并按集解析。`
+  return `已生成分集目录（共 ${plannedEpisodes.value.length} 集）。精品剧模式会根据剧情节奏与情绪起伏自然拆分，请到“分镜视频”步骤管理分集边界并按集解析。`
 })
 const parseProgressChunkText = computed(() => {
   const chunkIndex = props.parseProgress?.chunkIndex
@@ -225,7 +227,7 @@ async function handleDrop(event: DragEvent) {
           v-else
           class="h-4 w-4"
         />
-        {{ planActionLabel }}
+        {{ parsing ? (isOriginExplainer ? '正在生成镜头规划入口…' : '正在生成分集目录…') : planActionLabel }}
       </Button>
       <div
         v-if="scenesCount > 0 || charactersCount > 0"
@@ -257,7 +259,7 @@ async function handleDrop(event: DragEvent) {
     </div>
 
     <div
-      v-if="parsing"
+      v-if="parsing || parseProgress?.step === 'error'"
       class="shrink-0 rounded-xl border-0 bg-primary/8 p-3"
       role="status"
       aria-live="polite"
@@ -266,11 +268,11 @@ async function handleDrop(event: DragEvent) {
         <p class="text-foreground/90">
           {{ parseProgress?.message || '解析进行中，请稍候…' }}
         </p>
-        <span class="tabular-nums text-primary/80">
+        <span v-if="parsing" class="tabular-nums text-primary/80">
           {{ parseProgressPercent }}%
         </span>
       </div>
-      <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-primary/15">
+      <div v-if="parsing" class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-primary/15">
         <div
           class="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
           :style="{ width: `${parseProgressPercent}%` }"

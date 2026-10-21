@@ -1865,20 +1865,22 @@ async function clearEpisodePlan() {
 }
 
 async function handlePrepareEpisodePlan() {
+  if (parsing.value) return
   if (!novelText.value.trim()) {
     toast.warning('请先输入剧本原文')
     return
   }
   const notificationStatus = getBrowserNotificationStatus()
   if (notificationStatus.supported && notificationStatus.secureContext && notificationStatus.canPrompt) {
-    try {
-      await requestBrowserNotificationPermission()
-    } catch (error) {
+    void requestBrowserNotificationPermission().catch(error => {
       console.warn('[asset-workbench] 申请系统通知权限失败:', error)
-    }
+    })
   }
   const prepared = await prepareEpisodePlanWithAssetHydration()
-  if (!prepared) return
+  if (!prepared) {
+    toast.error('分集目录生成失败', { description: parseProgress.value.message || '请检查协作连接和模型配置后重试。' })
+    return
+  }
 
   if (scriptParseMode.value === 'origin_explainer') {
     const episodeId = episodePlan.value[0]?.id?.trim()

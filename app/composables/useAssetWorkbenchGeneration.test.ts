@@ -117,12 +117,24 @@ describe('useAssetWorkbenchGeneration', () => {
 
   it('skips completion notice when no episode is generated', async () => {
     prepareEpisodePlanMock.mockResolvedValue([])
-    const { generation, onModelTaskCompleted } = createGeneration()
+    const { generation, onModelTaskCompleted, parseProgress } = createGeneration()
 
     const success = await generation.prepareEpisodePlan()
 
     expect(success).toBe(false)
+    expect(parseProgress.value.step).toBe('error')
+    expect(parseProgress.value.message).toContain('结果为空')
     expect(onModelTaskCompleted).not.toHaveBeenCalled()
+  })
+
+  it('retains the server error after generation stops and preserves the existing plan', async () => {
+    vi.mocked(prepareAssetWorkbenchEpisodePlan).mockRejectedValueOnce({ data: { message: '模型连接超时' } })
+    const { generation, episodePlan, parsing, parseProgress } = createGeneration()
+    episodePlan.value = [createEpisode(1)]
+    expect(await generation.prepareEpisodePlan()).toBe(false)
+    expect(parsing.value).toBe(false)
+    expect(parseProgress.value).toMatchObject({ active: false, step: 'error', message: '模型连接超时' })
+    expect(episodePlan.value).toEqual([createEpisode(1)])
   })
 
   it('creates a single local planning episode for origin explainer projects', async () => {

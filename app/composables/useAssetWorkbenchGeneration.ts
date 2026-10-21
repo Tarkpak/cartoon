@@ -23,6 +23,7 @@ import {
   buildParsedCharacters,
   buildParsedScenes
 } from '~/lib/asset-workbench-script-parsing'
+import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 import { isNarrativePronounCharacterName } from '~/lib/asset-workbench-strings'
 
 export interface AssetWorkbenchParseProgressLogItem {
@@ -478,6 +479,7 @@ export function useAssetWorkbenchGeneration(
         }
       )
       if (!isCurrentParseOperation(operation)) return false
+      if (!episodes.length) throw new Error('分集目录模型结果为空，请重试或检查模型配置')
       options.episodePlan.value = episodes
       mergeCharactersFromEpisodeAssets(episodes)
       await saveProjectOrThrow('分集目录生成完成', operation.projectId)
@@ -496,7 +498,7 @@ export function useAssetWorkbenchGeneration(
     } catch (error) {
       if (!isCurrentParseOperation(operation)) return false
       console.error('[useAssetWorkbench] 生成分集目录失败:', error)
-      const message = error instanceof Error ? error.message : '分集目录生成失败'
+      const message = getDisplayErrorMessage(error, '分集目录生成失败')
       options.parseProgress.value.step = 'error'
       options.parseProgress.value.message = message
       appendProgressLog(message, 'progress')
