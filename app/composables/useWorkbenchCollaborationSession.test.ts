@@ -62,6 +62,59 @@ afterEach(async () => { for (const session of sessions.splice(0)) await session.
 const createSession = () => { const session = useWorkbenchCollaborationSession(async () => true); sessions.push(session); return session }
 
 describe('collaboration in the original workbench', () => {
+  it('automatically retries temporary prepare failures without manual reconnection', async () => {
+    const fetch = vi.mocked($fetch)
+    const original = fetch.getMockImplementation()!
+    let attempts = 0
+    fetch.mockImplementation((...args: any[]) => {
+      if (args[0].endsWith('/prepare') && ++attempts <= 2) return Promise.reject({ statusCode: 503 })
+      return (original as any)(...args)
+    })
+    const session = createSession()
+    const opening = session.openEditSession('p')
+    await vi.advanceTimersByTimeAsync(3100)
+    await opening
+    expect(attempts).toBe(3)
+    expect(session.projectEditable.value).toBe(true)
+  })
+
+  it('does not retry permission failures or reconnect a project after leaving', async () => {
+    const fetch = vi.mocked($fetch)
+    const original = fetch.getMockImplementation()!
+    let attempts = 0
+    let statusCode = 403
+    fetch.mockImplementation((...args: any[]) => {
+      if (args[0].endsWith('/prepare')) { attempts++; return Promise.reject({ statusCode }) }
+      return (original as any)(...args)
+    })
+    const session = createSession()
+    await session.openEditSession('p')
+    expect(attempts).toBe(1)
+    expect(session.projectEditable.value).toBe(false)
+    statusCode = 503
+    const opening = session.openEditSession('p')
+    await vi.advanceTimersByTimeAsync(0)
+    await session.releaseEditSession()
+    await vi.advanceTimersByTimeAsync(8000)
+    await opening
+    expect(attempts).toBe(2)
+    expect(session.projectEditable.value).toBe(false)
+  })
+
+  it('clears a permission warning after the server confirms editing access again', async () => {
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before: view(), after: view() }), apply: vi.fn() })
+    sessions.push(session)
+    await session.openEditSession('p')
+    readError = { statusCode: 403 }
+    await session.poll()
+    expect(session.projectEditable.value).toBe(false)
+    readError = undefined
+    await session.poll()
+    expect(session.projectEditable.value).toBe(true)
+    expect(session.editSession.value.scopeConflict).toBe(false)
+    expect(session.editSession.value.reason).toBeUndefined()
+  })
+
   it('durably backs up an offline draft and restores it when reopening', async () => {
     const session = createSession()
     await session.openEditSession('p')

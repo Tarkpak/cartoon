@@ -39,7 +39,8 @@ pub(super) async fn api_project_collaboration_prepare(
         if active { return Err(ApiError::new(StatusCode::CONFLICT, "请等待项目生成任务结束后重试协作迁移")); }
         if status == "conflict" { return Err(ApiError::new(StatusCode::CONFLICT, "请先在项目列表处理同步冲突，再重试协作迁移")); }
         if status == "pending" {
-            if base.is_some() { acquire_conflict_edit_session(&state, &id).await?; }
+            // The cloud requires a lease even for the first project upload.
+            acquire_conflict_edit_session(&state, &id).await?;
             cloud_sync_project_by_id_locked(&state, &id).await?;
         }
     }
@@ -616,6 +617,47 @@ mod tests {
     impl Drop for ManagementProject {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0.data_dir);
+        }
+    }
+
+    #[tokio::test]
+    async fn new_project_prepare_acquires_lease_before_first_upload() {
+        for editable in [true, false] {
+            let test = ManagementProject::new("owner");
+            let conn = db_connection(&test.0).unwrap();
+            conn.execute("DELETE FROM system_config WHERE key = 'project_collaboration_enabled:p1'", []).unwrap();
+            conn.execute("UPDATE projects SET cloud_sync_status = 'pending', cloud_base_updated_at = NULL", []).unwrap();
+            let uploaded = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let captured = uploaded.clone();
+            let router = Router::new()
+                .route("/api/client/projects/edit-session", post(move |Json(body): Json<Value>| async move {
+                    assert_eq!(body["action"], "acquire");
+                    Json(json!({"success":true,"data":{"editable":editable,"token":"first-upload","expiresAt":Utc::now().timestamp_millis()+60000}}))
+                }))
+                .route("/api/client/projects/sync", post(move |Json(body): Json<Value>| {
+                    let captured = captured.clone();
+                    async move {
+                        assert_eq!(body["editLeaseToken"], "first-upload");
+                        captured.store(true, std::sync::atomic::Ordering::SeqCst);
+                        Json(json!({"success":true,"data":{"synced":[{"localProjectId":"p1","status":"synced"}]}}))
+                    }
+                }))
+                .route("/api/client/project-collaboration", post(|Json(body): Json<Value>| async move {
+                    Json(json!({"success":true,"data":{"enabled":body["action"] == "migrationPreview"}}))
+                }));
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap(); });
+            set_config_json(&conn, CLOUD_ADMIN_CONFIG_KEY, &json!({"baseUrl":format!("http://{addr}")})).unwrap();
+            let result = CURRENT_EDIT_SESSION.scope(Some("new-window".into()),
+                api_project_collaboration_prepare(Path("p1".into()), State(test.0.clone()))).await;
+            assert_eq!(uploaded.load(std::sync::atomic::Ordering::SeqCst), editable);
+            if editable {
+                assert_eq!(result.unwrap().0["data"]["enabled"], true);
+            } else {
+                assert_eq!(result.unwrap_err().status, StatusCode::LOCKED);
+            }
+            server.abort();
         }
     }
 

@@ -141,6 +141,7 @@ declare global {
   const useStylePresetSettings: typeof import('./app/composables/useStylePresetSettings')['useStylePresetSettings']
   const useStylePresetSettingsActions: typeof import('./app/composables/useStylePresetSettingsActions')['useStylePresetSettingsActions']
   const useStylePresets: typeof import('./app/composables/useStylePresets')['useStylePresets']
+  const useSubtitleErasureSettings: typeof import('./app/composables/useSubtitleErasureSettings')['useSubtitleErasureSettings']
   const useTemplateRef: typeof import('vue')['useTemplateRef']
   const useTheme: typeof import('./app/composables/useTheme')['useTheme']
   const useToast: typeof import('./app/composables/useToast')['useToast']
@@ -352,6 +353,7 @@ declare module 'vue' {
     readonly useStylePresetSettings: UnwrapRef<typeof import('./app/composables/useStylePresetSettings')['useStylePresetSettings']>
     readonly useStylePresetSettingsActions: UnwrapRef<typeof import('./app/composables/useStylePresetSettingsActions')['useStylePresetSettingsActions']>
     readonly useStylePresets: UnwrapRef<typeof import('./app/composables/useStylePresets')['useStylePresets']>
+    readonly useSubtitleErasureSettings: UnwrapRef<typeof import('./app/composables/useSubtitleErasureSettings')['useSubtitleErasureSettings']>
     readonly useTemplateRef: UnwrapRef<typeof import('vue')['useTemplateRef']>
     readonly useTheme: UnwrapRef<typeof import('./app/composables/useTheme')['useTheme']>
     readonly useToast: UnwrapRef<typeof import('./app/composables/useToast')['useToast']>

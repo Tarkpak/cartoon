@@ -165,6 +165,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
   function fenceAccess(cause: unknown) {
     const status = (cause as { statusCode?: number, status?: number }).statusCode ?? (cause as { status?: number }).status
     if ([401, 403, 404, 410].includes(status || 0)) {
+      if (!editSession.value.scopeConflict) permissionOnlyConflict = true
       editSession.value = { ...editSession.value, editable: false, scopeConflict: true, reason: getDisplayErrorMessage(cause, '协作权限已变化，请重新连接；本机草稿已保留。') }
     }
   }
@@ -304,7 +305,24 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       if (version !== sequence) return
       actorId = status?.user?.id || ''
       if (!actorId) throw new Error('请先登录云端账号')
-      const response = await $fetch<{ data: { enabled: boolean, protocolVersion: number, editable?: boolean, access?: ProjectAccess, cursor?: number, resources: CollaborationResource[] } }>(`/api/project/${encodeURIComponent(id)}/collaboration/prepare`, { method: 'POST', retry: 0, timeout: 180_000 })
+      type PreparedProject = { data: { enabled: boolean, protocolVersion: number, editable?: boolean, access?: ProjectAccess, cursor?: number, resources: CollaborationResource[] } }
+      let response: PreparedProject
+      let attempt = 0
+      while (true) {
+        try {
+          response = await $fetch<PreparedProject>(`/api/project/${encodeURIComponent(id)}/collaboration/prepare`, { method: 'POST', retry: 0, timeout: 180_000 })
+          break
+        } catch (cause) {
+          if (version !== sequence) return
+          const status = (cause as { statusCode?: number, status?: number }).statusCode ?? (cause as { status?: number }).status
+          // Preparation is idempotent. Retry transport failures and temporary
+          // cloud contention, but preserve permission and migration conflicts.
+          if (attempt >= 3 || (status && ![408, 429, 500, 502, 503, 504].includes(status))) throw cause
+          editSession.value.reason = '协作连接暂时不可用，正在自动重试…'
+          await new Promise(resolve => setTimeout(resolve, 1000 * 2 ** attempt++))
+          if (version !== sequence) return
+        }
+      }
       if (version !== sequence) return
       if (!response.data?.enabled || response.data.protocolVersion !== 1 || !Array.isArray(response.data.resources)) throw new Error('项目尚未准备完成，请重试')
       resources.value = copy(response.data.resources)
