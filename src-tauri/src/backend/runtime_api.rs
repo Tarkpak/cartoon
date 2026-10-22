@@ -10633,6 +10633,54 @@ fn apply_scene_video_reference_inputs(
     }
 }
 
+// Resolve images from the captured cloud resources, never from client-supplied URLs.
+fn inject_collaboration_image_references(config: &mut Value, provider: &str, model_id: &str) {
+    let source = config["collaborationVoiceContext"].clone();
+    let scene = &source["scene"];
+    let description = scene["description"].as_str().unwrap_or("");
+    let mentions: Vec<&str> = description.rsplit_once("[引用资产]")
+        .map(|(_, block)| block.lines().map(str::trim).filter_map(|line| line.strip_prefix('@')).collect())
+        .unwrap_or_default();
+    let scene_id = scene["id"].as_str().unwrap_or("");
+    let configured = source["settings"].pointer("/body/script/assetWorkflow/sceneConfigs")
+        .and_then(|configs| configs.get(scene_id))
+        .and_then(|item| item.get("mustReferenceAssetIds"))
+        .and_then(Value::as_array);
+    let selected = |id: &str, name: &str, kind: &str, label: &str| {
+        configured.is_some_and(|ids| ids.iter().any(|item| item.as_str() == Some(id)))
+            || (!name.is_empty() && mentions.iter().any(|mention| {
+                *mention == name || *mention == format!("{label}:{name}")
+                    || *mention == format!("{kind}:{name}")
+                    || *mention == format!("{label}：{name}")
+                    || *mention == format!("{kind}：{name}")
+            }))
+    };
+    let mut assets = Vec::new();
+    for resource in source["characters"].as_array().into_iter().flatten() {
+        let character = &resource["body"];
+        let Some(id) = resource["id"].as_str() else { continue; };
+        let name = character["name"].as_str().unwrap_or("");
+        let linked = scene["characters"].as_array().is_some_and(|items| items.iter().any(|item| {
+            item["assetId"].as_str().is_some_and(|asset_id| asset_id.strip_prefix("char:").unwrap_or(asset_id) == id)
+        }));
+        if !linked && !selected(&format!("char:{id}"), name, "character", "角色") { continue; }
+        let Some(image) = character["baseImage"].as_str().map(str::trim).filter(|image| !image.is_empty()) else { continue; };
+        let ark_id = (character["arkAsset"]["status"] == "Active").then(|| character["arkAsset"]["assetId"].clone());
+        assets.push(json!({"type":"character", "image":image, "arkAssetId":ark_id}));
+    }
+    for prop in source["settings"].pointer("/body/script/assetWorkflow/props").and_then(Value::as_array).into_iter().flatten() {
+        let Some(id) = prop["id"].as_str() else { continue; };
+        let name = prop["name"].as_str().unwrap_or("");
+        let (kind, label) = if prop["category"] == "other" { ("other", "其他") } else { ("prop", "道具") };
+        if !selected(&format!("prop:{id}"), name, kind, label) { continue; }
+        if let Some(image) = prop["referenceImage"].as_str().map(str::trim).filter(|image| !image.is_empty()) {
+            assets.push(json!({"type":kind, "image":image}));
+        }
+    }
+    config["references"] = json!({"environmentImage":scene.get("firstFrame"), "characterAssets":assets});
+    apply_scene_video_reference_inputs(config, scene, provider, model_id);
+}
+
 fn inject_collaboration_voice_reference(config: &mut Value, provider: &str, model_id: &str) {
     if !model_supports_audio_reference(provider, model_id) { return; }
     let source = &config["collaborationVoiceContext"];
@@ -20154,6 +20202,47 @@ fn collaboration_episode_context(episode: &Value, settings: &Value, instruction:
 mod collaboration_generation_tests {
     use super::*;
     #[test]
+    fn collaboration_video_requests_include_cloud_character_and_prop_images() {
+        let mut config = json!({"firstFrame":"https://shared.example/env.png", "collaborationVoiceContext":{
+            "scene":{"id":"s", "firstFrame":"https://shared.example/env.png",
+                "description":"剧情\n[引用资产]\n@角色:小明\n@道具：杯子",
+                "characters":[{"assetId":"char:linked"}]},
+            "settings":{"body":{"script":{"assetWorkflow":{
+                "sceneConfigs":{"s":{"mustReferenceAssetIds":["char:configured"]}},
+                "props":[{"id":"cup", "name":"杯子", "referenceImage":"https://shared.example/cup.png"},
+                    {"id":"unused", "name":"无关道具", "referenceImage":"https://shared.example/unused.png"}]
+            }}}},
+            "characters":[
+                {"id":"ming", "body":{"name":"小明", "baseImage":"https://shared.example/ming.png", "arkAsset":{"status":"Active", "assetId":"ming-asset"}}},
+                {"id":"linked", "body":{"name":"小红", "baseImage":"https://shared.example/hong.png"}},
+                {"id":"configured", "body":{"name":"小李", "baseImage":"https://shared.example/li.png"}},
+                {"id":"unused", "body":{"name":"无关角色", "baseImage":"https://shared.example/unused.png"}}
+            ]
+        }});
+        let model = "doubao-seedance-2-0-mini-260615";
+        inject_collaboration_image_references(&mut config, "volcengine", model);
+        let request = build_volcengine_video_request(model, &config);
+        let content = request["content"].as_array().unwrap();
+        let images: Vec<&str> = content.iter().filter_map(|item| item.pointer("/image_url/url").and_then(Value::as_str)).collect();
+        assert_eq!(images, vec!["https://shared.example/env.png", "asset://ming-asset", "https://shared.example/hong.png", "https://shared.example/li.png", "https://shared.example/cup.png"]);
+        assert_eq!(content[1]["role"], "first_frame");
+        assert!(content[2..].iter().all(|item| item["role"] == "reference_image"));
+    }
+
+    #[test]
+    fn collaboration_video_ignores_unreferenced_and_missing_images() {
+        let mut config = json!({"collaborationVoiceContext":{
+            "scene":{"id":"s", "description":"普通剧情\n[引用资产]\n@小明"},
+            "characters":[{"id":"ming", "body":{"name":"小明", "baseImage":"  "}},
+                {"id":"other", "body":{"name":"小明的朋友", "baseImage":"https://shared.example/unrelated.png"}}]
+        }});
+        let model = "doubao-seedance-2-0-mini-260615";
+        inject_collaboration_image_references(&mut config, "volcengine", model);
+        let request = build_volcengine_video_request(model, &config);
+        assert_eq!(request["content"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
     fn collaboration_shared_assets_require_unique_canonical_targets() {
         let character = json!({"resource":{"type":"character","id":"c","body":{"id":"c","name":"cloud"}}});
         assert_eq!(collaboration_shared_asset(&character, "character", "c").unwrap()["name"], "cloud");
@@ -23249,6 +23338,7 @@ pub(super) async fn api_video_generate(
         .to_string();
     let scene_for_voice = body.get("scene").cloned().unwrap_or_else(|| json!({}));
     if collaboration.is_some() {
+        inject_collaboration_image_references(&mut config, &provider_name, &model_id_for_voice);
         inject_collaboration_voice_reference(&mut config, &provider_name, &model_id_for_voice);
     } else {
     inject_scene_voice_reference(
