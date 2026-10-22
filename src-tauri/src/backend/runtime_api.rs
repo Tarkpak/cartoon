@@ -10633,9 +10633,7 @@ fn apply_scene_video_reference_inputs(
     }
 }
 
-// Resolve images from the captured cloud resources, never from client-supplied URLs.
-fn inject_collaboration_image_references(config: &mut Value, provider: &str, model_id: &str) {
-    let source = config["collaborationVoiceContext"].clone();
+fn collaboration_asset_is_selected(source: &Value, id: &str, name: &str, kind: &str, label: &str) -> bool {
     let scene = &source["scene"];
     let description = scene["description"].as_str().unwrap_or("");
     let mentions: Vec<&str> = description.rsplit_once("[引用资产]")
@@ -10646,15 +10644,19 @@ fn inject_collaboration_image_references(config: &mut Value, provider: &str, mod
         .and_then(|configs| configs.get(scene_id))
         .and_then(|item| item.get("mustReferenceAssetIds"))
         .and_then(Value::as_array);
-    let selected = |id: &str, name: &str, kind: &str, label: &str| {
-        configured.is_some_and(|ids| ids.iter().any(|item| item.as_str() == Some(id)))
+    configured.is_some_and(|ids| ids.iter().any(|item| item.as_str() == Some(id)))
             || (!name.is_empty() && mentions.iter().any(|mention| {
                 *mention == name || *mention == format!("{label}:{name}")
                     || *mention == format!("{kind}:{name}")
                     || *mention == format!("{label}：{name}")
                     || *mention == format!("{kind}：{name}")
             }))
-    };
+}
+
+// Resolve images from the captured cloud resources, never from client-supplied URLs.
+fn inject_collaboration_image_references(config: &mut Value, provider: &str, model_id: &str) {
+    let source = config["collaborationVoiceContext"].clone();
+    let scene = &source["scene"];
     let mut assets = Vec::new();
     for resource in source["characters"].as_array().into_iter().flatten() {
         let character = &resource["body"];
@@ -10663,7 +10665,7 @@ fn inject_collaboration_image_references(config: &mut Value, provider: &str, mod
         let linked = scene["characters"].as_array().is_some_and(|items| items.iter().any(|item| {
             item["assetId"].as_str().is_some_and(|asset_id| asset_id.strip_prefix("char:").unwrap_or(asset_id) == id)
         }));
-        if !linked && !selected(&format!("char:{id}"), name, "character", "角色") { continue; }
+        if !linked && !collaboration_asset_is_selected(&source, &format!("char:{id}"), name, "character", "角色") { continue; }
         let Some(image) = character["baseImage"].as_str().map(str::trim).filter(|image| !image.is_empty()) else { continue; };
         let ark_id = (character["arkAsset"]["status"] == "Active").then(|| character["arkAsset"]["assetId"].clone());
         assets.push(json!({"type":"character", "image":image, "arkAssetId":ark_id}));
@@ -10672,7 +10674,7 @@ fn inject_collaboration_image_references(config: &mut Value, provider: &str, mod
         let Some(id) = prop["id"].as_str() else { continue; };
         let name = prop["name"].as_str().unwrap_or("");
         let (kind, label) = if prop["category"] == "other" { ("other", "其他") } else { ("prop", "道具") };
-        if !selected(&format!("prop:{id}"), name, kind, label) { continue; }
+        if !collaboration_asset_is_selected(&source, &format!("prop:{id}"), name, kind, label) { continue; }
         if let Some(image) = prop["referenceImage"].as_str().map(str::trim).filter(|image| !image.is_empty()) {
             assets.push(json!({"type":kind, "image":image}));
         }
@@ -10689,17 +10691,15 @@ fn inject_collaboration_voice_reference(config: &mut Value, provider: &str, mode
     for resource in source["characters"].as_array().into_iter().flatten() {
         let character = &resource["body"];
         let (Some(id), Some(name)) = (resource["id"].as_str(), character["name"].as_str()) else { continue; };
-        if !scene_character_matches_voice(scene, id, name) { continue; }
-        if let Some(url) = voice_asset_audio_url(&character["voiceAsset"]).filter(|url| is_http_url(url)) {
+        if !scene_character_matches_voice(scene, id, name)
+            && !collaboration_asset_is_selected(source, &format!("char:{id}"), name, "character", "角色") { continue; }
+        if let Some(url) = voice_asset_audio_url(&character["voiceAsset"]) {
             candidates.push(VoiceReferenceCandidate { character_id:id.to_string(), character_name:name.to_string(), audio_url:url, locked:character["voiceAsset"]["locked"].as_bool().unwrap_or(false) });
         }
     }
-    let narration = resolve_narration_voice_target("settings", scene["id"].as_str().unwrap_or(""), scene["narration"].as_str().unwrap_or(""), &source["settings"]["body"]["script"]);
     let mut urls = Vec::new();
-    if let Some(narration) = narration {
-        if let Some(prop) = source["settings"].pointer("/body/script/assetWorkflow/props").and_then(Value::as_array).and_then(|props| props.iter().find(|prop| prop["id"].as_str() == Some(narration.prop_id.as_str()))) {
-            if let Some(url) = voice_asset_audio_url(&prop["voiceAsset"]).filter(|url| is_http_url(url)) { urls.push(url); }
-        }
+    if let Some(url) = collaboration_narration_audio_reference(source) {
+        urls.push(url);
     }
     let limit = model_max_audio_references(provider, model_id);
     if limit > 1 {
@@ -10709,6 +10709,33 @@ fn inject_collaboration_voice_reference(config: &mut Value, provider: &str, mode
         if let Some(candidate) = select_voice_reference_candidate(&scene_dialogue_speakers(scene), &candidates, provider == "kling") { urls.push(candidate.audio_url.clone()); }
     }
     if !urls.is_empty() { set_config_audio_reference_urls(config, urls); }
+}
+
+fn collaboration_narration_audio_reference(source: &Value) -> Option<String> {
+    if source["scene"]["narration"].as_str().unwrap_or("").trim().is_empty() { return None; }
+    let props = source["settings"].pointer("/body/script/assetWorkflow/props")?.as_array()?;
+    let mut candidates = Vec::new();
+    for prop in props {
+        if !is_narration_voice_prop(prop) { continue; }
+        let Some(url) = voice_asset_audio_url(&prop["voiceAsset"]) else { continue; };
+        let id = prop["id"].as_str().unwrap_or("");
+        let name = prop["name"].as_str().unwrap_or("");
+        let explicit = collaboration_asset_is_selected(source, &format!("prop:{id}"), name, "other", "其他");
+        let lower_name = name.to_lowercase();
+        let hinted = ["旁白", "画外音", "narration", "voiceover"].iter().any(|hint| lower_name.contains(hint));
+        let score = u8::from(explicit) * 8
+            + u8::from(prop["voiceAsset"]["locked"].as_bool().unwrap_or(false)) * 4
+            + u8::from(hinted) * 2
+            + u8::from(prop["voiceAsset"].get("sourceSceneId").and_then(Value::as_str).is_some_and(|id| !id.is_empty())
+                || prop["voiceAsset"].get("sourceTaskId").and_then(Value::as_str).is_some_and(|id| !id.is_empty()));
+        candidates.push((explicit, hinted, score, name, id, url));
+    }
+    let has_explicit = candidates.iter().any(|item| item.0);
+    let has_hint = candidates.iter().any(|item| item.1);
+    let only_one = candidates.len() == 1;
+    candidates.retain(|item| if has_explicit { item.0 } else if has_hint { item.1 } else { only_one });
+    candidates.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.3.cmp(b.3)).then_with(|| a.4.cmp(b.4)));
+    candidates.into_iter().next().map(|item| item.5)
 }
 
 fn inject_scene_voice_reference(
@@ -20260,6 +20287,33 @@ mod collaboration_generation_tests {
         let mut unsupported = json!({"collaborationVoiceContext":config["collaborationVoiceContext"]});
         inject_collaboration_voice_reference(&mut unsupported, "unknown", "unsupported");
         assert!(config_audio_reference_urls(&unsupported).is_empty());
+    }
+    #[test]
+    fn collaboration_audio_keeps_explicit_local_narration_and_character_samples() {
+        let mut config = json!({"collaborationVoiceContext":{
+            "scene":{"id":"s", "narration":"旁白内容", "description":"剧情\n[引用资产]\n@其他：指定音色\n@小明"},
+            "settings":{"body":{"script":{"assetWorkflow":{"props":[
+                {"id":"default", "name":"旁白音色", "category":"other", "voiceAsset":{"audioUrl":"https://shared.example/default.mp3", "locked":true}},
+                {"id":"selected", "name":"指定音色", "category":"other", "mediaType":"voice", "voiceAsset":{"audioUrl":"/voice-assets/narration.mp3"}}
+            ]}}}},
+            "characters":[{"id":"c", "body":{"name":"小明", "voiceAsset":{"audioUrl":"/voice-assets/ming.mp3"}}}]
+        }});
+        inject_collaboration_voice_reference(&mut config, "volcengine", "doubao-seedance-2-0-mini-260615");
+        assert_eq!(config_audio_reference_urls(&config), vec!["/voice-assets/narration.mp3", "/voice-assets/ming.mp3"]);
+    }
+
+    #[test]
+    fn collaboration_narration_skips_empty_samples_and_ambiguous_choices() {
+        let mut source = json!({"scene":{"id":"s", "narration":"内容"}, "settings":{"body":{"script":{"assetWorkflow":{"props":[
+            {"id":"empty", "category":"other", "name":"旁白", "voiceAsset":{"audioUrl":" "}},
+            {"id":"a", "category":"other", "mediaType":"voice", "name":"音色A", "voiceAsset":{"audioUrl":"a.mp3"}},
+            {"id":"b", "category":"other", "mediaType":"voice", "name":"音色B", "voiceAsset":{"audioUrl":"b.mp3"}}
+        ]}}}}});
+        assert!(collaboration_narration_audio_reference(&source).is_none());
+        source["settings"]["body"]["script"]["assetWorkflow"]["sceneConfigs"] = json!({"s":{"mustReferenceAssetIds":["prop:b"]}});
+        assert_eq!(collaboration_narration_audio_reference(&source).as_deref(), Some("b.mp3"));
+        source["scene"]["narration"] = json!("");
+        assert!(collaboration_narration_audio_reference(&source).is_none());
     }
     #[tokio::test]
     async fn collaboration_video_tasks_preserve_results_without_writing_legacy_scenes() {
