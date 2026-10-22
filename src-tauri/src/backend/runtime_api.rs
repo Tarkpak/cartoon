@@ -4395,6 +4395,8 @@ async fn normalize_video_audio_reference_url(
     }
     let prefix = video_audio_reference_prefix(config);
     let mut normalized = Vec::new();
+    let labels = config.get("audioReferenceLabels").and_then(Value::as_array).cloned();
+    let mut normalized_labels = Vec::new();
     for (index, source) in sources.iter().enumerate() {
         let audio_url = normalize_video_audio_reference_source(
             state,
@@ -4404,9 +4406,13 @@ async fn normalize_video_audio_reference_url(
         .await?;
         if !normalized.contains(&audio_url) {
             normalized.push(audio_url);
+            if let Some(labels) = labels.as_ref() {
+                normalized_labels.push(labels.get(index).cloned().unwrap_or_else(|| json!("音色参考")));
+            }
         }
     }
     set_config_audio_reference_urls(config, normalized.clone());
+    if labels.is_some() { config["audioReferenceLabels"] = json!(normalized_labels); }
     if let Some(object) = config.as_object_mut() {
         if let Some(voice_asset) = object
             .get_mut("references")
@@ -9021,6 +9027,9 @@ fn scene_video_nested_reference_urls(config: &Value) -> Vec<String> {
 }
 
 fn scene_video_visual_reference_urls(config: &Value) -> Vec<String> {
+    if config.get("provider").and_then(Value::as_str) == Some("volcengine") {
+        return volcengine_video_image_inputs(config);
+    }
     let reference_images = config
         .get("referenceImages")
         .and_then(Value::as_array)
@@ -9087,8 +9096,12 @@ fn build_scene_video_reference_materials(config: &Value) -> String {
         lines.push(format!("- 图片{}：{}", index + 1, label));
     }
 
-    if let Some(label) = scene_video_audio_reference_label(config) {
-        lines.push(format!("- 音频1：{label}"));
+    for (index, _) in config_audio_reference_urls(config).iter().enumerate() {
+        let label = if let Some(label) = config.get("audioReferenceLabels").and_then(Value::as_array)
+            .and_then(|labels| labels.get(index)).and_then(Value::as_str) { label.to_string() }
+            else if index == 0 { scene_video_audio_reference_label(config).unwrap_or_else(|| "音色参考".to_string()) }
+            else { "角色音色参考".to_string() };
+        lines.push(format!("- 音频{}：{label}", index + 1));
     }
 
     if lines.is_empty() {
@@ -10545,11 +10558,15 @@ fn apply_scene_video_reference_inputs(
     }
 
     let supports_multi_reference = support_reference_images && reference_limit > 1;
-    let wants_multi_reference = has_character_ref && ordered_references.len() > 1;
+    let wants_multi_reference = if provider == "volcengine" {
+        !ordered_references.is_empty()
+    } else {
+        has_character_ref && ordered_references.len() > 1
+    };
     let mut multi_reference_images: Vec<String> = if supports_multi_reference && wants_multi_reference {
         ordered_references
             .iter()
-            .take(reference_limit)
+            .take(if provider == "volcengine" { usize::MAX } else { reference_limit })
             .cloned()
             .collect()
     } else {
@@ -10653,8 +10670,28 @@ fn collaboration_asset_is_selected(source: &Value, id: &str, name: &str, kind: &
             }))
 }
 
+fn collaboration_asset_order(source: &Value, id: &str, name: &str) -> usize {
+    let scene = &source["scene"];
+    let mentions: Vec<&str> = scene["description"].as_str().unwrap_or("")
+        .rsplit_once("[引用资产]").map(|(_, block)| block.lines().map(str::trim).collect()).unwrap_or_default();
+    if let Some(index) = mentions.iter().position(|token| {
+        token.strip_prefix('@').is_some_and(|token| token == name
+            || token.split_once([':', '：']).is_some_and(|(_, value)| value == name))
+    }) { return index; }
+    let scene_id = scene["id"].as_str().unwrap_or("");
+    let configured = source["settings"].pointer("/body/script/assetWorkflow/sceneConfigs")
+        .and_then(|configs| configs.get(scene_id)).and_then(|config| config["mustReferenceAssetIds"].as_array());
+    if let Some(index) = configured.and_then(|items| items.iter().position(|item| item.as_str() == Some(id))) {
+        return mentions.len() + index;
+    }
+    let offset = mentions.len() + configured.map(Vec::len).unwrap_or(0);
+    scene["characters"].as_array().and_then(|items| items.iter().position(|item| item["assetId"].as_str()
+        .is_some_and(|asset_id| asset_id == id || format!("char:{asset_id}") == id)))
+        .map(|index| offset + index).unwrap_or(usize::MAX)
+}
+
 // Resolve images from the captured cloud resources, never from client-supplied URLs.
-fn inject_collaboration_image_references(config: &mut Value, provider: &str, model_id: &str) {
+fn inject_collaboration_image_references(config: &mut Value, provider: &str, model_id: &str) -> Result<(), ApiError> {
     let source = config["collaborationVoiceContext"].clone();
     let scene = &source["scene"];
     let mut assets = Vec::new();
@@ -10666,9 +10703,13 @@ fn inject_collaboration_image_references(config: &mut Value, provider: &str, mod
             item["assetId"].as_str().is_some_and(|asset_id| asset_id.strip_prefix("char:").unwrap_or(asset_id) == id)
         }));
         if !linked && !collaboration_asset_is_selected(&source, &format!("char:{id}"), name, "character", "角色") { continue; }
-        let Some(image) = character["baseImage"].as_str().map(str::trim).filter(|image| !image.is_empty()) else { continue; };
         let ark_id = (character["arkAsset"]["status"] == "Active").then(|| character["arkAsset"]["assetId"].clone());
-        assets.push(json!({"type":"character", "image":image, "arkAssetId":ark_id}));
+        let image = character["baseImage"].as_str().map(str::trim).filter(|image| !image.is_empty())
+            .map(str::to_string).or_else(|| if provider == "volcengine" {
+                ark_id.as_ref().and_then(Value::as_str).and_then(volcengine_ark_asset_uri)
+            } else { None })
+            .ok_or_else(|| workflow_validation_error("body.references", format!("引用角色「{name}」的图片未就绪，请先生成或上传角色图")))?;
+        assets.push(json!({"id":format!("char:{id}"), "name":name, "type":"character", "image":image, "arkAssetId":ark_id}));
     }
     for prop in source["settings"].pointer("/body/script/assetWorkflow/props").and_then(Value::as_array).into_iter().flatten() {
         let Some(id) = prop["id"].as_str() else { continue; };
@@ -10676,11 +10717,15 @@ fn inject_collaboration_image_references(config: &mut Value, provider: &str, mod
         let (kind, label) = if prop["category"] == "other" { ("other", "其他") } else { ("prop", "道具") };
         if !collaboration_asset_is_selected(&source, &format!("prop:{id}"), name, kind, label) { continue; }
         if let Some(image) = prop["referenceImage"].as_str().map(str::trim).filter(|image| !image.is_empty()) {
-            assets.push(json!({"type":kind, "image":image}));
+            assets.push(json!({"id":format!("prop:{id}"), "name":name, "type":kind, "image":image}));
+        } else if !is_narration_voice_prop(prop) {
+            return Err(workflow_validation_error("body.references", format!("引用素材「{name}」的图片未就绪，请先生成或上传素材图")));
         }
     }
+    assets.sort_by_key(|asset| collaboration_asset_order(&source, asset["id"].as_str().unwrap_or(""), asset["name"].as_str().unwrap_or("")));
     config["references"] = json!({"environmentImage":scene.get("firstFrame"), "characterAssets":assets});
     apply_scene_video_reference_inputs(config, scene, provider, model_id);
+    Ok(())
 }
 
 fn inject_collaboration_voice_reference(config: &mut Value, provider: &str, model_id: &str) {
@@ -10703,12 +10748,30 @@ fn inject_collaboration_voice_reference(config: &mut Value, provider: &str, mode
     }
     let limit = model_max_audio_references(provider, model_id);
     if limit > 1 {
-        candidates.sort_by(|a,b| b.locked.cmp(&a.locked).then_with(|| a.character_name.cmp(&b.character_name)));
-        for candidate in candidates { if urls.len() >= limit { break; } if !urls.contains(&candidate.audio_url) { urls.push(candidate.audio_url); } }
+        candidates.sort_by(|a,b| collaboration_asset_order(source, &format!("char:{}", a.character_id), &a.character_name)
+            .cmp(&collaboration_asset_order(source, &format!("char:{}", b.character_id), &b.character_name))
+            .then_with(|| a.character_name.cmp(&b.character_name)).then_with(|| a.character_id.cmp(&b.character_id)));
+        for candidate in candidates { if provider != "volcengine" && urls.len() >= limit { break; } if !urls.contains(&candidate.audio_url) { urls.push(candidate.audio_url); } }
     } else if urls.is_empty() {
         if let Some(candidate) = select_voice_reference_candidate(&scene_dialogue_speakers(scene), &candidates, provider == "kling") { urls.push(candidate.audio_url.clone()); }
     }
-    if !urls.is_empty() { set_config_audio_reference_urls(config, urls); }
+    if !urls.is_empty() {
+        let labels: Vec<String> = urls.iter().map(|url| {
+            for resource in source["characters"].as_array().into_iter().flatten() {
+                if voice_asset_audio_url(&resource["body"]["voiceAsset"]).as_ref() == Some(url) {
+                    return format!("角色音色参考（{}）", resource["body"]["name"].as_str().unwrap_or("角色"));
+                }
+            }
+            for prop in source["settings"].pointer("/body/script/assetWorkflow/props").and_then(Value::as_array).into_iter().flatten() {
+                if voice_asset_audio_url(&prop["voiceAsset"]).as_ref() == Some(url) {
+                    return format!("旁白音色参考（{}）", prop["name"].as_str().unwrap_or("旁白"));
+                }
+            }
+            "音色参考".to_string()
+        }).collect();
+        config["audioReferenceLabels"] = json!(labels);
+        set_config_audio_reference_urls(config, urls);
+    }
 }
 
 fn collaboration_narration_audio_reference(source: &Value) -> Option<String> {
@@ -10751,7 +10814,7 @@ fn inject_scene_voice_reference(
     }
     let max_audio_references = model_max_audio_references(provider, model_id);
     let mut audio_urls = config_audio_reference_urls(config);
-    if audio_urls.len() >= max_audio_references {
+    if provider != "volcengine" && audio_urls.len() >= max_audio_references {
         return Ok(());
     }
 
@@ -10816,14 +10879,20 @@ fn inject_scene_voice_reference(
                 .cmp(&left.locked)
                 .then_with(|| left.character_name.cmp(&right.character_name))
         });
-        for candidate in candidates {
-            if audio_urls.len() >= max_audio_references {
+        for candidate in &candidates {
+            if provider != "volcengine" && audio_urls.len() >= max_audio_references {
                 break;
             }
             if !audio_urls.contains(&candidate.audio_url) {
-                audio_urls.push(candidate.audio_url);
+                audio_urls.push(candidate.audio_url.clone());
             }
         }
+        let labels: Vec<String> = audio_urls.iter().map(|url| {
+            candidates.iter().find(|candidate| &candidate.audio_url == url)
+                .map(|candidate| format!("角色音色参考（{}）", candidate.character_name))
+                .unwrap_or_else(|| scene_video_audio_reference_label(config).unwrap_or_else(|| "音色参考".to_string()))
+        }).collect();
+        config["audioReferenceLabels"] = json!(labels);
         set_config_audio_reference_urls(config, audio_urls);
     } else {
         let allow_multi_candidate_fallback = provider == "kling";
@@ -11502,6 +11571,16 @@ fn validate_video_reference_counts(config: &Value, provider: &str, model_id: &st
         validate_autodl_config(model_id, config)?;
     }
     let (_, caps) = build_available_model_entry(provider, model_id);
+    if provider == "volcengine" {
+        for (count, limit, label) in [
+            (volcengine_video_image_inputs(config).len(), if is_seedance_25_model(model_id) { 30 } else { 9 }, "图片"),
+            (config_audio_reference_urls(config).len(), model_max_audio_references(provider, model_id), "音频"),
+        ] {
+            if count > limit {
+                return Err(workflow_validation_error("body.config", format!("当前模型最多支持 {limit} 个参考{label}，实际选择 {count} 个，请减少素材后重试")));
+            }
+        }
+    }
     for (field, capability, fallback) in [
         ("referenceImages", "maxReferenceImages", 9),
         ("arkAssetIds", "maxReferenceImages", 9),
@@ -13320,6 +13399,15 @@ async fn normalize_volcengine_video_image_url(
     normalize_video_image_url_for_provider(state, value).await
 }
 
+fn replace_video_reference_source(value: &mut Value, source: &str, normalized: &str) {
+    match value {
+        Value::String(text) if text.trim() == source => *text = normalized.to_string(),
+        Value::Array(items) => for item in items { replace_video_reference_source(item, source, normalized); },
+        Value::Object(items) => for item in items.values_mut() { replace_video_reference_source(item, source, normalized); },
+        _ => {}
+    }
+}
+
 async fn normalize_volcengine_video_config_images(
     state: &BackendState,
     config: &mut Value,
@@ -13345,6 +13433,7 @@ async fn normalize_volcengine_video_config_images(
         }
         config["referenceVideos"] = json!(hosted);
     }
+    let mut normalized_sources = HashMap::<String, String>::new();
     for key in ["imageUrl", "firstFrame", "lastFrame"] {
         let Some(raw) = config
             .get(key)
@@ -13355,7 +13444,12 @@ async fn normalize_volcengine_video_config_images(
         else {
             continue;
         };
-        let normalized = normalize_volcengine_video_image_url(state, &raw).await?;
+        let normalized = if let Some(url) = normalized_sources.get(&raw) { url.clone() }
+            else { normalize_volcengine_video_image_url(state, &raw).await? };
+        normalized_sources.insert(raw.clone(), normalized.clone());
+        if let Some(references) = config.get_mut("references") {
+            replace_video_reference_source(references, &raw, &normalized);
+        }
         if let Some(object) = config.as_object_mut() {
             object.insert(key.to_string(), json!(normalized));
         }
@@ -13378,7 +13472,12 @@ async fn normalize_volcengine_video_config_images(
         else {
             continue;
         };
-        let normalized = normalize_volcengine_video_image_url(state, raw).await?;
+        let normalized = if let Some(url) = normalized_sources.get(raw) { url.clone() }
+            else { normalize_volcengine_video_image_url(state, raw).await? };
+        normalized_sources.insert(raw.to_string(), normalized.clone());
+        if let Some(references) = config.get_mut("references") {
+            replace_video_reference_source(references, raw, &normalized);
+        }
         if seen.insert(normalized.clone()) {
             normalized_items.push(json!(normalized));
         }
@@ -13442,6 +13541,28 @@ fn volcengine_ark_reference_images(config: &Value) -> Vec<String> {
     output
 }
 
+// Shared by prompt numbering, validation and the provider request. Never truncate here.
+fn volcengine_video_image_inputs(config: &Value) -> Vec<String> {
+    let mut references = volcengine_ark_reference_images(config);
+    if references.is_empty() {
+        references = config.get("referenceImages").and_then(Value::as_array).into_iter().flatten()
+            .filter_map(|item| normalize_video_url_input(Some(item))).collect();
+    }
+    let first = normalize_video_url_input(config.get("firstFrame"));
+    let last = normalize_video_url_input(config.get("lastFrame"));
+    let image = normalize_video_url_input(config.get("imageUrl"));
+    let mut images = Vec::new();
+    if let Some(first) = first.as_ref() { images.push(first.clone()); }
+    if references.is_empty() && first.is_none() {
+        if let Some(image) = image { images.push(image); }
+    }
+    if let Some(last) = last { images.push(last); }
+    images.extend(references);
+    let mut seen = HashSet::new();
+    images.retain(|image| seen.insert(image.clone()));
+    images
+}
+
 fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
     let prompt = json_string(config.get("prompt"), "");
     let aspect_ratio = normalize_volcengine_aspect_ratio(config.get("aspectRatio"));
@@ -13455,7 +13576,6 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
         .into_iter()
         .map(|url| url.trim().to_string())
         .filter(|url| !url.is_empty())
-        .take(model_max_audio_references("volcengine", model_id))
         .collect::<Vec<_>>();
     let reference_images = config
         .get("referenceImages")
@@ -13489,13 +13609,7 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
     let has_reference_videos = config.get("referenceVideos").and_then(Value::as_array)
         .is_some_and(|items| items.iter().any(|item| item.as_str().is_some_and(|url| !url.trim().is_empty())));
     if has_reference_images || !audio_urls.is_empty() || has_reference_videos {
-        let mut seen = HashSet::new();
-        for image in first_frame.iter()
-            .chain(image_url.iter().filter(|_| !has_reference_images && first_frame.is_none()))
-            .chain(last_frame.iter())
-            .cloned().chain(reference_images.into_iter())
-            .filter(|image| seen.insert(image.clone()))
-            .take(max_images)
+        for image in volcengine_video_image_inputs(config)
         {
             content.push(json!({
               "type": "image_url",
@@ -17489,8 +17603,7 @@ mod tests {
               "audioReferences": [
                 "https://example.com/narration.mp3",
                 "https://example.com/character-a.mp3",
-                "https://example.com/character-b.mp3",
-                "https://example.com/overflow.mp3"
+                "https://example.com/character-b.mp3"
               ]
             }),
         );
@@ -17516,6 +17629,25 @@ mod tests {
                 "https://example.com/character-b.mp3"
             ]
         );
+    }
+
+    #[test]
+    fn volcengine_reference_inputs_preserve_order_without_silent_truncation() {
+        let mut continuity = json!({"references":{"environmentImage":"env", "continuityFirstFrame":"continuity"}});
+        apply_scene_video_reference_inputs(&mut continuity, &json!({}), "volcengine", "doubao-seedance-2-0-mini-260615");
+        assert_eq!(volcengine_video_image_inputs(&continuity), vec!["continuity", "env"]);
+        let config = json!({"provider":"volcengine", "firstFrame":"continuity", "referenceImages":["env", "character-b", "character-a", "env"], "audioReferences":["voice-b", "voice-a", "voice-b"]});
+        assert_eq!(scene_video_visual_reference_urls(&config), vec!["continuity", "env", "character-b", "character-a"]);
+        let request = build_volcengine_video_request("doubao-seedance-2-0-mini-260615", &config);
+        let content = request["content"].as_array().unwrap();
+        let images: Vec<&str> = content.iter().filter_map(|item| item.pointer("/image_url/url").and_then(Value::as_str)).collect();
+        assert_eq!(images, scene_video_visual_reference_urls(&config));
+        let audio: Vec<&str> = content.iter().filter_map(|item| item.pointer("/audio_url/url").and_then(Value::as_str)).collect();
+        assert_eq!(audio, vec!["voice-b", "voice-a"]);
+        let overflow = json!({"firstFrame":"continuity", "referenceImages":(0..9).map(|index| format!("image-{index}")).collect::<Vec<_>>()});
+        assert_eq!(volcengine_video_image_inputs(&overflow).len(), 10);
+        assert!(validate_video_reference_counts(&overflow, "volcengine", "doubao-seedance-2-0-mini-260615").is_err());
+        assert!(validate_video_reference_counts(&json!({"audioReferences":["a","b","c","d"]}), "volcengine", "doubao-seedance-2-0-mini-260615").is_err());
     }
 
     #[test]
@@ -20263,11 +20395,11 @@ mod collaboration_generation_tests {
             ]
         }});
         let model = "doubao-seedance-2-0-mini-260615";
-        inject_collaboration_image_references(&mut config, "volcengine", model);
+        inject_collaboration_image_references(&mut config, "volcengine", model).unwrap();
         let request = build_volcengine_video_request(model, &config);
         let content = request["content"].as_array().unwrap();
         let images: Vec<&str> = content.iter().filter_map(|item| item.pointer("/image_url/url").and_then(Value::as_str)).collect();
-        assert_eq!(images, vec!["https://shared.example/env.png", "asset://ming-asset", "https://shared.example/hong.png", "https://shared.example/li.png", "https://shared.example/cup.png"]);
+        assert_eq!(images, vec!["https://shared.example/env.png", "asset://ming-asset", "https://shared.example/cup.png", "https://shared.example/li.png", "https://shared.example/hong.png"]);
         assert_eq!(content[1]["role"], "reference_image");
         assert!(content[2..].iter().all(|item| item["role"] == "reference_image"));
     }
@@ -20280,7 +20412,7 @@ mod collaboration_generation_tests {
                 {"id":"other", "body":{"name":"小明的朋友", "baseImage":"https://shared.example/unrelated.png"}}]
         }});
         let model = "doubao-seedance-2-0-mini-260615";
-        inject_collaboration_image_references(&mut config, "volcengine", model);
+        assert!(inject_collaboration_image_references(&mut config, "volcengine", model).is_err());
         let request = build_volcengine_video_request(model, &config);
         assert_eq!(request["content"].as_array().unwrap().len(), 1);
     }
@@ -20316,6 +20448,19 @@ mod collaboration_generation_tests {
         }});
         inject_collaboration_voice_reference(&mut config, "volcengine", "doubao-seedance-2-0-mini-260615");
         assert_eq!(config_audio_reference_urls(&config), vec!["/voice-assets/narration.mp3", "/voice-assets/ming.mp3"]);
+        assert_eq!(config["audioReferenceLabels"], json!(["旁白音色参考（指定音色）", "角色音色参考（小明）"]));
+    }
+
+    #[test]
+    fn collaboration_audio_follows_mentions_instead_of_cloud_resource_order() {
+        let mut config = json!({"collaborationVoiceContext":{
+            "scene":{"id":"s", "description":"剧情\n[引用资产]\n@小乙\n@小甲"},
+            "characters":[{"id":"a", "body":{"name":"小甲", "voiceAsset":{"audioUrl":"a.mp3", "locked":true}}},
+                {"id":"b", "body":{"name":"小乙", "voiceAsset":{"audioUrl":"b.mp3"}}}]
+        }});
+        inject_collaboration_voice_reference(&mut config, "volcengine", "doubao-seedance-2-0-mini-260615");
+        assert_eq!(config_audio_reference_urls(&config), vec!["b.mp3", "a.mp3"]);
+        assert_eq!(config["audioReferenceLabels"], json!(["角色音色参考（小乙）", "角色音色参考（小甲）"]));
     }
 
     #[test]
@@ -23202,6 +23347,7 @@ pub(super) async fn api_asset_video_generate(
         &provider,
         &model_id_for_voice,
     )?;
+    validate_video_reference_counts(&config, &provider, &model_id_for_voice)?;
     normalize_video_audio_reference_url(&state, &mut config).await?;
     if provider == "volcengine" {
         normalize_volcengine_video_config_images(&state, &mut config).await?;
@@ -23408,7 +23554,7 @@ pub(super) async fn api_video_generate(
         .to_string();
     let scene_for_voice = body.get("scene").cloned().unwrap_or_else(|| json!({}));
     if collaboration.is_some() {
-        inject_collaboration_image_references(&mut config, &provider_name, &model_id_for_voice);
+        inject_collaboration_image_references(&mut config, &provider_name, &model_id_for_voice)?;
         inject_collaboration_voice_reference(&mut config, &provider_name, &model_id_for_voice);
     } else {
     inject_scene_voice_reference(
@@ -23420,9 +23566,15 @@ pub(super) async fn api_video_generate(
         &model_id_for_voice,
     )?;
     }
+    validate_video_reference_counts(&config, &provider_name, &model_id_for_voice)?;
     normalize_video_audio_reference_url(&state, &mut config).await?;
     if provider_name == "volcengine" {
         normalize_volcengine_video_config_images(&state, &mut config).await?;
+    }
+
+    if collaboration.is_some() {
+        let prompt = bind_scene_video_reference_numbers_to_text(&json_string(config.get("prompt"), ""), &config);
+        config["prompt"] = json!(format!("{prompt}\n\n[参考素材对应关系]\n{}", build_scene_video_reference_materials(&config)));
     }
 
     let context = model_log_context_for_video_task(&state, project_id, &scene_id, &task_id)?;
