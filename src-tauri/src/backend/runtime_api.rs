@@ -13484,19 +13484,18 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
         && (image_url.is_some() || first_frame.is_some());
     let mut content = vec![json!({ "type": "text", "text": prompt })];
 
-    if has_reference_images {
-        if let Some(first_frame) = first_frame.as_deref() {
-            content.push(json!({
-              "type": "image_url",
-              "role": "first_frame",
-              "image_url": { "url": first_frame }
-            }));
-        }
-        let remaining_limit = max_images - usize::from(first_frame.is_some());
-        for image in reference_images
-            .into_iter()
-            .filter(|image| first_frame.as_deref() != Some(image.as_str()))
-            .take(remaining_limit)
+    // Ark rejects first/last-frame roles together with any reference media.
+    // Keep the frame images as ordinary references when using reference mode.
+    let has_reference_videos = config.get("referenceVideos").and_then(Value::as_array)
+        .is_some_and(|items| items.iter().any(|item| item.as_str().is_some_and(|url| !url.trim().is_empty())));
+    if has_reference_images || !audio_urls.is_empty() || has_reference_videos {
+        let mut seen = HashSet::new();
+        for image in first_frame.iter()
+            .chain(image_url.iter().filter(|_| !has_reference_images && first_frame.is_none()))
+            .chain(last_frame.iter())
+            .cloned().chain(reference_images.into_iter())
+            .filter(|image| seen.insert(image.clone()))
+            .take(max_images)
         {
             content.push(json!({
               "type": "image_url",
@@ -17520,7 +17519,24 @@ mod tests {
     }
 
     #[test]
-    fn seedance_video_request_keeps_continuity_first_frame_with_reference_images() {
+    fn seedance_video_request_does_not_mix_frames_with_audio_or_video_references() {
+        for reference in [json!({"audioReferences":["https://example.com/voice.mp3"]}),
+            json!({"referenceVideos":["https://example.com/video.mp4"]})] {
+            let mut config = json!({"firstFrame":"https://example.com/first.png", "lastFrame":"https://example.com/last.png"});
+            config.as_object_mut().unwrap().extend(reference.as_object().unwrap().clone());
+            let request = build_volcengine_video_request("doubao-seedance-2-0-mini-260615", &config);
+            let content = request["content"].as_array().unwrap();
+            assert!(content.iter().all(|item| item["role"] != "first_frame" && item["role"] != "last_frame"));
+            assert_eq!(content.iter().filter(|item| item["role"] == "reference_image").count(), 2);
+        }
+        let request = build_volcengine_video_request("doubao-seedance-2-0-mini-260615",
+            &json!({"firstFrame":"https://example.com/first.png", "lastFrame":"https://example.com/last.png"}));
+        assert_eq!(request["content"][1]["role"], "first_frame");
+        assert_eq!(request["content"][2]["role"], "last_frame");
+    }
+
+    #[test]
+    fn seedance_video_request_uses_reference_role_for_continuity_with_reference_images() {
         let request = build_volcengine_video_request(
             "doubao-seedance-2-0-260128",
             &json!({
@@ -17545,7 +17561,7 @@ mod tests {
         assert_eq!(image_items.len(), 3);
         assert_eq!(
             image_items[0].get("role").and_then(Value::as_str),
-            Some("first_frame")
+            Some("reference_image")
         );
         assert_eq!(
             image_items[0]
@@ -20252,7 +20268,7 @@ mod collaboration_generation_tests {
         let content = request["content"].as_array().unwrap();
         let images: Vec<&str> = content.iter().filter_map(|item| item.pointer("/image_url/url").and_then(Value::as_str)).collect();
         assert_eq!(images, vec!["https://shared.example/env.png", "asset://ming-asset", "https://shared.example/hong.png", "https://shared.example/li.png", "https://shared.example/cup.png"]);
-        assert_eq!(content[1]["role"], "first_frame");
+        assert_eq!(content[1]["role"], "reference_image");
         assert!(content[2..].iter().all(|item| item["role"] == "reference_image"));
     }
 
