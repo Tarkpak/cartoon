@@ -15,6 +15,7 @@ import type {
   SceneVideoBadge,
   SceneVoiceReferenceSummary
 } from '~/lib/asset-workbench-types'
+import { prepareSubtitleErasureSource } from '~/lib/subtitle-erasure-source'
 import { useSubtitleErasureSettings } from '~/composables/useSubtitleErasureSettings'
 import { ensureVideoHistoryEntry } from '~/lib/asset-history'
 import { resolveVideoPreviewAspectRatio } from '~/lib/video-preview-aspect-ratio'
@@ -197,6 +198,7 @@ const { getOptions: getErasureOptions } = useSubtitleErasureSettings()
 const erasureTasks = useStorage<Record<string, { taskId: string, sourceUrl: string }>>('scene-subtitle-erasure-tasks', {})
 const submittingErasure = ref<string[]>([])
 const checkingErasure = new Set<string>()
+const erasureErrors = new Set<string>()
 const selectedSceneErasing = computed(() => !!props.selectedScene && (
   submittingErasure.value.includes(props.selectedScene.id) || !!erasureTasks.value[props.selectedScene.id]
 ))
@@ -208,17 +210,12 @@ async function eraseSelectedVideo() {
   submittingErasure.value.push(scene.id)
   try {
     const erasureOptions = getErasureOptions()
-    const source = new URL(sourceUrl, window.location.href)
-    const downloadUrl = source.origin === window.location.origin
-      ? sourceUrl
-      : `/api/video/download?${new URLSearchParams({ url: source.href })}`
-    const response = await fetch(downloadUrl)
-    if (!response.ok) throw new Error('读取分镜视频失败')
-    const form = new FormData()
-    form.append('video', await response.blob(), `${scene.title || scene.id}.mp4`)
-    const upload = await $fetch<{ videoUrl: string, sourceObjectKey?: string }>('/api/tools/subtitle-erasure/upload-source', {
-      method: 'POST', body: form
-    })
+    const upload = await prepareSubtitleErasureSource(
+      sourceUrl,
+      `${scene.title || scene.id}.mp4`,
+      window.location.href,
+      form => $fetch('/api/tools/subtitle-erasure/upload-source', { method: 'POST', body: form })
+    )
     const task = await $fetch<{ taskId: string }>('/api/tools/subtitle-erasure', {
       method: 'POST',
       body: { ...erasureOptions, videoUrl: upload.videoUrl, sourceObjectKey: upload.sourceObjectKey, sourceFileName: `${scene.title}.mp4` }
@@ -245,6 +242,8 @@ async function checkErasureTasks() {
         delete erasureTasks.value[scene.id]
         toast.error(`${scene.title} 去字幕失败`, { description: status.errorMessage || '请重试' })
       } else if (status.status === 'completed') {
+        const latest = props.scenes.find(item => item.id === scene.id)
+        if (latest?.videoUrl === task.sourceUrl && props.isSceneBusy(latest)) continue
         const result = await $fetch<{ videoUrl: string }>('/api/tools/subtitle-erasure/save', {
           method: 'POST', body: { taskId: task.taskId }
         })
@@ -263,8 +262,14 @@ async function checkErasureTasks() {
         }
         delete erasureTasks.value[scene.id]
       }
-    } catch {
-      // Temporary network errors are retried on the next poll; the task stays recoverable.
+    } catch (error) {
+      // Keep the task recoverable, but surface failures instead of silently appearing stuck.
+      if (!erasureErrors.has(task.taskId)) {
+        erasureErrors.add(task.taskId)
+        toast.error(`${scene.title} 去字幕结果同步失败，将自动重试`, {
+          description: error instanceof Error ? error.message : '请检查网络或在字幕擦除任务中查看结果'
+        })
+      }
     } finally {
       checkingErasure.delete(scene.id)
     }

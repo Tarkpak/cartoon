@@ -141,7 +141,8 @@ async fn save_project_video(app: AppHandle, url: String, file_name: String, proj
     if parsed.scheme() != "http"
         || parsed.host_str() != Some(DESKTOP_HOST)
         || parsed.port() != Some(DESKTOP_PORT)
-        || !(parsed.path() == "/api/video/download" || parsed.path().starts_with("/api/video/file/"))
+        || !(parsed.path() == "/api/video/download" || parsed.path().starts_with("/api/video/file/")
+            || parsed.path().starts_with("/api/tools/subtitle-erasure/download/"))
     {
         return Err("不支持的视频下载地址".to_string());
     }

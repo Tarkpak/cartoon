@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import { Check, Copy, Download, Eraser, FileVideo, History, Loader2, Plus, RefreshCw, Save, TriangleAlert } from 'lucide-vue-next'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
@@ -221,7 +222,17 @@ async function downloadResult() {
   downloading.value = true
   errorMessage.value = ''
   try {
-    const response = await fetch(`/api/tools/subtitle-erasure/download/${encodeURIComponent(task.taskId)}`)
+    const path = `/api/tools/subtitle-erasure/download/${encodeURIComponent(task.taskId)}`
+    if (isTauri()) {
+      const savedPath = await invoke<string>('save_project_video', {
+        url: `http://127.0.0.1:43127${path}`,
+        fileName: downloadFileName(task.fileName),
+        projectName: '字幕擦除'
+      })
+      toast.success('结果视频已保存', { description: savedPath })
+      return
+    }
+    const response = await fetch(path)
     if (!response.ok) {
       const payload = await response.json().catch(() => undefined) as { message?: string } | undefined
       throw new Error(payload?.message || `下载失败（${response.status}）`)
@@ -235,7 +246,7 @@ async function downloadResult() {
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
     toast.success('结果视频已开始下载')
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '下载字幕擦除结果失败'
