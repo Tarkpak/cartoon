@@ -17774,6 +17774,33 @@ mod tests {
     }
 
     #[test]
+    fn workflow_resolution_overrides_collaboration_default_before_seedance_request() {
+        for model in [
+            "doubao-seedance-2-0-260128",
+            "doubao-seedance-2-0-fast-260128",
+            "doubao-seedance-2-5-260428",
+        ] {
+            let mut config = json!({"prompt": "生成视频", "resolution": "720p"});
+            apply_workflow_video_generation_options(
+                &mut config,
+                &json!({"video_generation": {"seedance": {"quality": "480p"}}}),
+                "volcengine",
+                model,
+            );
+            assert_eq!(build_volcengine_video_request(model, &config)["resolution"], "480p");
+        }
+
+        let mut config = json!({"prompt": "生成视频", "resolution": "720p"});
+        apply_workflow_video_generation_options(
+            &mut config,
+            &json!({}),
+            "volcengine",
+            "doubao-seedance-2-0-260128",
+        );
+        assert_eq!(config["resolution"], "720p");
+    }
+
+    #[test]
     fn seedance_workflow_resolution_applies_and_limited_models_fall_back() {
         let workflow_model_options = json!({
           "video_generation": {
@@ -23531,6 +23558,15 @@ pub(super) async fn api_video_generate(
     }
     validate_provider_video_duration(&config, &provider, &configured_model)?;
     validate_video_reference_counts(&config, &provider, &configured_model)?;
+    if collaboration.is_some() {
+        let workflow_options = workflow_model_options(&db_connection(&state)?)?;
+        apply_workflow_video_generation_options(
+            &mut config,
+            &workflow_options,
+            &provider,
+            &configured_model,
+        );
+    }
     let provider_name = config
         .get("provider")
         .and_then(Value::as_str)
