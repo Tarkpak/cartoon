@@ -427,6 +427,21 @@ fn now_iso() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
+/// 场景状态 `video_stale` 表示视频已过期（场景改动或上一镜重新生成），需要重新生成；
+/// 保留旧视频供预览，但不再视为已就绪。
+const SCENE_STATUS_VIDEO_STALE: &str = "video_stale";
+
+fn resolve_loaded_scene_status(has_video: bool, stored_status: Option<&str>) -> String {
+    let stored_status = stored_status.map(str::trim).filter(|value| !value.is_empty());
+    if !has_video {
+        return stored_status.unwrap_or("pending").to_string();
+    }
+    if stored_status == Some(SCENE_STATUS_VIDEO_STALE) {
+        return SCENE_STATUS_VIDEO_STALE.to_string();
+    }
+    "video_ready".to_string()
+}
+
 fn sanitize_rel_path(raw: &str) -> Option<String> {
     let normalized = raw.trim().replace('\\', "/");
     if normalized.is_empty() {
@@ -5402,6 +5417,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             post(api_asset_video_generate),
         )
         .route(
+            "/api/asset-workflow/video/active-tasks",
+            get(api_asset_video_active_tasks),
+        )
+        .route(
             "/api/asset-workflow/upload-image",
             post(api_asset_upload_image)
                 .layer(DefaultBodyLimit::max(ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES)),
@@ -6576,11 +6595,10 @@ async fn api_project_get(
                   "firstFrame": row.get::<_, Option<String>>(22)?,
                   "lastFrame": row.get::<_, Option<String>>(23)?,
                   "videoUrl": video_url,
-                  "status": if video_url.as_ref().is_some_and(|value| !value.trim().is_empty()) {
-                    "video_ready".to_string()
-                  } else {
-                    status.unwrap_or_else(|| "pending".to_string())
-                  }
+                  "status": resolve_loaded_scene_status(
+                    video_url.as_ref().is_some_and(|value| !value.trim().is_empty()),
+                    status.as_deref()
+                  )
                 }))
             })
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -6633,16 +6651,14 @@ async fn api_project_get(
                 video_url.as_deref(),
                 &format!("scene_{}_video", sanitize_file_component(&scene_id)),
             )?;
-            let next_status = if normalized_video
-                .as_deref()
-                .map(str::trim)
-                .unwrap_or("")
-                .is_empty()
-            {
-                status.to_string()
-            } else {
-                "video_ready".to_string()
-            };
+            let next_status = resolve_loaded_scene_status(
+                !normalized_video
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or("")
+                    .is_empty(),
+                Some(status),
+            );
 
             let old_first = scene
                 .get("firstFrame")
@@ -14464,7 +14480,8 @@ mod tests {
         normalize_scene_camera_angle_value, normalize_scene_camera_movement_value,
         normalize_scene_shot_type_value, normalize_scene_speed_effect_value,
         normalize_time_of_day_value, remove_revoked_shared_library_assets,
-        reset_account_scoped_config, should_use_default_cloud_admin_base_url, table_has_column,
+        reset_account_scoped_config, resolve_loaded_scene_status,
+        should_use_default_cloud_admin_base_url, table_has_column,
         upgrade_style_config_for_catalog, validate_project_member_removal, ProjectPermission,
         CLOUD_ADMIN_SESSION_KEY, LLM_USER_AGENT,
     };
@@ -14718,6 +14735,15 @@ mod tests {
             "disabled-model",
             "custom_openai"
         ));
+    }
+
+    #[test]
+    fn loaded_scene_status_keeps_stale_video_marker() {
+        assert_eq!(resolve_loaded_scene_status(true, Some("video_stale")), "video_stale");
+        assert_eq!(resolve_loaded_scene_status(true, Some("frames_ready")), "video_ready");
+        assert_eq!(resolve_loaded_scene_status(true, None), "video_ready");
+        assert_eq!(resolve_loaded_scene_status(false, Some("frames_ready")), "frames_ready");
+        assert_eq!(resolve_loaded_scene_status(false, Some("  ")), "pending");
     }
 
     fn project_access_test_connection(user: Value) -> Connection {

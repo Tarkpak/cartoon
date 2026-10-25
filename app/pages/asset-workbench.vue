@@ -1255,7 +1255,8 @@ const {
   ensureCharacterAssetsReady,
   runBatchSceneGeneration,
   retryScene,
-  retryFailedQueueItemsOnce
+  retryFailedQueueItemsOnce,
+  resumeActiveSceneVideoTasks
 } = useAssetWorkbenchSceneGeneration({
   scenes,
   characters,
@@ -1286,6 +1287,13 @@ const {
   recordSceneVideoHistory,
   onModelTaskCompleted: notifyGenerationCompleted,
   onModelTaskFailed: notifyGenerationFailed
+})
+
+// 项目加载完成后，接着等待刷新前仍在后端进行的分镜视频任务
+watch(loading, (isLoading, wasLoading) => {
+  if (isLoading || !wasLoading) return
+  if (!projectId.value || !canEditProject.value || editSession.value.collaboration) return
+  void resumeActiveSceneVideoTasks()
 })
 
 const lastAutoPlanSnapshotKey = ref('')

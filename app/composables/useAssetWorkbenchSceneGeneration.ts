@@ -42,10 +42,47 @@ import {
   resolveEnvironmentCaptureModeForScene,
   resolveEnvironmentReferenceImageByCaptureMode
 } from '~/lib/asset-workbench-environment-views'
+import {
+  fetchActiveSceneVideoTasks,
+  isVideoTaskStatusUnavailableError
+} from '~/lib/asset-workbench-video-tasks'
 
 const ENVIRONMENT_REFERENCE_ASPECT_RATIO = '16:9' as const
 const VIDEO_RESULT_SAVE_ATTEMPTS = 3
 const VIDEO_RESULT_SAVE_RETRY_DELAY_MS = 500
+/** 批量生成时同时进行的分镜视频任务数；供应商侧任务本身是异步的，不必逐个等待 */
+const MAX_CONCURRENT_SCENE_VIDEO_TASKS = 3
+
+interface TrackedSceneVideoTask {
+  taskId: string
+  /** 创建任务时的输入快照；刷新页面后恢复的任务没有快照 */
+  generationKey?: string
+}
+
+interface SceneVideoInputs {
+  characterReferenceAssets: ReturnType<typeof resolveSceneVideoReferenceAssets>
+  characterImages: string[]
+  narrationVoiceReference: ReturnType<typeof resolveSceneNarrationVoiceAsset>
+  continuityFirstFrame: string | undefined
+}
+
+interface SceneVideoRunOptions {
+  skipCompletionNotice?: boolean
+}
+
+/** 同一个 key 同时只跑一份，后来者直接等待已在进行的那份 */
+function runOnce<T>(registry: Map<string, Promise<T>>, key: string, start: () => Promise<T>): Promise<T> {
+  const existing = registry.get(key)
+  if (existing) return existing
+
+  const run = start()
+  registry.set(key, run)
+  const cleanup = () => {
+    if (registry.get(key) === run) registry.delete(key)
+  }
+  void run.then(cleanup, cleanup)
+  return run
+}
 
 interface UseAssetWorkbenchSceneGenerationOptions {
   scenes: Ref<SceneData[]>
@@ -131,6 +168,10 @@ export function useAssetWorkbenchSceneGeneration(
 ) {
   const pendingBaselineGenerationKeys = new Map<string, string>()
   const pendingVideoGenerationKeys = new Map<string, string>()
+  const trackedVideoTasks = new Map<string, TrackedSceneVideoTask>()
+  const sceneVideoRuns = new Map<string, Promise<void>>()
+  const environmentBaselineRuns = new Map<string, Promise<void>>()
+  const characterGenerationRuns = new Map<string, Promise<unknown>>()
 
   async function notifyModelTaskCompleted(payload: {
     title: string
@@ -211,9 +252,9 @@ export function useAssetWorkbenchSceneGeneration(
       if (character.baseImage?.trim()) continue
 
       try {
-        await options.generateCharacter(character, {
+        await runOnce(characterGenerationRuns, character.id, () => options.generateCharacter(character, {
           skipCompletionNotice: true
-        })
+        }))
       } catch (error) {
         const message = options.resolveUiError(error, `${character.name} 角色图生成失败`)
         throw new Error(`引用角色资产未就绪：${message}`)
@@ -242,7 +283,7 @@ export function useAssetWorkbenchSceneGeneration(
       }) || relatedScenes[0]
       if (!fallbackScene) continue
 
-      await generateSceneBaseline(fallbackScene.id, { preferReuse: true })
+      await ensureSceneEnvironmentReady(fallbackScene)
 
       if (fallbackScene.referenceStatus === 'error') {
         throw new Error(
@@ -272,7 +313,7 @@ export function useAssetWorkbenchSceneGeneration(
       const referenceImage = resolveSceneAvailableReferenceImage(referencedScene)
       if (referenceImage) continue
 
-      await generateSceneBaseline(referencedSceneId, { preferReuse: true })
+      await ensureSceneEnvironmentReady(referencedScene)
 
       if (referencedScene.referenceStatus === 'error') {
         throw new Error(
@@ -285,6 +326,29 @@ export function useAssetWorkbenchSceneGeneration(
       if (!resolveSceneAvailableReferenceImage(referencedScene)) {
         throw new Error(`引用环境资产未就绪：${referencedScene.title}`)
       }
+    }
+  }
+
+  /**
+   * 确保场景环境图就绪。共用同一环境资产的场景并发生成时，只生成一次，
+   * 其余场景等它完成后直接复用。
+   */
+  async function ensureSceneEnvironmentReady(scene: SceneData): Promise<void> {
+    const environmentAssetId = resolveSceneEnvironmentReferenceAssetId(scene)
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (resolveSceneAvailableReferenceImage(scene)) return
+
+      const inflight = environmentBaselineRuns.get(environmentAssetId)
+      if (inflight) {
+        await inflight.catch(() => undefined)
+        continue
+      }
+
+      await runOnce(environmentBaselineRuns, environmentAssetId, () => generateSceneBaseline(scene.id, {
+        preferReuse: true,
+        skipCompletionNotice: true
+      }))
+      return
     }
   }
 
@@ -386,11 +450,14 @@ export function useAssetWorkbenchSceneGeneration(
   function buildSceneVideoGenerationKey(
     scene: SceneData,
     environmentImage: string,
-    continuityFirstFrame: string | undefined,
-    characterImages: string[],
-    characterReferenceAssets: ReturnType<typeof resolveSceneVideoReferenceAssets>,
-    narrationVoiceReference?: ReturnType<typeof resolveSceneNarrationVoiceAsset>
+    inputs: SceneVideoInputs
   ): string {
+    const {
+      characterReferenceAssets,
+      characterImages,
+      narrationVoiceReference,
+      continuityFirstFrame
+    } = inputs
     const referenceAssetNames = buildVideoReferenceAssetNames(
       characterReferenceAssets,
       narrationVoiceReference
@@ -426,7 +493,8 @@ export function useAssetWorkbenchSceneGeneration(
     })
   }
 
-  function resolvePreviousSceneLastFrameForContinuity(scene: SceneData): string | undefined {
+  /** 开启「上一镜尾帧作为首帧」时，返回提供尾帧的上一个场景 */
+  function resolveContinuitySourceScene(scene: SceneData): SceneData | undefined {
     const config = options.sceneConfigs.value[scene.id]
     if (config?.usePreviousLastFrameAsFirstFrame !== true) return undefined
 
@@ -442,7 +510,26 @@ export function useAssetWorkbenchSceneGeneration(
       return undefined
     }
 
-    return previous.lastFrame?.trim() || undefined
+    return previous
+  }
+
+  function resolvePreviousSceneLastFrameForContinuity(scene: SceneData): string | undefined {
+    return resolveContinuitySourceScene(scene)?.lastFrame?.trim() || undefined
+  }
+
+  function resolveSceneVideoInputs(scene: SceneData): SceneVideoInputs {
+    const referenceOptions = {
+      scene,
+      characters: options.characters.value,
+      propAssets: options.propAssets.value,
+      sceneConfigs: options.sceneConfigs.value
+    }
+    return {
+      characterReferenceAssets: resolveSceneVideoReferenceAssets(referenceOptions),
+      characterImages: resolveSceneVideoCharacterReferences(referenceOptions),
+      narrationVoiceReference: resolveSceneNarrationVoiceAsset(referenceOptions),
+      continuityFirstFrame: resolvePreviousSceneLastFrameForContinuity(scene)
+    }
   }
 
   function invalidateNextSceneVideoForContinuity(scene: SceneData): boolean {
@@ -668,74 +755,113 @@ export function useAssetWorkbenchSceneGeneration(
     }
   }
 
-  async function generateSingleSceneVideo(
-    sceneId: string,
-    runOptions: {
-      skipCompletionNotice?: boolean
-    } = {}
+  /** 轮询已提交的任务；只有任务确定结束时才停止跟踪，查询暂时失败则保留以便重试时继续等待 */
+  async function pollTrackedSceneVideoTask(sceneId: string, taskId: string) {
+    const stopTracking = () => {
+      if (trackedVideoTasks.get(sceneId)?.taskId === taskId) {
+        trackedVideoTasks.delete(sceneId)
+      }
+    }
+    try {
+      const result = await pollSceneVideoTask(taskId)
+      stopTracking()
+      return result
+    } catch (error) {
+      if (!isVideoTaskStatusUnavailableError(error)) stopTracking()
+      throw error
+    }
+  }
+
+  async function applyGeneratedSceneVideo(
+    scene: SceneData,
+    videoResult: { videoUrl: string, lastFrame?: string },
+    runOptions: SceneVideoRunOptions
   ) {
-    const scene = options.scenes.value.find(item => item.id === sceneId)
-    if (!scene) return
-
-    await ensureSceneReferencedAssetsReady(scene)
-
-    if (!resolveSceneAvailableReferenceImage(scene)) {
-      await applySceneReferenceIfAvailable(scene)
+    applySceneVideoUrl(scene, videoResult.videoUrl)
+    if (videoResult.lastFrame) {
+      scene.lastFrame = videoResult.lastFrame
+      if (invalidateNextSceneVideoForContinuity(scene)) {
+        options.synchronizeQueueItems()
+      }
     }
-
-    if (!resolveSceneAvailableReferenceImage(scene)) {
-      await generateSceneBaseline(scene.id, { preferReuse: true })
-    }
-    if (scene.referenceStatus === 'error') {
-      throw new Error(options.normalizeWorkflowText(scene.referenceError || '场景环境图生成失败'))
-    }
-
-    const environmentImage = resolveSceneAvailableReferenceImage(scene)
-    if (!environmentImage) {
-      throw new Error('场景环境图未就绪，无法生成视频')
-    }
-
-    if (resolveSceneReferenceImage(scene) !== environmentImage) {
-      applySceneBaselineReference(scene, environmentImage)
-    }
-
-    const characterReferenceAssets = resolveSceneVideoReferenceAssets({
-      scene,
-      characters: options.characters.value,
-      propAssets: options.propAssets.value,
-      sceneConfigs: options.sceneConfigs.value
+    options.recordSceneVideoHistory?.(scene.id, videoResult.videoUrl, {
+      source: 'generated'
     })
-    const characterImages = resolveSceneVideoCharacterReferences({
-      scene,
-      characters: options.characters.value,
-      propAssets: options.propAssets.value,
-      sceneConfigs: options.sceneConfigs.value
+    await saveGeneratedVideoToProject()
+    if (!runOptions.skipCompletionNotice) {
+      await notifyModelTaskCompleted({
+        title: '分镜视频生成完成',
+        body: `场景：${scene.title}`
+      })
+    }
+    void options.refreshCharacterVoiceAssets?.({
+      attempts: 45,
+      delayMs: 2000
     })
-    const narrationVoiceReference = resolveSceneNarrationVoiceAsset({
-      scene,
-      characters: options.characters.value,
-      propAssets: options.propAssets.value,
-      sceneConfigs: options.sceneConfigs.value
-    })
-    const continuityFirstFrame = resolvePreviousSceneLastFrameForContinuity(scene)
-    const referenceAssetNames = buildVideoReferenceAssetNames(
-      characterReferenceAssets,
-      narrationVoiceReference
-    )
-    const generationKey = buildSceneVideoGenerationKey(
-      scene,
-      environmentImage,
-      continuityFirstFrame,
-      characterImages,
-      characterReferenceAssets,
-      narrationVoiceReference
-    )
-    pendingVideoGenerationKeys.set(scene.id, generationKey)
+  }
 
-    scene.videoStatus = 'generating'
-    scene.videoError = undefined
+  /** 生成期间场景被修改：结果不再匹配当前场景，但已付费生成，存入历史版本供用户取用 */
+  async function keepOutdatedSceneVideoResult(scene: SceneData, videoUrl: string) {
+    options.recordSceneVideoHistory?.(scene.id, videoUrl, {
+      source: 'generated'
+    })
+    invalidateSceneVideoState(scene)
+    options.synchronizeQueueItems()
+    await options.saveProject()
+    await notifyModelTaskFailed({
+      title: '分镜视频结果未采用',
+      body: `场景：${scene.title} 在生成期间被修改，本次视频已存入历史版本，请重新生成`
+    })
+  }
+
+  async function markSceneVideoFailed(
+    scene: SceneData,
+    error: unknown,
+    runOptions: SceneVideoRunOptions
+  ): Promise<never> {
+    scene.videoStatus = 'error'
+    scene.videoError = options.resolveUiError(error, '视频生成失败')
+    if (!runOptions.skipCompletionNotice) {
+      await notifyModelTaskFailed({
+        title: '分镜视频生成失败',
+        body: `场景：${scene.title}（${scene.videoError}）`
+      })
+    }
+    throw new Error(scene.videoError)
+  }
+
+  async function runSceneVideoGeneration(scene: SceneData, runOptions: SceneVideoRunOptions) {
+    let generationKey: string | undefined
 
     try {
+      await ensureSceneReferencedAssetsReady(scene)
+      await ensureSceneEnvironmentReady(scene)
+      if (scene.referenceStatus === 'error') {
+        throw new Error(options.normalizeWorkflowText(scene.referenceError || '场景环境图生成失败'))
+      }
+
+      const environmentImage = resolveSceneAvailableReferenceImage(scene)
+      if (!environmentImage) {
+        throw new Error('场景环境图未就绪，无法生成视频')
+      }
+
+      if (resolveSceneReferenceImage(scene) !== environmentImage) {
+        applySceneBaselineReference(scene, environmentImage)
+      }
+
+      const inputs = resolveSceneVideoInputs(scene)
+      const referenceAssetNames = buildVideoReferenceAssetNames(
+        inputs.characterReferenceAssets,
+        inputs.narrationVoiceReference
+      )
+      const currentKey = buildSceneVideoGenerationKey(scene, environmentImage, inputs)
+      generationKey = currentKey
+      pendingVideoGenerationKeys.set(scene.id, currentKey)
+
+      scene.videoStatus = 'generating'
+      scene.videoError = undefined
+
+      const narrationVoiceReference = inputs.narrationVoiceReference
       const videoTaskOptions = {
         projectId: options.projectId?.value,
         scenePayload: buildAssetWorkflowScenePayload(scene, { referenceAssetNames }),
@@ -747,9 +873,9 @@ export function useAssetWorkbenchSceneGeneration(
           environmentAssetId: resolveSceneEnvironmentReferenceAssetId(scene),
           environmentAssetName: options.resolveAssetName(resolveSceneEnvironmentReferenceAssetId(scene)),
           environmentImage,
-          continuityFirstFrame,
-          characterImages,
-          characterAssets: characterReferenceAssets,
+          continuityFirstFrame: inputs.continuityFirstFrame,
+          characterImages: inputs.characterImages,
+          characterAssets: inputs.characterReferenceAssets,
           narrationVoiceAsset: narrationVoiceReference
             ? {
                 id: narrationVoiceReference.assetId,
@@ -761,85 +887,99 @@ export function useAssetWorkbenchSceneGeneration(
       }
       const createAndPollVideoTask = async () => {
         const taskId = await requestSceneVideoTask(videoTaskOptions)
-        return await pollSceneVideoTask(taskId)
+        trackedVideoTasks.set(scene.id, { taskId, generationKey: currentKey })
+        return await pollTrackedSceneVideoTask(scene.id, taskId)
       }
+
+      // 上次轮询中断但任务仍在进行：继续等原任务，避免重复提交付费任务
+      const trackedTask = trackedVideoTasks.get(scene.id)
       let videoResult
-      try {
-        videoResult = await createAndPollVideoTask()
-      } catch (error) {
-        if (!isRetryableVideoImageDownloadError(error)) throw error
-        videoResult = await createAndPollVideoTask()
+      if (trackedTask && (!trackedTask.generationKey || trackedTask.generationKey === currentKey)) {
+        videoResult = await pollTrackedSceneVideoTask(scene.id, trackedTask.taskId)
+      } else {
+        try {
+          videoResult = await createAndPollVideoTask()
+        } catch (error) {
+          if (!isRetryableVideoImageDownloadError(error)) throw error
+          videoResult = await createAndPollVideoTask()
+        }
       }
 
       const latestGenerationKey = pendingVideoGenerationKeys.get(scene.id)
-      const currentGenerationKey = buildSceneVideoGenerationKey(
+      const resultKey = buildSceneVideoGenerationKey(
         scene,
         environmentImage,
-        resolvePreviousSceneLastFrameForContinuity(scene),
-        resolveSceneVideoCharacterReferences({
-          scene,
-          characters: options.characters.value,
-          propAssets: options.propAssets.value,
-          sceneConfigs: options.sceneConfigs.value
-        }),
-        resolveSceneVideoReferenceAssets({
-          scene,
-          characters: options.characters.value,
-          propAssets: options.propAssets.value,
-          sceneConfigs: options.sceneConfigs.value
-        }),
-        resolveSceneNarrationVoiceAsset({
-          scene,
-          characters: options.characters.value,
-          propAssets: options.propAssets.value,
-          sceneConfigs: options.sceneConfigs.value
-        })
+        resolveSceneVideoInputs(scene)
       )
-      if (latestGenerationKey !== generationKey || currentGenerationKey !== generationKey) {
-        const invalidated = invalidateSceneVideoState(scene)
-        if (invalidated) {
-          options.synchronizeQueueItems()
-          await options.saveProject()
-        }
+      if (latestGenerationKey !== currentKey || resultKey !== currentKey) {
+        await keepOutdatedSceneVideoResult(scene, videoResult.videoUrl)
         return
       }
 
-      applySceneVideoUrl(scene, videoResult.videoUrl)
-      if (videoResult.lastFrame) {
-        scene.lastFrame = videoResult.lastFrame
-        if (invalidateNextSceneVideoForContinuity(scene)) {
-          options.synchronizeQueueItems()
-        }
-      }
-      options.recordSceneVideoHistory?.(scene.id, videoResult.videoUrl, {
-        source: 'generated'
-      })
-      await saveGeneratedVideoToProject()
-      if (!runOptions.skipCompletionNotice) {
-        await notifyModelTaskCompleted({
-          title: '分镜视频生成完成',
-          body: `场景：${scene.title}`
-        })
-      }
-      void options.refreshCharacterVoiceAssets?.({
-        attempts: 45,
-        delayMs: 2000
-      })
+      await applyGeneratedSceneVideo(scene, videoResult, runOptions)
     } catch (error) {
-      scene.videoStatus = 'error'
-      scene.videoError = options.resolveUiError(error, '视频生成失败')
-      if (!runOptions.skipCompletionNotice) {
-        await notifyModelTaskFailed({
-          title: '分镜视频生成失败',
-          body: `场景：${scene.title}（${scene.videoError}）`
-        })
-      }
-      throw new Error(scene.videoError)
+      await markSceneVideoFailed(scene, error, runOptions)
     } finally {
-      if (pendingVideoGenerationKeys.get(scene.id) === generationKey) {
+      if (generationKey && pendingVideoGenerationKeys.get(scene.id) === generationKey) {
         pendingVideoGenerationKeys.delete(scene.id)
       }
     }
+  }
+
+  async function generateSingleSceneVideo(
+    sceneId: string,
+    runOptions: SceneVideoRunOptions = {}
+  ) {
+    const scene = options.scenes.value.find(item => item.id === sceneId)
+    if (!scene) return
+
+    // 同一场景已在生成时（例如批量进行中又点了重试），等待那一次而不是重复提交
+    await runOnce(sceneVideoRuns, scene.id, () => runSceneVideoGeneration(scene, runOptions))
+  }
+
+  async function resumeTrackedSceneVideoTask(scene: SceneData, taskId: string) {
+    updateQueueItem(scene.id, { status: 'running', error: undefined })
+    scene.videoStatus = 'generating'
+    scene.videoError = undefined
+
+    try {
+      const videoResult = await pollTrackedSceneVideoTask(scene.id, taskId)
+      await applyGeneratedSceneVideo(scene, videoResult, {})
+      updateQueueItem(scene.id, { status: 'done', error: undefined })
+    } catch (error) {
+      updateQueueItem(scene.id, {
+        status: 'error',
+        error: options.resolveUiError(error, '视频生成失败')
+      })
+      await markSceneVideoFailed(scene, error, {})
+    }
+  }
+
+  /** 刷新或重新打开项目后，接着等待后端仍在进行的分镜视频任务 */
+  async function resumeActiveSceneVideoTasks(): Promise<void> {
+    const projectId = options.projectId?.value
+    if (!projectId) return
+
+    let activeTasks
+    try {
+      activeTasks = await fetchActiveSceneVideoTasks(projectId)
+    } catch (error) {
+      console.warn('[useAssetWorkbenchSceneGeneration] 查询进行中的视频任务失败:', error)
+      return
+    }
+    if (options.projectId?.value !== projectId) return
+
+    await Promise.all(activeTasks.map(async (task) => {
+      const scene = options.scenes.value.find(item => item.id === task.sceneId)
+      if (!scene || sceneVideoRuns.has(scene.id)) return
+
+      trackedVideoTasks.set(scene.id, { taskId: task.taskId })
+      try {
+        await runOnce(sceneVideoRuns, scene.id, () => resumeTrackedSceneVideoTask(scene, task.taskId))
+      } catch {
+        // 失败信息已写到场景上
+      }
+    }))
   }
 
   async function ensureCharacterAssetsReady() {
@@ -849,24 +989,109 @@ export function useAssetWorkbenchSceneGeneration(
     await options.batchGenerateCharacters()
   }
 
+  // 队列数组会被 synchronizeQueueItems 整体替换，必须每次按 sceneId 取当前的 item
+  function findQueueItem(sceneId: string): QueueItem | undefined {
+    return options.queueItems.value.find(item => item.sceneId === sceneId)
+  }
+
+  function updateQueueItem(sceneId: string, patch: Partial<Pick<QueueItem, 'status' | 'error'>>) {
+    const item = findQueueItem(sceneId)
+    if (item) Object.assign(item, patch)
+  }
+
   async function runQueueItem(
-    item: QueueItem,
-    runOptions: {
-      skipCompletionNotice?: boolean
-    } = {}
+    sceneId: string,
+    runOptions: SceneVideoRunOptions = {}
   ) {
-    item.status = 'running'
-    item.error = undefined
+    updateQueueItem(sceneId, { status: 'running', error: undefined })
 
     try {
-      await generateSingleSceneVideo(item.sceneId, {
+      await generateSingleSceneVideo(sceneId, {
         skipCompletionNotice: runOptions.skipCompletionNotice
       })
-      const scene = options.scenes.value.find(candidate => candidate.id === item.sceneId)
-      item.status = scene?.videoStatus === 'done' ? 'done' : 'pending'
+      const scene = options.scenes.value.find(candidate => candidate.id === sceneId)
+      updateQueueItem(sceneId, { status: scene?.videoStatus === 'done' ? 'done' : 'pending' })
     } catch (error) {
-      item.status = 'error'
-      item.error = options.resolveUiError(error, '生成失败')
+      updateQueueItem(sceneId, {
+        status: 'error',
+        error: options.resolveUiError(error, '生成失败')
+      })
+    }
+  }
+
+  function isSceneVideoDone(sceneId: string): boolean {
+    return options.scenes.value.find(item => item.id === sceneId)?.videoStatus === 'done'
+  }
+
+  /** 场景需要上一镜的尾帧，而上一镜还在本轮排队或生成中 */
+  function isWaitingForContinuitySource(
+    sceneId: string,
+    waitingSceneIds: string[],
+    runningSceneIds: Map<string, Promise<void>>
+  ): boolean {
+    const scene = options.scenes.value.find(item => item.id === sceneId)
+    const source = scene ? resolveContinuitySourceScene(scene) : undefined
+    if (!source) return false
+    return waitingSceneIds.includes(source.id) || runningSceneIds.has(source.id)
+  }
+
+  /**
+   * 按顺序并发生成多个场景。是否已完成在派发时才判断：
+   * 前一镜重新生成后，下一镜可能被重置为待生成，需要在本轮补上。
+   */
+  async function runSceneQueue(sceneIds: string[], runOptions: SceneVideoRunOptions) {
+    const waiting = [...sceneIds]
+    const running = new Map<string, Promise<void>>()
+
+    while (waiting.length > 0 || running.size > 0) {
+      let index = 0
+      while (index < waiting.length && running.size < MAX_CONCURRENT_SCENE_VIDEO_TASKS) {
+        const sceneId = waiting[index]!
+        // 先等上一镜：它完成后可能把本镜重置为待生成
+        if (isWaitingForContinuitySource(sceneId, waiting, running)) {
+          index += 1
+          continue
+        }
+        if (isSceneVideoDone(sceneId)) {
+          waiting.splice(index, 1)
+          continue
+        }
+        waiting.splice(index, 1)
+        running.set(sceneId, runQueueItem(sceneId, runOptions).finally(() => {
+          running.delete(sceneId)
+        }))
+      }
+
+      if (running.size === 0) {
+        // 兜底：依赖关系无法满足时按顺序执行，避免死循环
+        const sceneId = waiting.shift()
+        if (sceneId) await runQueueItem(sceneId, runOptions)
+        continue
+      }
+
+      await Promise.race(running.values())
+    }
+  }
+
+  async function notifyBatchResult(
+    sceneIds: string[],
+    labels: { failedTitle: string, completedTitle: string }
+  ) {
+    const sceneIdSet = new Set(sceneIds)
+    const items = options.queueItems.value.filter(item => sceneIdSet.has(item.sceneId))
+    const total = items.length
+    const done = items.filter(item => item.status === 'done').length
+    const failed = items.filter(item => item.status === 'error').length
+    if (done === 0 && failed > 0) {
+      await notifyModelTaskFailed({
+        title: labels.failedTitle,
+        body: `完成 ${done} / ${total}，失败 ${failed}`
+      })
+    } else {
+      await notifyModelTaskCompleted({
+        title: labels.completedTitle,
+        body: `完成 ${done} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
+      })
     }
   }
 
@@ -881,26 +1106,12 @@ export function useAssetWorkbenchSceneGeneration(
     options.batchRunning.value = true
 
     try {
-      for (const item of options.queueItems.value) {
-        if (item.status === 'done') continue
-        await runQueueItem(item, {
-          skipCompletionNotice: true
-        })
-      }
-      const total = options.queueItems.value.length
-      const done = options.queueItems.value.filter(item => item.status === 'done').length
-      const failed = options.queueItems.value.filter(item => item.status === 'error').length
-      if (done === 0 && failed > 0) {
-        await notifyModelTaskFailed({
-          title: '批量生成分镜视频失败',
-          body: `完成 ${done} / ${total}，失败 ${failed}`
-        })
-      } else {
-        await notifyModelTaskCompleted({
-          title: '批量生成分镜视频完成',
-          body: `完成 ${done} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
-        })
-      }
+      const sceneIds = options.queueItems.value.map(item => item.sceneId)
+      await runSceneQueue(sceneIds, { skipCompletionNotice: true })
+      await notifyBatchResult(sceneIds, {
+        failedTitle: '批量生成分镜视频失败',
+        completedTitle: '批量生成分镜视频完成'
+      })
     } finally {
       options.batchRunning.value = false
     }
@@ -920,52 +1131,38 @@ export function useAssetWorkbenchSceneGeneration(
     )
     if (targetSceneIdSet.size === 0) return
 
-    const targetItems = options.queueItems.value.filter(item => targetSceneIdSet.has(item.sceneId))
-    const hasPendingItems = targetItems.some(item => item.status !== 'done')
+    const targetSceneIds = options.queueItems.value
+      .filter(item => targetSceneIdSet.has(item.sceneId))
+      .map(item => item.sceneId)
+    const hasPendingItems = targetSceneIds.some(sceneId => findQueueItem(sceneId)?.status !== 'done')
     if (!hasPendingItems) return
 
     options.batchRunning.value = true
 
     try {
-      for (const item of targetItems) {
-        if (item.status === 'done') continue
-        await runQueueItem(item, {
-          skipCompletionNotice: true
-        })
-      }
-      const total = targetItems.length
-      const done = targetItems.filter(item => item.status === 'done').length
-      const failed = targetItems.filter(item => item.status === 'error').length
-      if (done === 0 && failed > 0) {
-        await notifyModelTaskFailed({
-          title: '当前分集分镜视频生成失败',
-          body: `完成 ${done} / ${total}，失败 ${failed}`
-        })
-      } else {
-        await notifyModelTaskCompleted({
-          title: '当前分集分镜视频已生成',
-          body: `完成 ${done} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
-        })
-      }
+      await runSceneQueue(targetSceneIds, { skipCompletionNotice: true })
+      await notifyBatchResult(targetSceneIds, {
+        failedTitle: '当前分集分镜视频生成失败',
+        completedTitle: '当前分集分镜视频已生成'
+      })
     } finally {
       options.batchRunning.value = false
     }
   }
 
   async function retryScene(sceneId: string) {
-    const item = options.queueItems.value.find(queue => queue.sceneId === sceneId)
-    if (!item) return
+    if (!findQueueItem(sceneId)) return
 
-    await runQueueItem(item, {
+    await runQueueItem(sceneId, {
       skipCompletionNotice: false
     })
   }
 
   async function retryFailedQueueItemsOnce() {
-    const failedItems = options.queueItems.value.filter(item => item.status === 'error')
-    for (const item of failedItems) {
-      await retryScene(item.sceneId)
-    }
+    const failedSceneIds = options.queueItems.value
+      .filter(item => item.status === 'error')
+      .map(item => item.sceneId)
+    await runSceneQueue(failedSceneIds, { skipCompletionNotice: false })
   }
 
   return {
@@ -975,6 +1172,7 @@ export function useAssetWorkbenchSceneGeneration(
     runBatchSceneGeneration,
     runBatchSceneGenerationByEpisode,
     retryScene,
-    retryFailedQueueItemsOnce
+    retryFailedQueueItemsOnce,
+    resumeActiveSceneVideoTasks
   }
 }

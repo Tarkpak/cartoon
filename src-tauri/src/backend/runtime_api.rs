@@ -23711,6 +23711,123 @@ pub(super) async fn api_video_generate(
     })))
 }
 
+/// 只恢复最近创建的任务，避免后端异常遗留的 processing 任务被无限轮询。
+const ACTIVE_VIDEO_TASK_RESUME_WINDOW_HOURS: i64 = 6;
+
+/// 列出项目内仍在进行的分镜视频任务（每个场景只取最新一条），
+/// 供前端刷新页面后恢复轮询，避免重复提交付费任务。
+pub(super) async fn api_asset_video_active_tasks(
+    State(state): State<BackendState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let project_id = query
+        .get("projectId")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少 projectId"))?
+        .to_string();
+    let conn = db_connection(&state)?;
+    super::ensure_project_permission(&conn, &project_id, super::ProjectPermission::View)?;
+    let cutoff = (Utc::now() - chrono::Duration::hours(ACTIVE_VIDEO_TASK_RESUME_WINDOW_HOURS))
+        .to_rfc3339_opts(SecondsFormat::Millis, true);
+    let tasks = list_active_scene_video_tasks(&conn, &project_id, &cutoff)?;
+    Ok(Json(json!({ "success": true, "tasks": tasks })))
+}
+
+fn list_active_scene_video_tasks(
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    created_after: &str,
+) -> Result<Vec<Value>, ApiError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT video_tasks.id, video_tasks.scene_id, video_tasks.status, video_tasks.created_at
+             FROM video_tasks
+             JOIN scenes ON scenes.id = video_tasks.scene_id
+             JOIN scripts ON scripts.id = scenes.script_id
+             WHERE scripts.project_id = ?1
+               AND video_tasks.status NOT IN ('completed', 'failed', 'cancelled')
+               AND video_tasks.created_at >= ?2
+               AND json_extract(COALESCE(video_tasks.config, '{}'), '$.collaboration') IS NULL
+             ORDER BY video_tasks.created_at DESC",
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let rows = stmt
+        .query_map(params![project_id, created_after], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    let mut seen_scene_ids = HashSet::new();
+    let mut tasks = Vec::new();
+    for row in rows {
+        let (task_id, scene_id, status, created_at) =
+            row.map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        if !seen_scene_ids.insert(scene_id.clone()) {
+            continue;
+        }
+        tasks.push(json!({
+            "taskId": task_id,
+            "sceneId": scene_id,
+            "status": status,
+            "createdAt": created_at
+        }));
+    }
+    Ok(tasks)
+}
+
+#[cfg(test)]
+mod active_video_task_tests {
+    use super::*;
+
+    fn active_task_test_connection() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE scripts (id TEXT PRIMARY KEY, project_id TEXT NOT NULL);
+             CREATE TABLE scenes (id TEXT PRIMARY KEY, script_id TEXT NOT NULL);
+             CREATE TABLE video_tasks (
+               id TEXT PRIMARY KEY, scene_id TEXT, status TEXT NOT NULL,
+               config TEXT, created_at TEXT NOT NULL
+             );
+             INSERT INTO scripts VALUES ('script_a', 'project_a'), ('script_b', 'project_b');
+             INSERT INTO scenes VALUES ('scene_1', 'script_a'), ('scene_2', 'script_a'),
+               ('scene_3', 'script_a'), ('scene_other', 'script_b');",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn insert_task(conn: &rusqlite::Connection, id: &str, scene_id: &str, status: &str, config: &str, created_at: &str) {
+        conn.execute(
+            "INSERT INTO video_tasks (id, scene_id, status, config, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, scene_id, status, config, created_at],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn lists_latest_unfinished_task_per_scene_within_window() {
+        let conn = active_task_test_connection();
+        insert_task(&conn, "old_running", "scene_1", "processing", "{}", "2026-10-26T08:00:00.000Z");
+        insert_task(&conn, "new_running", "scene_1", "processing", "{}", "2026-10-26T09:00:00.000Z");
+        insert_task(&conn, "done", "scene_2", "completed", "{}", "2026-10-26T09:00:00.000Z");
+        insert_task(&conn, "expired", "scene_3", "processing", "{}", "2026-10-25T00:00:00.000Z");
+        insert_task(&conn, "collab", "scene_2", "pending", r#"{"collaboration":{"projectId":"project_a"}}"#, "2026-10-26T09:30:00.000Z");
+        insert_task(&conn, "other_project", "scene_other", "processing", "{}", "2026-10-26T09:00:00.000Z");
+
+        let tasks = list_active_scene_video_tasks(&conn, "project_a", "2026-10-26T06:00:00.000Z").unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0]["taskId"], "new_running");
+        assert_eq!(tasks[0]["sceneId"], "scene_1");
+    }
+}
+
 pub(super) async fn api_video_status(
     Path(id): Path<String>,
     State(state): State<BackendState>,

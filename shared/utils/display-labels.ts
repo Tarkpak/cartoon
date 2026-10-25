@@ -43,6 +43,7 @@ export const STATUS_LABELS: DisplayLabels = {
   testing: '测试中',
   ready: '可预览',
   video_ready: '视频已就绪',
+  video_stale: '视频待更新',
   skipped: '已跳过',
   synced: '已同步',
   draft: '草稿',

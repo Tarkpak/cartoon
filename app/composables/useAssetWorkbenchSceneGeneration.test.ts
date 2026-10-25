@@ -1,8 +1,9 @@
 import { computed, ref } from 'vue'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SceneData } from '~/lib/asset-workbench-models'
+import type { CharacterData, SceneData } from '~/lib/asset-workbench-models'
 import type { QueueItem } from '~/lib/asset-workbench-types'
 import { resolveSceneEnvironmentAssetId } from '~/lib/asset-workbench-environment'
+import { buildNextQueueItems } from '~/lib/asset-workbench-progress'
 
 const requestSceneBaselineGenerationMock = vi.fn(async () => 'https://example.com/generated-env.png')
 const requestSceneVideoTaskMock = vi.fn(async () => 'video_task_1')
@@ -10,6 +11,11 @@ const pollSceneVideoTaskMock = vi.fn(async (): Promise<{
   videoUrl: string
   lastFrame?: string
 }> => ({ videoUrl: 'https://example.com/generated-video.mp4' }))
+const fetchActiveSceneVideoTasksMock = vi.fn(async (): Promise<Array<{
+  taskId: string
+  sceneId: string
+  status: string
+}>> => [])
 let useAssetWorkbenchSceneGeneration: typeof import('./useAssetWorkbenchSceneGeneration')['useAssetWorkbenchSceneGeneration']
 
 function keepCurrentVideoInHistory(scene: SceneData) {
@@ -28,6 +34,14 @@ function keepCurrentVideoInHistory(scene: SceneData) {
     ...history
   ]
 }
+
+vi.mock('~/lib/asset-workbench-video-tasks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('~/lib/asset-workbench-video-tasks')>()
+  return {
+    ...actual,
+    fetchActiveSceneVideoTasks: fetchActiveSceneVideoTasksMock
+  }
+})
 
 vi.mock('~/lib/asset-workbench-scene-generation', async () => {
   return {
@@ -166,9 +180,14 @@ describe('useAssetWorkbenchSceneGeneration', () => {
   })
 
   beforeEach(() => {
-    requestSceneBaselineGenerationMock.mockClear()
-    requestSceneVideoTaskMock.mockClear()
-    pollSceneVideoTaskMock.mockClear()
+    requestSceneBaselineGenerationMock.mockReset()
+    requestSceneBaselineGenerationMock.mockImplementation(async () => 'https://example.com/generated-env.png')
+    requestSceneVideoTaskMock.mockReset()
+    requestSceneVideoTaskMock.mockImplementation(async () => 'video_task_1')
+    pollSceneVideoTaskMock.mockReset()
+    pollSceneVideoTaskMock.mockImplementation(async () => ({ videoUrl: 'https://example.com/generated-video.mp4' }))
+    fetchActiveSceneVideoTasksMock.mockReset()
+    fetchActiveSceneVideoTasksMock.mockImplementation(async () => [])
   })
 
   it('passes explicit consistency reference image for baseline generation', async () => {
@@ -951,6 +970,315 @@ describe('useAssetWorkbenchSceneGeneration', () => {
       name: '旁白音色',
       type: 'other',
       audioUrl: 'https://example.com/narration.mp3'
+    })
+  })
+
+  describe('queue and task tracking', () => {
+    function createSceneConfig(sceneId: string, continuity = false) {
+      return {
+        sceneId,
+        mustReferenceAssetIds: [],
+        consistencyLevel: 'soft' as const,
+        continuityNotes: '',
+        usePreviousLastFrameAsFirstFrame: continuity || undefined
+      }
+    }
+
+    function createReadyScene(id: string, input: Partial<SceneData> = {}) {
+      return createScene({
+        id,
+        title: `场景 ${id}`,
+        description: `${id} 的剧情`,
+        firstFrame: `https://example.com/${id}-env.png`,
+        referenceStatus: 'done',
+        videoStatus: 'pending',
+        ...input
+      })
+    }
+
+    function createHarness(
+      sceneList: SceneData[],
+      input: {
+        continuitySceneIds?: string[]
+        queueStatus?: Record<string, QueueItem['status']>
+        characters?: CharacterData[]
+        mustReferenceAssetIds?: Record<string, string[]>
+        generateCharacter?: () => Promise<unknown>
+      } = {}
+    ) {
+      const scenes = ref(sceneList)
+      const sceneConfigs = ref(Object.fromEntries(sceneList.map(scene => [
+        scene.id,
+        {
+          ...createSceneConfig(scene.id, input.continuitySceneIds?.includes(scene.id)),
+          mustReferenceAssetIds: input.mustReferenceAssetIds?.[scene.id] || []
+        }
+      ])))
+      const queueItems = ref<QueueItem[]>(sceneList.map(scene => ({
+        sceneId: scene.id,
+        status: input.queueStatus?.[scene.id] || (scene.videoStatus === 'done' ? 'done' : 'pending')
+      })))
+      const onModelTaskCompleted = vi.fn(async () => undefined)
+      const onModelTaskFailed = vi.fn(async () => undefined)
+      const recordSceneVideoHistory = vi.fn()
+      const saveProject = vi.fn(async () => true)
+      // 与真实实现一致：整体替换队列数组，状态变化的 item 换成新对象
+      const synchronizeQueueItems = vi.fn(() => {
+        queueItems.value = buildNextQueueItems(scenes.value, queueItems.value)
+      })
+      const sceneGeneration = useAssetWorkbenchSceneGeneration({
+        scenes,
+        characters: ref(input.characters || []),
+        sceneConfigs,
+        propAssets: ref([]),
+        queueItems,
+        batchRunning: ref(false),
+        workflowStylePrompt: computed(() => ''),
+        projectId: computed(() => 'project_1'),
+        projectAspectRatio: ref('16:9'),
+        normalizeWorkflowText: value => value,
+        resolveUiError: (error, fallback) => error instanceof Error && error.message ? error.message : fallback,
+        ensureSceneConfig: sceneId => sceneConfigs.value[sceneId] || createSceneConfig(sceneId),
+        resolveAssetName: assetId => assetId,
+        resolveSceneDescriptionWithoutAssetMentions: raw => raw || '',
+        synchronizeQueueItems,
+        saveProject,
+        refreshCharacterVoiceAssets: async () => undefined,
+        generateCharacter: input.generateCharacter || (async () => undefined),
+        batchGenerateCharacters: async () => undefined,
+        persistAutomaticAssetPlan: async () => undefined,
+        recordEnvironmentHistory: () => undefined,
+        resolveEnvironmentPanoramaState: () => undefined,
+        setEnvironmentPanoramaState: () => undefined,
+        recordSceneVideoHistory,
+        onModelTaskCompleted,
+        onModelTaskFailed
+      })
+      return {
+        scenes,
+        queueItems,
+        sceneConfigs,
+        sceneGeneration,
+        onModelTaskCompleted,
+        onModelTaskFailed,
+        recordSceneVideoHistory,
+        saveProject
+      }
+    }
+
+    function createDeferred<T>() {
+      let resolve!: (value: T) => void
+      let reject!: (error: unknown) => void
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res
+        reject = rej
+      })
+      return { promise, resolve, reject }
+    }
+
+    async function flushAsync(rounds = 20) {
+      for (let index = 0; index < rounds; index += 1) {
+        await Promise.resolve()
+      }
+    }
+
+    it('regenerates a finished next scene when the batch invalidates it through continuity', async () => {
+      const first = createReadyScene('scene_a')
+      const second = createReadyScene('scene_b', {
+        videoUrl: 'https://example.com/b-old.mp4',
+        videoStatus: 'done'
+      })
+      requestSceneVideoTaskMock
+        .mockResolvedValueOnce('task_a')
+        .mockResolvedValueOnce('task_b')
+      pollSceneVideoTaskMock
+        .mockResolvedValueOnce({
+          videoUrl: 'https://example.com/a-new.mp4',
+          lastFrame: 'https://example.com/a-last.png'
+        })
+        .mockResolvedValueOnce({ videoUrl: 'https://example.com/b-new.mp4' })
+      const harness = createHarness([first, second], { continuitySceneIds: ['scene_b'] })
+
+      await harness.sceneGeneration.runBatchSceneGeneration()
+
+      expect(requestSceneVideoTaskMock).toHaveBeenCalledTimes(2)
+      const requestCalls = requestSceneVideoTaskMock.mock.calls as unknown as Array<[{
+        references: { continuityFirstFrame?: string }
+      }]>
+      expect(requestCalls[1]?.[0].references.continuityFirstFrame).toBe('https://example.com/a-last.png')
+      expect(second.videoUrl).toBe('https://example.com/b-new.mp4')
+      expect(harness.queueItems.value.map(item => item.status)).toEqual(['done', 'done'])
+    })
+
+    it('waits on the original task when retrying after status polling was interrupted', async () => {
+      const { VideoTaskStatusUnavailableError } = await import('~/lib/asset-workbench-video-tasks')
+      const scene = createReadyScene('scene_retry')
+      requestSceneVideoTaskMock.mockResolvedValueOnce('task_original')
+      pollSceneVideoTaskMock
+        .mockRejectedValueOnce(new VideoTaskStatusUnavailableError('task_original'))
+        .mockResolvedValueOnce({ videoUrl: 'https://example.com/retry.mp4' })
+      const harness = createHarness([scene])
+
+      await harness.sceneGeneration.retryScene(scene.id)
+      expect(scene.videoStatus).toBe('error')
+      expect(harness.queueItems.value[0]?.status).toBe('error')
+
+      await harness.sceneGeneration.retryScene(scene.id)
+
+      expect(requestSceneVideoTaskMock).toHaveBeenCalledTimes(1)
+      expect(pollSceneVideoTaskMock).toHaveBeenNthCalledWith(2, 'task_original')
+      expect(scene.videoStatus).toBe('done')
+      expect(scene.videoUrl).toBe('https://example.com/retry.mp4')
+    })
+
+    it('submits a new task after the original task has failed', async () => {
+      const scene = createReadyScene('scene_failed_task')
+      requestSceneVideoTaskMock
+        .mockResolvedValueOnce('task_failed')
+        .mockResolvedValueOnce('task_new')
+      pollSceneVideoTaskMock
+        .mockRejectedValueOnce(new Error('内容审核未通过'))
+        .mockResolvedValueOnce({ videoUrl: 'https://example.com/new.mp4' })
+      const harness = createHarness([scene])
+
+      await harness.sceneGeneration.retryScene(scene.id)
+      await harness.sceneGeneration.retryScene(scene.id)
+
+      expect(requestSceneVideoTaskMock).toHaveBeenCalledTimes(2)
+      expect(scene.videoUrl).toBe('https://example.com/new.mp4')
+    })
+
+    it('keeps an outdated result in history and tells the user', async () => {
+      const scene = createReadyScene('scene_edited')
+      const poll = createDeferred<{ videoUrl: string }>()
+      pollSceneVideoTaskMock.mockReturnValueOnce(poll.promise)
+      const harness = createHarness([scene])
+
+      const generation = harness.sceneGeneration.retryScene(scene.id)
+      await flushAsync()
+      scene.description = '生成期间改过的剧情'
+      poll.resolve({ videoUrl: 'https://example.com/outdated.mp4' })
+      await generation
+
+      expect(scene.videoStatus).toBe('pending')
+      expect(scene.videoUrl).toBeUndefined()
+      expect(harness.recordSceneVideoHistory).toHaveBeenCalledWith(
+        scene.id,
+        'https://example.com/outdated.mp4',
+        { source: 'generated' }
+      )
+      expect(harness.saveProject).toHaveBeenCalled()
+      expect(harness.onModelTaskFailed).toHaveBeenCalledWith(expect.objectContaining({
+        title: '分镜视频结果未采用'
+      }))
+    })
+
+    it('shows preparation failures on the scene', async () => {
+      const scene = createReadyScene('scene_missing_character', {
+        characters: [{ name: '小明', assetId: 'char:ming' }]
+      })
+      const harness = createHarness([scene], {
+        characters: [{ id: 'ming', name: '小明', appearance: '短发', role: '主角', generating: false, generatingViews: false } as CharacterData],
+        mustReferenceAssetIds: { [scene.id]: ['char:ming'] },
+        generateCharacter: async () => {
+          throw new Error('角色图额度不足')
+        }
+      })
+
+      await harness.sceneGeneration.retryScene(scene.id)
+
+      expect(requestSceneVideoTaskMock).not.toHaveBeenCalled()
+      expect(scene.videoStatus).toBe('error')
+      expect(scene.videoError).toContain('角色图额度不足')
+      expect(harness.queueItems.value[0]?.status).toBe('error')
+      expect(harness.onModelTaskFailed).toHaveBeenCalledWith(expect.objectContaining({
+        title: '分镜视频生成失败'
+      }))
+    })
+
+    it('joins an in-flight generation instead of submitting the same scene twice', async () => {
+      const scene = createReadyScene('scene_double_click')
+      const poll = createDeferred<{ videoUrl: string }>()
+      pollSceneVideoTaskMock.mockReturnValueOnce(poll.promise)
+      const harness = createHarness([scene])
+
+      const first = harness.sceneGeneration.retryScene(scene.id)
+      await flushAsync()
+      const second = harness.sceneGeneration.retryScene(scene.id)
+      poll.resolve({ videoUrl: 'https://example.com/once.mp4' })
+      await Promise.all([first, second])
+
+      expect(requestSceneVideoTaskMock).toHaveBeenCalledTimes(1)
+      expect(scene.videoUrl).toBe('https://example.com/once.mp4')
+    })
+
+    it('runs independent scenes in parallel while continuity scenes wait for their source', async () => {
+      const sceneList = ['s1', 's2', 's3', 's4', 's5'].map(id => createReadyScene(id))
+      const polls = new Map<string, ReturnType<typeof createDeferred<{ videoUrl: string, lastFrame?: string }>>>()
+      requestSceneVideoTaskMock.mockImplementation((async (options: { scenePayload: { id: string } }) => {
+        return `task_${options.scenePayload.id}`
+      }) as never)
+      pollSceneVideoTaskMock.mockImplementation(((taskId: string) => {
+        const deferred = createDeferred<{ videoUrl: string, lastFrame?: string }>()
+        polls.set(taskId, deferred)
+        return deferred.promise
+      }) as never)
+      const harness = createHarness(sceneList, { continuitySceneIds: ['s2'] })
+
+      try {
+        const batch = harness.sceneGeneration.runBatchSceneGeneration()
+        await flushAsync(40)
+
+        // s2 依赖 s1 的尾帧，先跳过；同时最多 3 个
+        expect([...polls.keys()]).toEqual(['task_s1', 'task_s3', 'task_s4'])
+
+        polls.get('task_s1')!.resolve({
+          videoUrl: 'https://example.com/s1.mp4',
+          lastFrame: 'https://example.com/s1-last.png'
+        })
+        await flushAsync(40)
+        expect([...polls.keys()]).toEqual(['task_s1', 'task_s3', 'task_s4', 'task_s2'])
+
+        for (const id of ['task_s3', 'task_s4', 'task_s2']) {
+          polls.get(id)!.resolve({ videoUrl: `https://example.com/${id}.mp4` })
+          await flushAsync(40)
+        }
+        polls.get('task_s5')!.resolve({ videoUrl: 'https://example.com/s5.mp4' })
+        await batch
+
+        const requestCalls = requestSceneVideoTaskMock.mock.calls as unknown as Array<[{
+          scenePayload: { id: string }
+          references: { continuityFirstFrame?: string }
+        }]>
+        const s2Request = requestCalls.find(call => call[0].scenePayload.id === 's2')
+        expect(s2Request?.[0].references.continuityFirstFrame).toBe('https://example.com/s1-last.png')
+        expect(sceneList.every(scene => scene.videoStatus === 'done')).toBe(true)
+      } finally {
+        // beforeEach 会恢复默认 mock
+      }
+    })
+
+    it('resumes tasks that were still running before the page reloaded', async () => {
+      const scene = createReadyScene('scene_reloaded', {
+        videoUrl: 'https://example.com/old.mp4',
+        videoStatus: 'done'
+      })
+      fetchActiveSceneVideoTasksMock.mockResolvedValueOnce([
+        { taskId: 'task_running', sceneId: scene.id, status: 'processing' },
+        { taskId: 'task_unknown', sceneId: 'scene_deleted', status: 'processing' }
+      ])
+      pollSceneVideoTaskMock.mockResolvedValueOnce({ videoUrl: 'https://example.com/resumed.mp4' })
+      const harness = createHarness([scene])
+
+      await harness.sceneGeneration.resumeActiveSceneVideoTasks()
+
+      expect(fetchActiveSceneVideoTasksMock).toHaveBeenCalledWith('project_1')
+      expect(pollSceneVideoTaskMock).toHaveBeenCalledTimes(1)
+      expect(pollSceneVideoTaskMock).toHaveBeenCalledWith('task_running')
+      expect(requestSceneVideoTaskMock).not.toHaveBeenCalled()
+      expect(scene.videoUrl).toBe('https://example.com/resumed.mp4')
+      expect(scene.videoStatus).toBe('done')
+      expect(harness.saveProject).toHaveBeenCalled()
     })
   })
 })

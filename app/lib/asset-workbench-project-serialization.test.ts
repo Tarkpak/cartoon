@@ -204,4 +204,25 @@ describe('asset workbench project serialization', () => {
       transitionIn: 'fade_to_black'
     })
   })
+
+  it('keeps an outdated video out of the ready state across save and load', () => {
+    const [scene] = buildLoadedScenes([{
+      id: 'scene_stale',
+      title: '过期视频',
+      description: '上一镜重新生成后需要重做。',
+      duration: 8,
+      firstFrame: 'https://example.com/env.png',
+      videoUrl: 'https://example.com/old.mp4',
+      status: 'video_ready'
+    }])
+    expect(scene?.videoStatus).toBe('done')
+
+    scene!.videoStatus = 'pending'
+    const [saved] = buildSaveScenesPayload([scene!])
+    expect(saved?.status).toBe('video_stale')
+
+    const [reloaded] = buildLoadedScenes([{ ...saved!, description: saved!.description, duration: 8 }])
+    expect(reloaded?.videoUrl).toBe('https://example.com/old.mp4')
+    expect(reloaded?.videoStatus).toBe('pending')
+  })
 })

@@ -1,4 +1,8 @@
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
+import {
+  isFatalVideoTaskStatusError,
+  VideoTaskStatusUnavailableError
+} from '~/lib/asset-workbench-video-tasks'
 import type { ScriptParseMode } from '#shared/types/script'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import { ensureVideoHistoryEntry } from '~/lib/asset-history'
@@ -106,6 +110,8 @@ interface RequestSceneVideoTaskOptions {
 interface PollSceneVideoTaskOptions {
   maxAttempts?: number
   pollIntervalMs?: number
+  /** 连续多少次状态查询失败后放弃等待（任务本身仍可能在后端继续） */
+  maxConsecutiveStatusErrors?: number
 }
 
 interface VideoTaskStatusResponse {
@@ -332,11 +338,25 @@ export async function pollSceneVideoTask(
 ): Promise<{ videoUrl: string, lastFrame?: string }> {
   const maxAttempts = options.maxAttempts ?? 720
   const pollIntervalMs = options.pollIntervalMs ?? 5000
+  const maxConsecutiveStatusErrors = options.maxConsecutiveStatusErrors ?? 6
+  let consecutiveStatusErrors = 0
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     await wait(pollIntervalMs)
 
-    const statusResponse = await fetchVideoTaskStatus(taskId)
+    let statusResponse: VideoTaskStatusResponse
+    try {
+      statusResponse = await fetchVideoTaskStatus(taskId)
+      consecutiveStatusErrors = 0
+    } catch (error) {
+      if (isFatalVideoTaskStatusError(error)) throw error
+      consecutiveStatusErrors += 1
+      if (consecutiveStatusErrors >= maxConsecutiveStatusErrors) {
+        throw new VideoTaskStatusUnavailableError(taskId)
+      }
+      continue
+    }
+
     if (statusResponse.task.status === 'completed') {
       const normalizedUrl = normalizeProjectVideoUrl(statusResponse.task.result?.videoData) || undefined
       if (!normalizedUrl) {
@@ -354,5 +374,5 @@ export async function pollSceneVideoTask(
     }
   }
 
-  throw new Error('视频生成超时，请稍后重试')
+  throw new VideoTaskStatusUnavailableError(taskId, '等待视频生成超时，任务可能仍在进行，重试将继续等待原任务')
 }

@@ -45,6 +45,7 @@ interface LoadedProjectScene {
   lastFrame?: string | null
   videoHistory?: SceneData['videoHistory']
   videoUrl?: string | null
+  status?: string | null
   shotType?: SceneShotType | null
   cameraAngle?: SceneCameraAngle | null
   cameraMovement?: SceneCameraMovement | null
@@ -80,6 +81,15 @@ interface LoadedProjectCharacter {
   baseImage?: string | null
   expressions?: Record<string, string> | null
   views?: Partial<Record<CharacterView, string>> | null
+}
+
+/** 场景有旧视频但已过期（场景改动或上一镜重新生成），需要重新生成。与后端约定的状态值。 */
+export const SCENE_STATUS_VIDEO_STALE = 'video_stale'
+
+export function resolveSceneSaveStatus(scene: Pick<SceneData, 'videoStatus' | 'videoUrl' | 'referenceStatus'>): string {
+  if (scene.videoStatus === 'done') return 'video_ready'
+  if (scene.videoUrl?.trim()) return SCENE_STATUS_VIDEO_STALE
+  return scene.referenceStatus === 'done' ? 'frames_ready' : 'pending'
 }
 
 export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
@@ -119,7 +129,7 @@ export function buildLoadedScenes(scenes: LoadedProjectScene[]): SceneData[] {
     referenceError: undefined,
     videoError: undefined,
     referenceStatus: scene.firstFrame ? 'done' : 'pending',
-    videoStatus: scene.videoUrl ? 'done' : 'pending'
+    videoStatus: scene.videoUrl && scene.status !== SCENE_STATUS_VIDEO_STALE ? 'done' : 'pending'
   }))
 }
 
@@ -230,9 +240,7 @@ export function buildSaveScenesPayload(scenes: SceneData[]) {
     firstFrame: scene.firstFrame,
     lastFrame: scene.lastFrame,
     videoUrl: scene.videoUrl,
-    status: scene.videoStatus === 'done'
-      ? 'video_ready'
-      : (scene.referenceStatus === 'done' ? 'frames_ready' : 'pending')
+    status: resolveSceneSaveStatus(scene)
   }))
 }
 
