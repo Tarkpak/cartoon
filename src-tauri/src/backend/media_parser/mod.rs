@@ -2,6 +2,7 @@ use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+mod catalog;
 mod core;
 mod engine;
 mod platforms;
@@ -21,6 +22,8 @@ pub(super) struct ParsedMedia {
     pub author: String,
     pub author_icon: String,
 }
+
+pub(super) use catalog::{catalog, detect};
 
 /// Engine result injected by tests instead of reaching real platforms.
 #[cfg(test)]

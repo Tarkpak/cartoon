@@ -5471,6 +5471,14 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             post(api_tools_short_video_parse),
         )
         .route(
+            "/api/tools/short-video/platforms",
+            get(api_tools_short_video_platforms),
+        )
+        .route(
+            "/api/tools/short-video/detect",
+            get(api_tools_short_video_detect),
+        )
+        .route(
             "/api/tools/short-video/download",
             post(api_tools_short_video_download),
         )

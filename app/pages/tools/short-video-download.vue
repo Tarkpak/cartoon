@@ -10,6 +10,7 @@ import {
   FolderOpen,
   History,
   Images,
+  KeyRound,
   Link2,
   Loader2,
   Maximize2,
@@ -18,6 +19,9 @@ import {
   Trash2
 } from 'lucide-vue-next'
 import MediaResourceDownloads from '@/components/MediaResourceDownloads.vue'
+import MediaPlatformCatalog from '@/components/MediaPlatformCatalog.vue'
+import { credentialHint, credentialState } from '@/lib/media-platforms'
+import type { MediaPlatformCatalog as PlatformCatalog, MediaPlatformDetection } from '@/lib/media-platforms'
 import type { MediaResourceDownload, MediaResources } from '@/lib/media-parser-resources'
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
@@ -100,6 +104,10 @@ const historyImageIndex = ref(0)
 const imagePreviewOpen = ref(false)
 const imagePreviewSrc = ref('')
 const imagePreviewAlt = ref('图片预览')
+const platformCatalog = ref<PlatformCatalog | null>(null)
+const detection = ref<MediaPlatformDetection | null>(null)
+let detectTimer: ReturnType<typeof setTimeout> | undefined
+let detectSeq = 0
 
 const canParse = computed(() => shareUrl.value.trim().length > 0 && !parsing.value && !downloading.value && !downloadingImage.value)
 const canDownload = computed(() => profile.value !== null && !parsing.value && !downloading.value && !downloadingImage.value)
@@ -117,9 +125,45 @@ const selectedHistoryPreviewVideoUrl = computed(() => {
   return target?.videoUrl ? mediaPreviewUrl(target.videoUrl) : ''
 })
 
+const detectedPlatform = computed(() => detection.value?.platform || null)
+const detectionCredentialState = computed(() => detectedPlatform.value ? credentialState(detectedPlatform.value) : 'none')
+
 onMounted(() => {
   void loadHistory()
+  void loadPlatformCatalog()
 })
+
+onBeforeUnmount(() => clearTimeout(detectTimer))
+
+watch(shareUrl, (text) => {
+  clearTimeout(detectTimer)
+  if (!text.trim()) {
+    detection.value = null
+    return
+  }
+  detectTimer = setTimeout(() => void detectPlatform(text), 250)
+})
+
+async function loadPlatformCatalog() {
+  try {
+    const response = await $fetch<{ success: boolean, data?: PlatformCatalog }>('/api/tools/short-video/platforms')
+    if (response.success && response.data) platformCatalog.value = response.data
+  } catch {
+    platformCatalog.value = null
+  }
+}
+
+async function detectPlatform(text: string) {
+  const seq = ++detectSeq
+  try {
+    const response = await $fetch<{ success: boolean, data?: MediaPlatformDetection }>('/api/tools/short-video/detect', {
+      query: { text }
+    })
+    if (seq === detectSeq) detection.value = response.data || null
+  } catch {
+    if (seq === detectSeq) detection.value = null
+  }
+}
 
 async function parseShareUrl() {
   parsing.value = true
@@ -465,7 +509,7 @@ function getErrorMessage(error: unknown) {
                     id="short-video-share-url"
                     v-model="shareUrl"
                     class="h-11 bg-background pl-10"
-                    placeholder="粘贴分享链接，支持抖音、小红书、视频号、B站等平台"
+                    placeholder="粘贴分享链接或整段分享文案，自动识别平台"
                     autocomplete="off"
                   />
                 </div>
@@ -485,7 +529,36 @@ function getErrorMessage(error: unknown) {
                   {{ parsing ? '解析中' : '解析作品' }}
                 </Button>
               </div>
+              <div
+                v-if="detection?.url"
+                class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+                aria-live="polite"
+              >
+                <template v-if="detectedPlatform">
+                  <span class="inline-flex items-center gap-1 font-medium text-success">
+                    <CheckCircle2 class="h-3.5 w-3.5" />
+                    已识别：{{ detectedPlatform.name }}
+                  </span>
+                  <span
+                    v-if="detectionCredentialState === 'missing' || detectionCredentialState === 'optional'"
+                    class="inline-flex items-center gap-1"
+                    :class="detectionCredentialState === 'missing' ? 'text-warning' : 'text-muted-foreground'"
+                  >
+                    <KeyRound class="h-3 w-3" />
+                    {{ credentialHint(detectedPlatform) }}
+                  </span>
+                </template>
+                <span v-else class="text-muted-foreground">
+                  暂未识别该链接所属平台，可展开下方列表查看支持范围
+                </span>
+              </div>
             </form>
+
+            <MediaPlatformCatalog
+              class="order-1"
+              :catalog="platformCatalog"
+              :highlight="detectedPlatform?.name"
+            />
 
             <div
               v-if="errorMessage"

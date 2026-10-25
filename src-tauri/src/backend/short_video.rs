@@ -13,6 +13,18 @@ pub(super) async fn api_tools_short_video_parse(
     Ok(Json(json!({ "success": true, "data": profile })))
 }
 
+pub(super) async fn api_tools_short_video_platforms() -> Json<Value> {
+    Json(json!({ "success": true, "data": super::media_parser::catalog() }))
+}
+
+pub(super) async fn api_tools_short_video_detect(
+    Query(query): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let text = query.get("text").map(String::as_str).unwrap_or("");
+    let text: String = text.chars().take(2000).collect();
+    Json(json!({ "success": true, "data": super::media_parser::detect(&text) }))
+}
+
 pub(super) async fn api_tools_short_video_download(
     State(state): State<BackendState>,
     Json(body): Json<super::media_tools::DownloadOptions>,
