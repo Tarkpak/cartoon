@@ -76,6 +76,7 @@ declare module 'vue' {
     LibraryAssetPickerDialog: typeof import('./app/components/library/LibraryAssetPickerDialog.vue')['default']
     LogsDurationIndicator: typeof import('./app/components/logs/DurationIndicator.vue')['default']
     LogsTabSwitcher: typeof import('./app/components/logs/LogsTabSwitcher.vue')['default']
+    MediaResourceDownloads: typeof import('./app/components/MediaResourceDownloads.vue')['default']
     ModelLogsDetailDrawer: typeof import('./app/components/model-logs/ModelLogsDetailDrawer.vue')['default']
     ModelLogsFilters: typeof import('./app/components/model-logs/ModelLogsFilters.vue')['default']
     ModelLogsPanel: typeof import('./app/components/model-logs/ModelLogsPanel.vue')['default']

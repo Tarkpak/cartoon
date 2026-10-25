@@ -3,15 +3,14 @@ mod desktop_ffmpeg;
 mod process_util;
 
 use crate::process_util::hidden_command;
-use serde_json::{json, Value};
 use std::net::TcpStream;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::path::BaseDirectory;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri::{RunEvent, WindowEvent};
+#[cfg(test)]
 use uuid::Uuid;
 
 const DESKTOP_HOST: &str = "127.0.0.1";
@@ -19,74 +18,9 @@ const DESKTOP_PORT: u16 = 43127;
 const FRONTEND_DEV_HOST: &str = "localhost";
 const FRONTEND_DEV_PORT: u16 = 3000;
 const STARTUP_TIMEOUT_SECS: u64 = 90;
-const XIAOHONGSHU_SESSION_REQUIRED: &str = "__PLAYLET_XHS_SESSION_REQUIRED__";
 #[cfg(target_os = "windows")]
 const WEBVIEW_DIRECT_NETWORK_ARGS: &str =
     "--no-proxy-server --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
-const XIAOHONGSHU_CAPTURE_SCRIPT: &str = r#"
-(() => {
-  if (!location.hostname.endsWith('xiaohongshu.com') || window.__PLAYLET_XHS_CAPTURE_READY__) return;
-  window.__PLAYLET_XHS_CAPTURE_READY__ = true;
-
-  const capture = async (url, response) => {
-    if (!String(url).includes('/api/sns/web/v1/feed')) return;
-    try {
-      const payload = await response.clone().json();
-      window.__PLAYLET_XHS_LAST_FEED__ = {
-        ok: response.ok,
-        httpStatus: response.status,
-        payload
-      };
-      if (payload?.data?.items?.length) {
-        window.__PLAYLET_XHS_CAPTURED_RESULT__ = payload;
-      }
-    } catch {}
-  };
-
-  const nativeFetch = window.fetch;
-  window.fetch = async function(...args) {
-    const requestUrl = typeof args[0] === 'string' ? args[0] : args[0]?.url;
-    const response = await nativeFetch.apply(this, args);
-    void capture(requestUrl, response);
-    return response;
-  };
-
-  const nativeOpen = XMLHttpRequest.prototype.open;
-  const nativeSend = XMLHttpRequest.prototype.send;
-  const nativeSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
-  XMLHttpRequest.prototype.open = function(method, url, ...args) {
-    this.__PLAYLET_XHS_URL__ = String(url);
-    this.__PLAYLET_XHS_HEADERS__ = [];
-    return nativeOpen.call(this, method, url, ...args);
-  };
-  XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
-    this.__PLAYLET_XHS_HEADERS__?.push([String(name).toLowerCase(), String(value).length]);
-    if (String(name).toLowerCase() === 'x-rap-param') {
-      window.__PLAYLET_XHS_RAP_PARAM__ = String(value);
-    }
-    return nativeSetRequestHeader.call(this, name, value);
-  };
-  XMLHttpRequest.prototype.send = function(...args) {
-    if (this.__PLAYLET_XHS_URL__?.includes('/api/sns/web/v1/feed')) {
-      this.addEventListener('load', () => {
-        try {
-          const payload = JSON.parse(this.responseText);
-          window.__PLAYLET_XHS_LAST_FEED__ = {
-            ok: this.status >= 200 && this.status < 300,
-            httpStatus: this.status,
-            payload
-          };
-          if (payload?.data?.items?.length) {
-            window.__PLAYLET_XHS_CAPTURED_RESULT__ = payload;
-          }
-        } catch {}
-      }, { once: true });
-    }
-    return nativeSend.apply(this, args);
-  };
-})();
-"#;
-
 fn download_directory_config(app: &AppHandle) -> Result<PathBuf, String> {
     app.path().app_config_dir().map(|dir| dir.join("download-directory.json"))
         .map_err(|error| error.to_string())
@@ -305,162 +239,6 @@ fn load_desktop_env_files(app: &tauri::App) {
     }
 }
 
-fn xiaohongshu_dynamic_fetcher(app: AppHandle) -> backend::XiaohongshuDynamicFetcher {
-    Arc::new(move |url, note_id| {
-        let app = app.clone();
-        Box::pin(async move { fetch_xiaohongshu_dynamic(&app, &url, &note_id).await })
-    })
-}
-
-async fn fetch_xiaohongshu_dynamic(
-    app: &AppHandle,
-    page_url: &str,
-    note_id: &str,
-) -> Result<Value, String> {
-    let mut dynamic_page_url: tauri::Url = page_url
-        .parse()
-        .map_err(|error| format!("解析笔记地址失败: {error}"))?;
-    dynamic_page_url.set_path(&format!("/explore/{note_id}"));
-    let dynamic_page_url = dynamic_page_url.to_string();
-    let external_url = "https://www.xiaohongshu.com/"
-        .parse()
-        .map_err(|error| format!("解析小红书地址失败: {error}"))?;
-    let parser_data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| format!("获取小红书解析数据目录失败: {error}"))?
-        .join("xiaohongshu-webview");
-    let label = format!("xiaohongshu-parser-{}", Uuid::new_v4().simple());
-    let window_builder = WebviewWindowBuilder::new(app, label, WebviewUrl::External(external_url));
-    #[cfg(target_os = "windows")]
-    let window_builder = window_builder.additional_browser_args(WEBVIEW_DIRECT_NETWORK_ARGS);
-    let window = window_builder
-        .title("小红书解析")
-        .inner_size(900.0, 720.0)
-        .visible(false)
-        .focused(false)
-        .skip_taskbar(false)
-        .data_directory(parser_data_dir)
-        .initialization_script(XIAOHONGSHU_CAPTURE_SCRIPT)
-        .on_navigation(|url| {
-            url.host_str()
-                .is_some_and(|host| host == "xiaohongshu.com" || host.ends_with(".xiaohongshu.com"))
-        })
-        .build()
-        .map_err(|error| format!("创建小红书解析环境失败: {error}"))?;
-
-    tokio::time::sleep(Duration::from_secs(3)).await;
-    window
-        .eval("window.location.reload()")
-        .map_err(|error| format!("初始化小红书匿名会话失败: {error}"))?;
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    let navigation_script = format!(
-        "window.location.replace({})",
-        serde_json::to_string(&dynamic_page_url).map_err(|error| error.to_string())?
-    );
-    window
-        .eval(navigation_script)
-        .map_err(|error| format!("打开小红书笔记页面失败: {error}"))?;
-    tokio::time::sleep(Duration::from_secs(3)).await;
-    let result = run_xiaohongshu_dynamic_request(&window).await;
-    match result {
-        Err(error) if error.starts_with(XIAOHONGSHU_SESSION_REQUIRED) => Err(error
-            .trim_start_matches(XIAOHONGSHU_SESSION_REQUIRED)
-            .to_string()),
-        result => {
-            let _ = window.destroy();
-            result
-        }
-    }
-}
-
-async fn run_xiaohongshu_dynamic_request(window: &WebviewWindow) -> Result<Value, String> {
-    let capture_deadline = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < capture_deadline {
-        let capture = eval_webview_json(
-            window,
-            "window.__PLAYLET_XHS_LAST_FEED__ ? JSON.stringify(window.__PLAYLET_XHS_LAST_FEED__) : null",
-        )
-        .await?;
-        let payload = capture.get("payload").unwrap_or(&Value::Null);
-        if payload
-            .get("data")
-            .and_then(|value| value.get("items"))
-            .and_then(Value::as_array)
-            .is_some_and(|items| !items.is_empty())
-        {
-            return Ok(payload.clone());
-        }
-        let http_status = capture
-            .get("httpStatus")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        if http_status == 461 {
-            window
-                .set_title("小红书登录或安全验证")
-                .map_err(|error| format!("设置小红书验证窗口失败: {error}"))?;
-            window
-                .show()
-                .map_err(|error| format!("显示小红书验证窗口失败: {error}"))?;
-            let _ = window.center();
-            let _ = window.set_focus();
-            return Err(format!(
-                "{XIAOHONGSHU_SESSION_REQUIRED}小红书浏览器会话需要登录或安全验证，请在弹出的窗口中完成后关闭窗口并重新解析"
-            ));
-        }
-        if http_status != 0 && !capture.get("ok").and_then(Value::as_bool).unwrap_or(false) {
-            return Err(format!("小红书页面请求返回 HTTP {http_status}"));
-        }
-        if payload.get("success").and_then(Value::as_bool) == Some(false) {
-            let code = payload.get("code").and_then(Value::as_i64).unwrap_or(0);
-            let message = payload
-                .get("msg")
-                .or_else(|| payload.get("message"))
-                .and_then(Value::as_str)
-                .unwrap_or("小红书页面请求失败");
-            return Err(format!("{message}（错误码 {code}）"));
-        }
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
-
-    let page = eval_webview_json(
-        window,
-        "JSON.stringify({ href: location.href, bodyText: document.body?.innerText?.slice(0, 300) || '' })",
-    )
-    .await?;
-    let body_text = page.get("bodyText").and_then(Value::as_str).unwrap_or("");
-    if body_text.contains("当前内容无法展示") || body_text.contains("该内容暂时无法查看")
-    {
-        return Err("当前内容无法展示，笔记可能已失效、被隐藏或需要登录权限".to_string());
-    }
-    Err("小红书页面未返回笔记数据，请确认分享链接仍然有效".to_string())
-}
-
-async fn eval_webview_json(window: &WebviewWindow, script: &str) -> Result<Value, String> {
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    let sender = Arc::new(Mutex::new(Some(sender)));
-    window
-        .eval_with_callback(script, move |raw| {
-            if let Some(sender) = sender.lock().ok().and_then(|mut value| value.take()) {
-                let _ = sender.send(raw);
-            }
-        })
-        .map_err(|error| format!("读取小红书解析结果失败: {error}"))?;
-    let raw = tokio::time::timeout(Duration::from_secs(3), receiver)
-        .await
-        .map_err(|_| "读取小红书解析结果超时".to_string())?
-        .map_err(|_| "小红书解析窗口已关闭".to_string())?;
-    let outer: Value =
-        serde_json::from_str(&raw).map_err(|error| format!("解析 WebView 返回值失败: {error}"))?;
-    match outer {
-        Value::String(value) => {
-            serde_json::from_str(&value).map_err(|error| format!("解析小红书动态数据失败: {error}"))
-        }
-        Value::Null => Ok(json!({ "status": "pending" })),
-        value => Ok(value),
-    }
-}
-
 fn start_embedded_backend(app: &tauri::App) -> Result<(), String> {
     ensure_backend_port_available()?;
 
@@ -475,7 +253,6 @@ fn start_embedded_backend(app: &tauri::App) -> Result<(), String> {
         data_dir,
         public_dir,
         web_dir,
-        xiaohongshu_dynamic_fetcher: Some(xiaohongshu_dynamic_fetcher(app.handle().clone())),
     };
 
     tauri::async_runtime::spawn(async move {

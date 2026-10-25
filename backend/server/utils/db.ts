@@ -176,12 +176,7 @@ function initSchema(conn: Database) {
       updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS wx_channels_config (
-      id TEXT PRIMARY KEY,
-      encrypted_yuanbao_cookie TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
+
 
     CREATE TABLE IF NOT EXISTS client_versions (
       id TEXT PRIMARY KEY,
@@ -491,7 +486,6 @@ function initSchema(conn: Database) {
   ensureDefaultProviders(conn)
   ensureDefaultProviderModels(conn)
   ensureDefaultTosStorageConfig(conn)
-  ensureDefaultWxChannelsConfig(conn)
   ensureDefaultCreditRules(conn)
 }
 
@@ -628,14 +622,7 @@ function ensureDefaultTosStorageConfig(conn: Database) {
   `).run(timestamp, timestamp)
 }
 
-function ensureDefaultWxChannelsConfig(conn: Database) {
-  const timestamp = nowIso()
-  conn.prepare(`
-    INSERT OR IGNORE INTO wx_channels_config
-      (id, encrypted_yuanbao_cookie, created_at, updated_at)
-    VALUES ('default', '', ?, ?)
-  `).run(timestamp, timestamp)
-}
+
 
 export function getSetting(key: string, fallback = '') {
   const row = getDb()

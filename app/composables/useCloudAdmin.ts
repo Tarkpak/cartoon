@@ -17,10 +17,6 @@ interface CloudAdminStatus {
   dataSync?: Record<string, unknown> | null
   credentials?: Record<string, unknown>
   tosStorage?: Record<string, unknown>
-  wxChannels?: {
-    source?: string
-    hasYuanbaoCookie?: boolean
-  }
 }
 
 const status = ref<CloudAdminStatus | null>(null)

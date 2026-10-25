@@ -1,7 +1,7 @@
 <template>
   <AdminShell>
     <div class="page settings-page">
-      <n-spin :show="pending || storagePending || wxChannelsPending">
+      <n-spin :show="pending || storagePending">
         <n-space vertical size="large" class="settings-stack">
           <n-card :bordered="false" class="settings-card">
             <div class="settings-section-heading">
@@ -168,48 +168,7 @@
             </n-form>
           </n-card>
 
-          <n-card :bordered="false" class="settings-card">
-            <div class="settings-section-heading">
-              <span class="settings-section-title">视频号下载</span>
-              <n-tag size="small" :type="wxChannelsHasCookie ? 'success' : 'default'">
-                {{ wxChannelsHasCookie ? '已配置' : '未配置' }}
-              </n-tag>
-            </div>
 
-            <n-form label-placement="top">
-              <n-form-item label="腾讯元宝 Cookie">
-                <div class="secret-field">
-                  <n-input
-                    v-model:value="wxChannelsForm.yuanbaoCookie"
-                    type="textarea"
-                    :autosize="{ minRows: 4, maxRows: 8 }"
-                    :placeholder="wxChannelsHasCookie ? '已保存，留空保留' : '粘贴腾讯元宝网页 Cookie'"
-                  />
-                  <n-tag size="small" :type="wxChannelsHasCookie ? 'success' : 'default'">
-                    {{ wxChannelsHasCookie ? '已保存' : '未保存' }}
-                  </n-tag>
-                </div>
-              </n-form-item>
-              <n-text depth="3" class="settings-help">
-                用于桌面端通过视频号 SPH 分享链接解析视频。Cookie 只保存在后台，客户端同步时通过加密通道读取。
-              </n-text>
-
-              <n-space justify="end">
-                <n-button
-                  tertiary
-                  type="error"
-                  :disabled="!wxChannelsHasCookie"
-                  :loading="wxChannelsSaving"
-                  @click="clearWxChannelsConfig"
-                >
-                  清空 Cookie
-                </n-button>
-                <n-button type="primary" :loading="wxChannelsSaving" @click="saveWxChannelsConfig">
-                  保存视频号配置
-                </n-button>
-              </n-space>
-            </n-form>
-          </n-card>
         </n-space>
       </n-spin>
     </div>
@@ -241,10 +200,6 @@ interface TosStoragePublic {
   isCustomDomain: boolean
 }
 
-interface WxChannelsPublic {
-  hasYuanbaoCookie: boolean
-  updatedAt?: string | null
-}
 
 interface CreditRule {
   id: string
@@ -262,8 +217,6 @@ const storagePending = ref(false)
 const storageSaving = ref(false)
 const storageHasSecretKey = ref(false)
 const storageHasSecurityToken = ref(false)
-const wxChannelsPending = ref(false)
-const wxChannelsSaving = ref(false)
 const creditRulesSaving = ref(false)
 const creditRules = ref<CreditRule[]>([])
 const showCreditRuleCreate = ref(false)
@@ -289,7 +242,6 @@ const creditProviderOptions = [
   { label: '可灵', value: 'kling' },
   { label: '自定义 OpenAI', value: 'custom_openai' }
 ]
-const wxChannelsHasCookie = ref(false)
 
 const form = reactive<AppSettingsForm>({
   maxDevicesPerUser: 3,
@@ -312,9 +264,6 @@ const storageForm = reactive({
   isCustomDomain: false
 })
 
-const wxChannelsForm = reactive({
-  yuanbaoCookie: ''
-})
 
 function errorText(error: unknown, fallback: string) {
   const data = (error as { data?: { statusMessage?: string, message?: string } })?.data
@@ -345,10 +294,7 @@ function applyStorageConfig(data: TosStoragePublic) {
   storageHasSecurityToken.value = data.hasSecurityToken
 }
 
-function applyWxChannelsConfig(data: WxChannelsPublic) {
-  wxChannelsForm.yuanbaoCookie = ''
-  wxChannelsHasCookie.value = data.hasYuanbaoCookie
-}
+
 
 function missingStorageFields() {
   if (!storageForm.enabled) return []
@@ -385,17 +331,7 @@ async function loadStorageConfig() {
   }
 }
 
-async function loadWxChannelsConfig() {
-  wxChannelsPending.value = true
-  try {
-    const response = await $fetch<{ data: WxChannelsPublic }>('/api/admin/wx-channels/config')
-    applyWxChannelsConfig(response.data)
-  } catch (error) {
-    message.error(errorText(error, '加载视频号配置失败'))
-  } finally {
-    wxChannelsPending.value = false
-  }
-}
+
 
 async function loadCreditRules() {
   try {
@@ -515,51 +451,13 @@ async function saveStorageConfig() {
   }
 }
 
-async function saveWxChannelsConfig() {
-  if (!wxChannelsHasCookie.value && !wxChannelsForm.yuanbaoCookie.trim()) {
-    message.error('请填写腾讯元宝 Cookie')
-    return
-  }
 
-  wxChannelsSaving.value = true
-  try {
-    const body: Record<string, unknown> = {}
-    if (wxChannelsForm.yuanbaoCookie.trim() || !wxChannelsHasCookie.value) {
-      body.yuanbaoCookie = wxChannelsForm.yuanbaoCookie
-    }
-    const response = await $fetch<{ data: WxChannelsPublic }>('/api/admin/wx-channels/config', {
-      method: 'PUT',
-      body
-    })
-    applyWxChannelsConfig(response.data)
-    message.success('视频号配置已保存')
-  } catch (error) {
-    message.error(errorText(error, '保存视频号配置失败'))
-  } finally {
-    wxChannelsSaving.value = false
-  }
-}
 
-async function clearWxChannelsConfig() {
-  wxChannelsSaving.value = true
-  try {
-    const response = await $fetch<{ data: WxChannelsPublic }>('/api/admin/wx-channels/config', {
-      method: 'PUT',
-      body: { clear: true }
-    })
-    applyWxChannelsConfig(response.data)
-    message.success('视频号 Cookie 已清空')
-  } catch (error) {
-    message.error(errorText(error, '清空视频号配置失败'))
-  } finally {
-    wxChannelsSaving.value = false
-  }
-}
+
 
 onMounted(() => {
   void load()
   void loadStorageConfig()
-  void loadWxChannelsConfig()
   void loadCreditRules()
 })
 </script>

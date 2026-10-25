@@ -17,11 +17,11 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::future::Future;
 use std::io::Write;
 use std::path::{Path as FsPath, PathBuf};
-use std::pin::Pin;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock};
+#[cfg(test)]
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -117,8 +117,12 @@ const ARK_OPENAPI_REGION: &str = "cn-beijing";
 const ARK_OPENAPI_SERVICE: &str = "ark";
 const ARK_OPENAPI_VERSION: &str = "2024-01-01";
 
-#[path = "backend/douyin.rs"]
-mod douyin;
+#[path = "backend/media_history_migration.rs"]
+mod media_history_migration;
+#[path = "backend/media_tools.rs"]
+mod media_tools;
+#[path = "backend/media_parser/mod.rs"]
+mod media_parser;
 #[path = "backend/library_api.rs"]
 mod library_api;
 #[path = "backend/model_constraints.rs"]
@@ -139,10 +143,6 @@ mod short_video;
 mod video_import;
 #[path = "backend/voice_api.rs"]
 mod voice_api;
-#[path = "backend/wx_channels.rs"]
-mod wx_channels;
-#[path = "backend/xiaohongshu.rs"]
-mod xiaohongshu;
 
 use library_api::*;
 use model_constraints::{build_available_model_entry, image_model_config, AvailableModelKind};
@@ -175,14 +175,7 @@ pub struct BackendState {
     pub data_dir: PathBuf,
     pub public_dir: PathBuf,
     pub web_dir: PathBuf,
-    pub xiaohongshu_dynamic_fetcher: Option<XiaohongshuDynamicFetcher>,
 }
-
-pub type XiaohongshuDynamicFetcher = Arc<
-    dyn Fn(String, String) -> Pin<Box<dyn Future<Output = Result<Value, String>> + Send>>
-        + Send
-        + Sync,
->;
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -868,26 +861,6 @@ fn clear_cloud_runtime_credentials() {
     set_cloud_runtime_credentials(json!({}));
 }
 
-fn cloud_runtime_wx_channels_config() -> &'static RwLock<Value> {
-    static WX_CHANNELS_CONFIG: OnceLock<RwLock<Value>> = OnceLock::new();
-    WX_CHANNELS_CONFIG.get_or_init(|| RwLock::new(json!({})))
-}
-
-fn set_cloud_runtime_wx_channels_config(value: Value) {
-    if let Ok(mut guard) = cloud_runtime_wx_channels_config().write() {
-        *guard = value;
-    }
-}
-
-fn get_cloud_runtime_wx_channels_config() -> Option<Value> {
-    let value = cloud_runtime_wx_channels_config().read().ok()?.clone();
-    if value.as_object().is_some_and(|object| !object.is_empty()) {
-        Some(value)
-    } else {
-        None
-    }
-}
-
 fn cloud_runtime_tos_config() -> &'static RwLock<Value> {
     static TOS_CONFIG: OnceLock<RwLock<Value>> = OnceLock::new();
     TOS_CONFIG.get_or_init(|| RwLock::new(json!({})))
@@ -910,7 +883,6 @@ fn get_cloud_runtime_tos_config() -> Option<Value> {
 
 fn clear_cloud_runtime_config() {
     clear_cloud_runtime_credentials();
-    set_cloud_runtime_wx_channels_config(json!({}));
     set_cloud_runtime_tos_config(json!({}));
 }
 
@@ -1770,33 +1742,6 @@ fn cloud_tos_storage_public(raw: Option<Value>) -> Value {
       "publicBaseUrl": text("publicBaseUrl"),
       "isCustomDomain": config.get("isCustomDomain").and_then(Value::as_bool).unwrap_or(false)
     })
-}
-
-fn cloud_wx_channels_public(raw: Option<Value>) -> Value {
-    let Some(config) = raw.filter(Value::is_object) else {
-        return json!({
-          "source": "cloud",
-          "hasYuanbaoCookie": false
-        });
-    };
-    let has_yuanbao_cookie = config
-        .get("yuanbaoCookie")
-        .and_then(Value::as_str)
-        .is_some_and(|value| !value.trim().is_empty());
-    json!({
-      "source": "cloud",
-      "hasYuanbaoCookie": has_yuanbao_cookie
-    })
-}
-
-fn normalize_cloud_wx_channels_config(raw: Value) -> Value {
-    if raw.get("yuanbaoCookie").is_some() {
-        return raw;
-    }
-    raw.get("config")
-        .filter(|value| value.is_object())
-        .cloned()
-        .unwrap_or(raw)
 }
 
 fn cloud_value_text(value: &Value, key: &str) -> String {
@@ -4481,13 +4426,6 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ensure_column(conn, "model_debug_logs", column, definition)?;
     }
 
-    for (column, definition) in [
-        ("media_type", "TEXT NOT NULL DEFAULT 'video'"),
-        ("image_urls_json", "TEXT NOT NULL DEFAULT '[]'"),
-    ] {
-        ensure_column(conn, "douyin_history", column, definition)?;
-    }
-
     conn.execute(
         "UPDATE projects SET script_parse_mode = 'premium_drama' WHERE script_parse_mode = 'short_drama'",
         [],
@@ -4909,67 +4847,12 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         completed_at TEXT
       );
 
-      CREATE TABLE IF NOT EXISTS wx_channels_history (
-        id TEXT PRIMARY KEY,
-        share_url TEXT NOT NULL UNIQUE,
-        author TEXT NOT NULL DEFAULT '',
-        author_icon TEXT NOT NULL DEFAULT '',
-        cover_url TEXT NOT NULL DEFAULT '',
-        description TEXT NOT NULL DEFAULT '',
-        video_url TEXT NOT NULL DEFAULT '',
-        origin_video_url TEXT NOT NULL DEFAULT '',
-        create_time INTEGER,
-        downloaded_path TEXT,
-        downloaded_filename TEXT,
-        download_dir TEXT,
-        size_bytes INTEGER,
-        parsed_at TEXT NOT NULL,
-        downloaded_at TEXT,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS douyin_history (
-        id TEXT PRIMARY KEY,
-        aweme_id TEXT NOT NULL UNIQUE,
-        real_url TEXT NOT NULL DEFAULT '',
-        title TEXT NOT NULL DEFAULT '',
-        cover_url TEXT NOT NULL DEFAULT '',
-        video_url TEXT NOT NULL DEFAULT '',
-        media_type TEXT NOT NULL DEFAULT 'video',
-        image_urls_json TEXT NOT NULL DEFAULT '[]',
-        downloaded_path TEXT,
-        downloaded_filename TEXT,
-        download_dir TEXT,
-        size_bytes INTEGER,
-        parsed_at TEXT NOT NULL,
-        downloaded_at TEXT,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS xiaohongshu_history (
-        id TEXT PRIMARY KEY,
-        note_id TEXT NOT NULL UNIQUE,
-        source_url TEXT NOT NULL DEFAULT '',
-        title TEXT NOT NULL DEFAULT '',
-        description TEXT NOT NULL DEFAULT '',
-        author TEXT NOT NULL DEFAULT '',
-        author_icon TEXT NOT NULL DEFAULT '',
-        create_time INTEGER,
-        cover_url TEXT NOT NULL DEFAULT '',
-        image_urls_json TEXT NOT NULL DEFAULT '[]',
-        downloaded_path TEXT,
-        downloaded_filename TEXT,
-        download_dir TEXT,
-        size_bytes INTEGER,
-        parsed_at TEXT NOT NULL,
-        downloaded_at TEXT,
-        updated_at TEXT NOT NULL
-      );
     ",
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     ensure_runtime_schema(&conn)?;
+    media_tools::ensure_history(&conn)?;
     conn.execute_batch(
         "
       CREATE INDEX IF NOT EXISTS idx_projects_owner_updated
@@ -5011,12 +4894,6 @@ fn init_database(state: &BackendState) -> Result<(), ApiError> {
         ON library_assets(content_hash);
       CREATE INDEX IF NOT EXISTS idx_library_assets_deleted
         ON library_assets(deleted_at);
-      CREATE INDEX IF NOT EXISTS idx_wx_channels_history_updated
-        ON wx_channels_history(updated_at);
-      CREATE INDEX IF NOT EXISTS idx_douyin_history_updated
-        ON douyin_history(updated_at);
-      CREATE INDEX IF NOT EXISTS idx_xiaohongshu_history_updated
-        ON xiaohongshu_history(updated_at);
       -- 日志查询统一按 timestamp DESC 排序取 LIMIT，过滤走大小写无关 / 子串匹配，
       -- 规划器不会用到下面这些二级索引；清理掉以省去写入开销。
       DROP INDEX IF EXISTS idx_model_debug_logs_provider;
@@ -11673,7 +11550,6 @@ fn cloud_status_payload(conn: &Connection) -> Result<Value, ApiError> {
     let session = cloud_session(conn);
     let raw_cloud_creds = get_cloud_runtime_credentials();
     let raw_cloud_tos_config = get_cloud_runtime_tos_config();
-    let raw_cloud_wx_channels_config = get_cloud_runtime_wx_channels_config();
     Ok(json!({
       "configured": !base_url.is_empty(),
       "baseUrl": base_url,
@@ -11700,8 +11576,7 @@ fn cloud_status_payload(conn: &Connection) -> Result<Value, ApiError> {
         .cloned()
         .unwrap_or(Value::Null),
       "credentials": cloud_provider_credentials_public(raw_cloud_creds),
-      "tosStorage": cloud_tos_storage_public(raw_cloud_tos_config),
-      "wxChannels": cloud_wx_channels_public(raw_cloud_wx_channels_config)
+      "tosStorage": cloud_tos_storage_public(raw_cloud_tos_config)
     }))
 }
 
@@ -11739,25 +11614,6 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
         None,
     )
     .await?;
-    let wx_channels_config = match cloud_request_secure_json(
-        &base_url,
-        reqwest::Method::GET,
-        "/api/client/wx-channels-config",
-        Some(&token),
-        None,
-    )
-    .await
-    {
-        Ok(value) => value,
-        Err(error) => {
-            eprintln!(
-                "[CloudSync] wx channels config pull failed: {}",
-                error.message
-            );
-            json!({ "data": {} })
-        }
-    };
-
     let credentials_data = credentials
         .get("data")
         .cloned()
@@ -11767,15 +11623,9 @@ async fn cloud_refresh_runtime_credentials(state: &BackendState) -> Result<Value
         .get("data")
         .cloned()
         .unwrap_or_else(default_tos_config);
-    let wx_channels_data = wx_channels_config
-        .get("data")
-        .cloned()
-        .map(normalize_cloud_wx_channels_config)
-        .unwrap_or_else(|| json!({}));
     let conn = db_connection(state)?;
     set_cloud_runtime_credentials(local_credentials);
     set_cloud_runtime_tos_config(tos_storage_data.clone());
-    set_cloud_runtime_wx_channels_config(wx_channels_data.clone());
 
     let mut session = cloud_session(&conn).unwrap_or_else(|| json!({}));
     if let Some(obj) = session.as_object_mut() {
@@ -15043,7 +14893,6 @@ mod tests {
              CREATE TABLE video_enhance_tasks (id TEXT PRIMARY KEY);
              CREATE TABLE subtitle_erasure_tasks (id TEXT PRIMARY KEY);
              CREATE TABLE model_debug_logs (id TEXT PRIMARY KEY);
-             CREATE TABLE douyin_history (id TEXT PRIMARY KEY);
              INSERT INTO projects (id, owner_user_id) VALUES
                ('owned', 'user-1'),
                ('legacy', NULL);",

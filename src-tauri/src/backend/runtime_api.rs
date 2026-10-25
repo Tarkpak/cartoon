@@ -20507,7 +20507,7 @@ mod collaboration_generation_tests {
     async fn collaboration_video_tasks_preserve_results_without_writing_legacy_scenes() {
         let dir = std::env::temp_dir().join(format!("playlet-collab-media-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
-        let state = BackendState { db_path: dir.join("test.sqlite"), data_dir: dir.clone(), public_dir: dir.clone(), web_dir: dir.clone(), xiaohongshu_dynamic_fetcher: None };
+        let state = BackendState { db_path: dir.join("test.sqlite"), data_dir: dir.clone(), public_dir: dir.clone(), web_dir: dir.clone() };
         init_database(&state).unwrap();
         let conn = db_connection(&state).unwrap();
         set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({"token":"test","user":{"id":"owner","role":"user"}})).unwrap();

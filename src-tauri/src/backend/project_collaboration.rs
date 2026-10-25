@@ -701,7 +701,6 @@ mod tests {
                 data_dir: dir.clone(),
                 public_dir: dir.clone(),
                 web_dir: dir,
-                xiaohongshu_dynamic_fetcher: None,
             };
             init_database(&state).unwrap();
             let conn = db_connection(&state).unwrap();

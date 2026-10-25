@@ -262,7 +262,6 @@ router.beforeEach(async (to) => {
       success: boolean
       data?: {
         authenticated?: boolean
-        wxChannels?: { hasYuanbaoCookie?: boolean }
       }
     }
     if (!statusPayload.data?.authenticated) {
