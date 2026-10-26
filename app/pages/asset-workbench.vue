@@ -1753,6 +1753,7 @@ const finalStageScenes = computed(() => {
       title: scene.title,
       duration: scene.duration,
       videoUrl: scene.videoUrl,
+      thumbnail: scene.firstFrame || resolveSceneReferenceImage(scene),
       videoStatus: scene.videoStatus
     }))
 })
@@ -1971,6 +1972,12 @@ const workbenchTasks = computed(() => buildWorkbenchTasks({
   characters: characters.value,
   environments: environmentAssetCards.value
 }))
+
+// Double-clicking a scene card is not a control the read-only fence can lock.
+function openSceneEditWhenEditable(scene: SceneData) {
+  if (!canEditProject.value) return
+  openSceneEdit(scene)
+}
 
 function openWorkbenchTask(task: WorkbenchTask) {
   selectAutoStage(task.stage)
@@ -3881,7 +3888,6 @@ function reportWorkbenchActivity() {
 
     <AssetWorkbenchStagePanel
       v-else-if="activeAutoStage === 'assets' || activeAutoStage === 'videos'"
-      :inert="activeAutoStage === 'videos' && !canEditProject"
       content-class="flex-1 min-h-0 overflow-hidden flex flex-col gap-2"
     >
       <KeepAlive>
@@ -3958,6 +3964,7 @@ function reportWorkbenchActivity() {
           v-else
           :key="`videos-stage:${projectId || 'new'}`"
           :toolbar-active="activeAutoStage === 'videos'"
+          :read-only="!canEditProject"
           :can-export="canExportProject"
           :scenes="scenes"
           :project-name="projectName"
@@ -4008,7 +4015,7 @@ function reportWorkbenchActivity() {
           :on-export-formatted-script-docx="handleExportFormattedScriptDocx"
           :on-parse-episode="(episodeId) => handleParseSingleEpisode({ id: episodeId })"
           :on-select-scene="selectScene"
-          :on-open-scene-edit="openSceneEdit"
+          :on-open-scene-edit="openSceneEditWhenEditable"
           :on-toggle-scene-chat="toggleSceneChat"
           :on-handle-split-scene="handleSplitScene"
           :on-handle-merge-with-next-scene="handleMergeWithNextScene"
@@ -4038,8 +4045,9 @@ function reportWorkbenchActivity() {
     </AssetWorkbenchStagePanel>
 
     <AssetWorkbenchFinalStage
-      :inert="!canEditProject && !canExportProject"
       v-else
+      :read-only="!canEditProject"
+      :can-export="canExportProject"
       :hint="stageHints.final"
       :project-aspect-ratio="projectAspectRatio"
       :queue-done="queueSummary.done"

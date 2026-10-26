@@ -19,6 +19,7 @@ import { prepareSubtitleErasureSource } from '~/lib/subtitle-erasure-source'
 import { useSubtitleErasureSettings } from '~/composables/useSubtitleErasureSettings'
 import { ensureVideoHistoryEntry } from '~/lib/asset-history'
 import { resolveVideoPreviewAspectRatio } from '~/lib/video-preview-aspect-ratio'
+import { vReadOnlyFence } from '~/lib/read-only-fence'
 import {
   matchesSceneListFilter,
   resolveSceneListStatus,
@@ -82,6 +83,8 @@ const props = defineProps<{
   episodePlan: EpisodePlanItemForVideoStage[]
   episodeOverviews?: Record<string, string>
   selectedSceneId: string
+  /** Read-only projects can still browse scenes, preview and (with export permission) download. */
+  readOnly?: boolean
   selectedScene: SceneData | null
   queueSummary: QueueSummary
   autoRunning: boolean
@@ -612,6 +615,11 @@ function resolveSceneGlobalIndex(sceneId: string): number {
   return sceneIndexMap.value.get(sceneId) ?? -1
 }
 
+const fenceOptions = computed(() => ({
+  readOnly: !!props.readOnly,
+  conditional: [{ selector: '[data-export]', enabled: props.canExport !== false }]
+}))
+
 const SCENE_LIST_FILTERS: Array<{ key: SceneListFilter, label: string }> = [
   { key: 'all', label: '全部' },
   { key: 'unfinished', label: '未完成' },
@@ -775,7 +783,7 @@ watch(episodeDirectoryCollapsed, (value) => {
   </div>
   <template v-else>
     <Teleport to="#workbench-stage-toolbar">
-      <div v-if="toolbarActive && componentActive" class="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
+      <div v-if="toolbarActive && componentActive" v-read-only-fence="fenceOptions" class="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <div
           class="flex flex-wrap items-center gap-2"
           aria-live="polite"
@@ -817,6 +825,7 @@ watch(episodeDirectoryCollapsed, (value) => {
 
         <div class="ml-auto flex flex-wrap items-center justify-end gap-3">
           <Button
+            data-export
             size="sm"
             variant="ghost"
             class="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
@@ -839,6 +848,7 @@ watch(episodeDirectoryCollapsed, (value) => {
 
     <!-- Scene grid -->
     <div
+      v-read-only-fence="fenceOptions"
       class="grid min-h-0 flex-1 grid-cols-1 gap-y-4 overflow-hidden xl:transition-[grid-template-columns,column-gap] xl:duration-300 xl:ease-in-out"
       :class="sceneGridClass"
     >
@@ -868,7 +878,10 @@ watch(episodeDirectoryCollapsed, (value) => {
               </div>
             </div>
 
-            <div class="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+            <div
+              class="min-h-0 flex-1 space-y-1 overflow-y-auto p-2"
+              data-readonly-allowed
+            >
               <div
                 v-for="episode in episodeDirectoryItems"
                 :key="episode.id"
@@ -1002,6 +1015,7 @@ watch(episodeDirectoryCollapsed, (value) => {
         >
           <Button
             v-if="episodeCount > 0"
+            data-readonly-allowed
             size="icon"
             variant="outline"
             class="h-8 w-4 rounded-full border-border/60 bg-background/85 px-0 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-background hover:text-foreground"
@@ -1021,6 +1035,7 @@ watch(episodeDirectoryCollapsed, (value) => {
           <div
             v-if="selectedEpisodeScenes.length > 0"
             class="ml-auto flex shrink-0 items-center gap-0.5 rounded-lg bg-background/60 p-0.5"
+            data-readonly-allowed
             role="group"
             aria-label="按状态筛选场景"
           >
@@ -1059,6 +1074,7 @@ watch(episodeDirectoryCollapsed, (value) => {
             本集没有符合筛选条件的场景。
             <button
               type="button"
+              data-readonly-allowed
               class="text-primary hover:underline"
               @click="sceneListFilter = 'all'"
             >
@@ -1155,8 +1171,12 @@ watch(episodeDirectoryCollapsed, (value) => {
                 >
                   <Eraser class="h-3.5 w-3.5" />
                 </IconActionButton>
-                <IconActionButton
+                <span
                   v-if="selectedScene.videoUrl"
+                  data-export
+                  class="inline-flex"
+                >
+                <IconActionButton
                   :label="downloadingVideo ? '下载中…' : selectedVideoDownloaded ? '已下载，点击重新下载' : '下载视频'"
                   :loading="downloadingVideo"
                   :success="selectedVideoDownloaded"
@@ -1171,8 +1191,10 @@ watch(episodeDirectoryCollapsed, (value) => {
                     class="h-3.5 w-3.5"
                   />
                 </IconActionButton>
+                </span>
                 <IconActionButton
                   v-if="desktopRuntime"
+                  readonly-allowed
                   label="打开下载目录"
                   :disabled="openingDownloadDirectory"
                   @click="openDownloadDirectory"

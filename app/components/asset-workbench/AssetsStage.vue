@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vReadOnlyFence } from '~/lib/read-only-fence'
 import { onActivated, onDeactivated } from 'vue'
 import type { LibraryAsset, LibraryAssetCategory } from '#shared/types/library'
 import { Database, Download, Loader2, Plus } from 'lucide-vue-next'
@@ -149,30 +150,17 @@ const assetSummary = computed(() => {
 
 // Personal-library exports do not change the project. Keep them and category
 // navigation available while fencing editing controls in a read-only project.
-const accessObservers = new WeakMap<HTMLElement, MutationObserver>()
-function updateAssetAccess(root: HTMLElement) {
-  for (const control of root.querySelectorAll<HTMLElement>('button, input, textarea, select, label, a, [role="switch"], [role="combobox"], [role="checkbox"], [contenteditable="true"]')) {
-    control.inert = control.closest('[data-library-save]')
-      ? props.canSaveToLibrary === false
-      : !!props.readOnly && !control.closest('[data-asset-tab]')
-  }
-}
-const vAssetAccess = {
-  mounted(root: HTMLElement) {
-    updateAssetAccess(root)
-    const observer = new MutationObserver(() => updateAssetAccess(root))
-    observer.observe(root, { childList: true, subtree: true })
-    accessObservers.set(root, observer)
-  },
-  updated: updateAssetAccess,
-  unmounted(root: HTMLElement) { accessObservers.get(root)?.disconnect() }
-}
+const fenceOptions = computed(() => ({
+  readOnly: !!props.readOnly,
+  allow: ['[data-asset-tab]'],
+  conditional: [{ selector: '[data-library-save]', enabled: props.canSaveToLibrary !== false }]
+}))
 </script>
 
 <template>
-  <div v-asset-access class="flex min-h-0 flex-1 flex-col gap-3">
+  <div v-read-only-fence="fenceOptions" class="flex min-h-0 flex-1 flex-col gap-3">
     <Teleport to="#workbench-stage-toolbar">
-      <div v-if="toolbarActive && componentActive" v-asset-access class="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
+      <div v-if="toolbarActive && componentActive" v-read-only-fence="fenceOptions" class="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <div
           class="flex shrink-0 items-center gap-2 whitespace-nowrap"
           aria-live="polite"

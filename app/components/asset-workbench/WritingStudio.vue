@@ -920,16 +920,12 @@ function formatVersionTime(value: string) {
       class="flex h-10 shrink-0 items-center justify-between gap-3 px-2"
     >
       <div class="flex min-w-0 items-center gap-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8 shrink-0"
-          title="返回项目总览"
-          aria-label="返回项目总览"
+        <IconActionButton
+          label="返回项目总览"
           @click="emit('openList')"
         >
           <ArrowLeft class="h-4 w-4" />
-        </Button>
+        </IconActionButton>
         <h1
           class="truncate text-sm font-semibold tracking-tight"
           :title="documentTitle || '未命名项目'"
@@ -1182,16 +1178,13 @@ function formatVersionTime(value: string) {
             >
               <div class="flex items-center justify-between gap-2">
                 <label class="text-sm font-medium">{{ field[1] }}</label>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  class="h-7 w-7"
-                  :title="storyBibleFieldLocked(field[0]) ? '解除锁定' : '锁定该内容'"
+                <IconActionButton
+                  :label="storyBibleFieldLocked(field[0]) ? '解除锁定' : '锁定该内容'"
                   @click="toggleStoryBibleLock(field[0])"
                 >
                   <Lock v-if="storyBibleFieldLocked(field[0])" class="h-3.5 w-3.5 text-primary" />
                   <Unlock v-else class="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
+                </IconActionButton>
               </div>
               <Textarea
                 v-model="studio.storyBible[field[0]]"
@@ -1204,16 +1197,13 @@ function formatVersionTime(value: string) {
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div class="flex items-center gap-2">
                 <h3 class="text-sm font-semibold">角色</h3>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  class="h-7 w-7"
-                  :title="storyBibleFieldLocked('characters') ? '解除角色锁定' : '锁定全部角色'"
+                <IconActionButton
+                  :label="storyBibleFieldLocked('characters') ? '解除角色锁定' : '锁定全部角色'"
                   @click="toggleStoryBibleLock('characters')"
                 >
                   <Lock v-if="storyBibleFieldLocked('characters')" class="h-3.5 w-3.5 text-primary" />
                   <Unlock v-else class="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
+                </IconActionButton>
               </div>
               <div class="flex items-center gap-2">
                 <span class="text-xs tabular-nums text-muted-foreground">
@@ -1237,35 +1227,27 @@ function formatVersionTime(value: string) {
                     角色 {{ index + 1 }}
                   </p>
                   <div class="flex items-center gap-1">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      class="h-7 w-7"
+                    <IconActionButton
+                      label="上移角色"
                       :disabled="index === 0"
-                      title="上移角色"
                       @click="moveCharacter(index, -1)"
                     >
                       <ChevronUp class="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      class="h-7 w-7"
+                    </IconActionButton>
+                    <IconActionButton
+                      label="下移角色"
                       :disabled="index === studio.storyBible.characters.length - 1"
-                      title="下移角色"
                       @click="moveCharacter(index, 1)"
                     >
                       <ChevronDown class="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      class="h-7 w-7 text-destructive"
-                      title="删除角色"
+                    </IconActionButton>
+                    <IconActionButton
+                      label="删除角色"
                       @click="removeCharacter(index)"
+                      destructive
                     >
                       <Trash2 class="h-3.5 w-3.5" />
-                    </Button>
+                    </IconActionButton>
                   </div>
                 </div>
                 <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -1297,16 +1279,13 @@ function formatVersionTime(value: string) {
           <div class="mt-6 space-y-2 rounded-2xl bg-muted/25 p-4">
             <div class="flex items-center justify-between">
               <label class="text-sm font-semibold">创作规则</label>
-              <Button
-                size="icon"
-                variant="ghost"
-                class="h-7 w-7"
-                :title="storyBibleFieldLocked('rules') ? '解除规则锁定' : '锁定创作规则'"
+              <IconActionButton
+                :label="storyBibleFieldLocked('rules') ? '解除规则锁定' : '锁定创作规则'"
                 @click="toggleStoryBibleLock('rules')"
               >
                 <Lock v-if="storyBibleFieldLocked('rules')" class="h-3.5 w-3.5 text-primary" />
                 <Unlock v-else class="h-3.5 w-3.5 text-muted-foreground" />
-              </Button>
+              </IconActionButton>
             </div>
             <Textarea
               v-model="storyRulesText"
@@ -1338,9 +1317,12 @@ function formatVersionTime(value: string) {
         <div class="flex min-h-0 flex-col bg-muted/10">
           <div class="flex h-10 shrink-0 items-center justify-between px-2.5">
             <span class="text-xs font-medium text-muted-foreground">分集</span>
-            <Button size="icon" variant="ghost" class="h-7 w-7" title="新增分集" @click="addEpisode">
+            <IconActionButton
+              label="新增分集"
+              @click="addEpisode"
+            >
               <Plus class="h-3.5 w-3.5" />
-            </Button>
+            </IconActionButton>
           </div>
           <div v-if="hasStaleDrafts || confirmingAllEpisodes" class="shrink-0 px-2.5 pb-2">
             <Button
@@ -1384,35 +1366,27 @@ function formatVersionTime(value: string) {
                 />
               </button>
               <div class="mr-0.5 hidden shrink-0 items-center group-hover:flex group-focus-within:flex">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  class="h-7 w-7"
+                <IconActionButton
+                  label="上移分集"
                   :disabled="episodeIndex === 0"
-                  title="上移分集"
                   @click="moveEpisode(episodeIndex, -1)"
                 >
                   <ChevronUp class="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  class="h-7 w-7"
+                </IconActionButton>
+                <IconActionButton
+                  label="下移分集"
                   :disabled="episodeIndex === studio.episodes.length - 1"
-                  title="下移分集"
                   @click="moveEpisode(episodeIndex, 1)"
                 >
                   <ChevronDown class="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  class="h-7 w-7 text-destructive"
-                  title="删除分集"
+                </IconActionButton>
+                <IconActionButton
+                  label="删除分集"
                   @click="removeEpisode(episodeIndex)"
+                  destructive
                 >
                   <Trash2 class="h-3.5 w-3.5" />
-                </Button>
+                </IconActionButton>
               </div>
             </div>
           </div>
@@ -1591,15 +1565,13 @@ function formatVersionTime(value: string) {
               <Button size="sm" variant="outline" :disabled="!draftSearchMatchCount" @click="replaceAllInSelectedDraft">
                 全部替换
               </Button>
-              <Button
+              <IconActionButton
+                label="撤销上次替换"
                 v-if="replaceUndo"
-                size="icon"
-                variant="ghost"
-                title="撤销上次替换"
                 @click="undoDraftReplace"
               >
                 <Undo2 class="h-4 w-4" />
-              </Button>
+              </IconActionButton>
             </div>
           </div>
 
@@ -1622,30 +1594,34 @@ function formatVersionTime(value: string) {
               <span v-if="selectedEpisodeStats.sceneCount">{{ selectedEpisodeStats.sceneCount }} 场</span>
             </span>
             <span class="flex items-center gap-1">
-              <Button size="sm" variant="ghost" class="h-7 gap-1.5 px-2 text-xs" :disabled="isBusy" @click="openEpisodeHistory">
-                <History class="h-3.5 w-3.5" />历史记录
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                class="h-7 gap-1.5 px-2 text-xs"
-                title="查找替换"
+              <IconActionButton
+                label="历史记录"
+                :disabled="isBusy"
+                @click="openEpisodeHistory"
+              >
+                <History class="h-3.5 w-3.5" />
+              </IconActionButton>
+              <IconActionButton
+                label="查找替换"
+                :active="searchPanelOpen"
                 @click="searchPanelOpen = !searchPanelOpen"
               >
                 <Search class="h-3.5 w-3.5" />
-                查找替换
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                class="h-7 gap-1.5 px-2 text-xs"
-                :title="focusMode ? '退出专注模式' : '进入专注模式'"
+              </IconActionButton>
+              <IconActionButton
+                :label="focusMode ? '退出专注模式' : '专注写作'"
+                :active="focusMode"
                 @click="focusMode = !focusMode"
               >
-                <Shrink v-if="focusMode" class="h-3.5 w-3.5" />
-                <Focus v-else class="h-3.5 w-3.5" />
-                {{ focusMode ? '退出专注' : '专注写作' }}
-              </Button>
+                <Shrink
+                  v-if="focusMode"
+                  class="h-3.5 w-3.5"
+                />
+                <Focus
+                  v-else
+                  class="h-3.5 w-3.5"
+                />
+              </IconActionButton>
             </span>
           </div>
         </div>
@@ -1942,15 +1918,12 @@ function formatVersionTime(value: string) {
                   {{ selectedVersion.note }}
                 </p>
               </div>
-              <Button
-                size="icon"
-                variant="ghost"
-                class="h-8 w-8 shrink-0 transition-transform active:scale-[0.96]"
-                title="复制版本内容"
+              <IconActionButton
+                label="复制版本内容"
                 @click="copySelectedVersion"
               >
                 <Copy class="h-4 w-4" />
-              </Button>
+              </IconActionButton>
             </div>
 
             <dl class="mt-5 grid grid-cols-3 gap-3 rounded-2xl bg-muted/20 px-4 py-4 text-muted-foreground">
@@ -2180,15 +2153,13 @@ function formatVersionTime(value: string) {
                     >
                       <div class="flex items-center gap-2">
                         <Input v-model="character.name" placeholder="角色名" />
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          class="h-8 w-8 shrink-0 text-destructive"
-                          title="不采纳该角色"
+                        <IconActionButton
+                          label="不采纳该角色"
                           @click="removePendingCharacter(character.id)"
+                          destructive
                         >
                           <Trash2 class="h-3.5 w-3.5" />
-                        </Button>
+                        </IconActionButton>
                       </div>
                       <Input v-model="character.role" class="mt-2" placeholder="角色定位" />
                       <Textarea v-model="character.profile" class="mt-2" rows="2" placeholder="角色小传" />
@@ -2221,15 +2192,13 @@ function formatVersionTime(value: string) {
                       :model-value="episode.title"
                       @update:model-value="updatePendingEpisodeField(episode.id, 'title', String($event))"
                     />
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      class="h-8 w-8 shrink-0 text-destructive"
-                      title="不采纳该分集"
+                    <IconActionButton
+                      label="不采纳该分集"
                       @click="removePendingEpisode(episode.id)"
+                      destructive
                     >
                       <Trash2 class="h-3.5 w-3.5" />
-                    </Button>
+                    </IconActionButton>
                   </div>
                   <Textarea
                     :model-value="episode.summary"

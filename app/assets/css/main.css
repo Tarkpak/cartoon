@@ -365,6 +365,13 @@
 
 
 /* Borderless surface system */
+/* Controls locked by the read-only fence (app/lib/read-only-fence.ts) look disabled. */
+@layer base {
+  :where(button, a, input, textarea, select, [role="switch"], [role="combobox"], [role="checkbox"])[inert] {
+    opacity: 0.45;
+  }
+}
+
 @layer components {
   .ui-surface {
     @apply rounded-xl border-0 bg-muted/30 shadow-none;

@@ -14,6 +14,8 @@ const props = defineProps<{
   active?: boolean
   /** Small count in the corner, e.g. number of history versions. */
   badge?: number
+  /** Keeps the button usable in a read-only project (see read-only-fence). */
+  readonlyAllowed?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -39,6 +41,7 @@ const emit = defineEmits<{
           :aria-pressed="props.active === undefined ? undefined : props.active"
           :disabled="props.disabled || props.loading"
           :aria-label="props.label"
+          :data-readonly-allowed="props.readonlyAllowed ? '' : undefined"
           :aria-busy="props.loading || undefined"
           @click="emit('click', $event)"
         >
