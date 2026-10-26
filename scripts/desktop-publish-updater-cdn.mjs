@@ -216,7 +216,53 @@ function isUpdaterAsset(name) {
   return Boolean(platformForAsset(unsignedName))
 }
 
-function buildLatestJson({ release, tag, assetBuffers, cdnUrls }) {
+const releaseHistoryLimit = 100
+
+function versionParts(version) {
+  const [main = '', prerelease = ''] = String(version).replace(/^v/i, '').split(/-(.*)/s, 2)
+  return {
+    parts: main.split('+')[0].split('.').map(part => Number.parseInt(part, 10) || 0),
+    prerelease
+  }
+}
+
+function compareVersions(left, right) {
+  const a = versionParts(left)
+  const b = versionParts(right)
+  for (let index = 0; index < Math.max(a.parts.length, b.parts.length); index += 1) {
+    const diff = (a.parts[index] ?? 0) - (b.parts[index] ?? 0)
+    if (diff !== 0) return diff
+  }
+  if (a.prerelease === b.prerelease) return 0
+  if (!a.prerelease) return 1
+  if (!b.prerelease) return -1
+  return a.prerelease.localeCompare(b.prerelease, undefined, { numeric: true })
+}
+
+async function fetchReleaseHistory(repo, currentRelease) {
+  const releases = []
+  for (let page = 1; page <= 3; page += 1) {
+    const batch = await github(`/repos/${repo.owner}/${repo.repo}/releases?per_page=100&page=${page}`)
+    releases.push(...batch)
+    if (batch.length < 100) break
+  }
+
+  const currentVersion = currentRelease.tag_name.replace(/^v/i, '')
+  const includePrerelease = Boolean(currentRelease.prerelease)
+
+  return releases
+    .filter(item => !item.draft && (includePrerelease || !item.prerelease))
+    .map(item => ({
+      version: item.tag_name.replace(/^v/i, ''),
+      notes: item.body || '',
+      pub_date: item.published_at || item.created_at || ''
+    }))
+    .filter(item => compareVersions(item.version, currentVersion) <= 0)
+    .sort((left, right) => compareVersions(right.version, left.version))
+    .slice(0, releaseHistoryLimit)
+}
+
+function buildLatestJson({ release, tag, assetBuffers, cdnUrls, releaseHistory }) {
   const version = tag.replace(/^v/, '')
   const platforms = {}
 
@@ -250,7 +296,9 @@ function buildLatestJson({ release, tag, assetBuffers, cdnUrls }) {
     version,
     notes: release.body || `Automated desktop release for ${tag}.`,
     pub_date: release.published_at || new Date().toISOString(),
-    platforms
+    platforms,
+    // Extra field ignored by the Tauri updater; the client merges notes for skipped versions.
+    releases: releaseHistory
   }
 }
 
@@ -340,7 +388,9 @@ await mapWithConcurrency(updaterAssets, transferConcurrency, async (asset) => {
   await uploadObject(client, objectPath, buffer, asset.name)
 })
 
-const latestJson = buildLatestJson({ release, tag, assetBuffers, cdnUrls })
+const releaseHistory = await fetchReleaseHistory(repo, release)
+console.log(`included ${releaseHistory.length} releases in updater notes history`)
+const latestJson = buildLatestJson({ release, tag, assetBuffers, cdnUrls, releaseHistory })
 const latestBody = Buffer.from(`${JSON.stringify(latestJson, null, 2)}\n`)
 // Keep immutable per-version metadata so later syncs can recover skipped releases.
 const versionManifestName = `release-${encodeURIComponent(latestJson.version)}.json`

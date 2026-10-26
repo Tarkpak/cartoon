@@ -1,6 +1,7 @@
 import { getVersion } from '@tauri-apps/api/app'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { type DownloadEvent, type Update, check } from '@tauri-apps/plugin-updater'
+import { buildCumulativeReleaseNotes } from '@/lib/desktop-update-notes'
 
 export interface DesktopUpdateInfo {
   currentVersion: string
@@ -33,7 +34,7 @@ function toUpdateInfo(update: Update): DesktopUpdateInfo {
     currentVersion: update.currentVersion,
     version: update.version,
     date: update.date,
-    body: update.body
+    body: buildCumulativeReleaseNotes(update.currentVersion, update.version, update.rawJson, update.body || '')
   }
 }
 
