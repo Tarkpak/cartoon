@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { Loader2, Trash2, Users, Video } from 'lucide-vue-next'
+import { Clapperboard, Loader2, Trash2, Users } from 'lucide-vue-next'
 import { cn } from '@/lib/utils'
-import { projectAccessCan, PROJECT_ROLE_LABELS } from '#shared/types/project'
+import { projectAccessCan } from '#shared/types/project'
 import {
   formatProjectDateTime,
   formatProjectRelativeTime,
+  resolveProjectProgress,
   type Project
 } from '~/lib/projects-page'
 import {
@@ -12,19 +13,14 @@ import {
   normalizeScriptParseMode,
   type ScriptParseMode
 } from '#shared/types/script'
+import ProjectSyncBadges from './ProjectSyncBadges.vue'
 
-defineProps<{
+const props = defineProps<{
   class?: string
   projects: Project[]
   loading: boolean
   error: string | null
-  currentPage: number
-  totalPages: number
-  totalProjects: number
-  pageSize: number
-  pageSizeOptions: number[]
   hasActiveFilters: boolean
-  statusMap: Record<string, { label: string, variant: 'default' | 'secondary' | 'success' | 'warning' }>
   getStyleName: (styleId: string) => string
 }>()
 
@@ -34,223 +30,73 @@ const emit = defineEmits<{
   (event: 'manage-members', project: Project): void
   (event: 'resolve-sync-conflict', project: Project): void
   (event: 'confirm-delete', project: Project, domEvent: Event): void
-  (event: 'page-change', page: number): void
-  (event: 'page-size-change', value: string): void
 }>()
 
 function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
-  const normalizedMode = normalizeScriptParseMode(mode)
-  return SCRIPT_PARSE_MODE_LABELS[normalizedMode]
+  return SCRIPT_PARSE_MODE_LABELS[normalizeScriptParseMode(mode)]
 }
+
+function resolveOwner(project: Project): string {
+  if (!project.access || project.access.isOwner) return ''
+  return project.ownerDisplayName || project.ownerAccount || ''
+}
+
+// Only show the owner column when some project belongs to someone else.
+const showOwnerColumn = computed(() => props.projects.some(project => !!resolveOwner(project)))
+const columnCount = computed(() => (showOwnerColumn.value ? 8 : 7))
 </script>
 
 <template>
   <div
     v-if="loading"
-    :class="cn('flex items-center justify-center py-12', $props.class)"
+    :class="cn('flex items-center justify-center py-16', $props.class)"
   >
     <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
   </div>
 
   <div
     v-else-if="error"
-    :class="cn('py-12 text-center text-destructive', $props.class)"
+    :class="cn('py-16 text-center text-sm text-destructive', $props.class)"
   >
     {{ error }}
   </div>
 
-  <Card
+  <div
     v-else
-    :class="cn('projects-table flex flex-col overflow-hidden', $props.class)"
+    :class="cn('overflow-hidden rounded-xl bg-muted/15', $props.class)"
   >
-    <div class="min-h-0 flex-1 overflow-y-auto p-3 lg:hidden">
-      <div
-        v-if="projects.length > 0"
-        class="grid gap-3"
-      >
-        <article
-          v-for="project in projects"
-          :key="project.id"
-          class="rounded-xl bg-muted/25 p-4 transition-colors hover:bg-accent/35"
-          @click="emit('open-project', project)"
-        >
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <h3 class="line-clamp-2 text-base font-semibold leading-6 text-foreground">
-                {{ project.title }}
-              </h3>
-              <Badge v-if="project.access && !project.access.isOwner" variant="outline" class="mt-1">
-                {{ PROJECT_ROLE_LABELS[project.access.role] }}
-              </Badge>
-              <Badge v-if="project.cloudSyncStatus === 'conflict'" variant="destructive" class="mt-1 shrink-0 whitespace-nowrap" :title="`${project.cloudSyncError || '云端项目版本冲突'}。本地修改已保留，可点击处理同步冲突。`">
-                云同步冲突
-              </Badge>
-              <Button
-                v-if="project.cloudSyncStatus === 'conflict' && (!project.access || projectAccessCan(project.access, 'edit'))"
-                variant="outline"
-                size="sm"
-                class="h-7 shrink-0 px-2 text-xs"
-                @click.stop="emit('resolve-sync-conflict', project)"
-              >处理冲突</Button>
-              <Badge v-else-if="project.cloudSyncStatus === 'pending' && project.cloudSyncError" variant="outline" class="mt-1" :title="`云同步待重试：${project.cloudSyncError}`">
-                云同步待重试
-              </Badge>
-              <p class="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
-                {{ project.description || '暂无描述' }}
-              </p>
-              <p v-if="project.ownerAccount" class="mt-1 text-xs text-muted-foreground">
-                创建成员：{{ project.ownerDisplayName || project.ownerAccount }}
-              </p>
-            </div>
-            <Badge
-              class="shrink-0"
-              :variant="statusMap[project.status || 'draft']?.variant || 'secondary'"
-            >
-              {{ statusMap[project.status || 'draft']?.label || '草稿' }}
-            </Badge>
-          </div>
-
-          <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p class="text-xs text-muted-foreground">
-                画风
-              </p>
-              <p class="mt-1 font-medium text-foreground">
-                {{ getStyleName(project.styleId) }}
-              </p>
-            </div>
-            <div>
-              <p class="text-xs text-muted-foreground">
-                场景数
-              </p>
-              <div class="mt-1 flex items-center gap-1 font-medium text-foreground">
-                <Video class="h-3.5 w-3.5 text-muted-foreground" />
-                <span>{{ project.totalScenes }}</span>
-              </div>
-            </div>
-            <div>
-              <p class="text-xs text-muted-foreground">
-                剧本类型
-              </p>
-              <Badge
-                variant="outline"
-                class="mt-1"
-              >
-                {{ resolveScriptParseModeLabel(project.scriptParseMode) }}
-              </Badge>
-            </div>
-            <div>
-              <p class="text-xs text-muted-foreground">
-                比例
-              </p>
-              <Badge
-                variant="outline"
-                class="mt-1"
-              >
-                {{ project.aspectRatio }}
-              </Badge>
-            </div>
-          </div>
-
-          <div class="mt-4 grid gap-2 pt-3 text-xs text-muted-foreground sm:grid-cols-2">
-            <div>
-              <span class="text-foreground">{{ formatProjectRelativeTime(project.createdAt) }}</span>
-              <span class="ml-1">创建</span>
-              <p class="mt-0.5">
-                {{ formatProjectDateTime(project.createdAt) }}
-              </p>
-            </div>
-            <div>
-              <span class="text-foreground">{{ formatProjectRelativeTime(project.updatedAt) }}</span>
-              <span class="ml-1">更新</span>
-              <p class="mt-0.5">
-                {{ formatProjectDateTime(project.updatedAt) }}
-              </p>
-            </div>
-          </div>
-
-          <div class="mt-4 flex items-center justify-end gap-2">
-            <Button
-              v-if="projectAccessCan(project.access, 'manage_members')"
-              variant="ghost"
-              size="icon"
-              class="h-8 w-8 text-muted-foreground transition-transform hover:text-foreground active:scale-[0.96]"
-              title="管理项目成员"
-              aria-label="管理项目成员"
-              @click.stop="emit('manage-members', project)"
-            >
-              <Users class="h-4 w-4" />
-            </Button>
-            <Button
-              v-if="projectAccessCan(project.access, 'delete')"
-              variant="ghost"
-              size="icon"
-              class="h-8 w-8 text-muted-foreground hover:text-destructive"
-              title="删除项目"
-              aria-label="删除项目"
-              @click.stop="emit('confirm-delete', project, $event)"
-            >
-              <Trash2 class="h-4 w-4" />
-            </Button>
-          </div>
-        </article>
-      </div>
-
-      <div
-        v-else
-        class="flex min-h-64 flex-col items-center justify-center text-muted-foreground"
-      >
-        <Video class="mb-2 h-10 w-10 opacity-50" />
-        <p>{{ hasActiveFilters ? '没有匹配结果' : '暂无项目' }}</p>
-        <Button
-          v-if="!hasActiveFilters"
-          variant="link"
-          class="mt-2"
-          @click="emit('open-create')"
-        >
-          创建第一个项目
-        </Button>
-      </div>
-    </div>
-
     <Table
-      class="min-w-[1000px] table-fixed"
-      container-class="hidden min-h-0 flex-1 lg:block"
+      class="min-w-[880px] table-fixed"
+      container-class="h-full"
     >
       <TableHeader>
         <TableRow>
           <TableHead class="whitespace-nowrap">
             项目名称
           </TableHead>
-          <TableHead class="project-description whitespace-nowrap">
-            描述
-          </TableHead>
           <TableHead class="w-[140px] whitespace-nowrap">
             画风
           </TableHead>
-          <TableHead class="w-[100px] whitespace-nowrap">
+          <TableHead
+            v-if="showOwnerColumn"
+            class="w-[110px] whitespace-nowrap"
+          >
             创建成员
           </TableHead>
-          <TableHead class="w-[96px] whitespace-nowrap">
+          <TableHead class="w-[90px] whitespace-nowrap">
             剧本类型
           </TableHead>
-          <TableHead class="w-[80px] whitespace-nowrap">
+          <TableHead class="w-[64px] whitespace-nowrap">
             比例
           </TableHead>
-          <TableHead class="w-[80px] whitespace-nowrap">
-            场景数
+          <TableHead class="w-[170px] whitespace-nowrap">
+            出片进度
           </TableHead>
-          <TableHead class="w-[80px] whitespace-nowrap">
-            状态
+          <TableHead class="w-[96px] whitespace-nowrap">
+            更新
           </TableHead>
-          <TableHead class="project-created w-[140px] whitespace-nowrap">
-            创建时间
-          </TableHead>
-          <TableHead class="w-[140px] whitespace-nowrap">
-            更新时间
-          </TableHead>
-          <TableHead class="project-actions sticky right-0 top-0 z-30 w-[84px] whitespace-nowrap bg-background text-center">
-            操作
+          <TableHead class="w-[84px] whitespace-nowrap text-right">
+            <span class="sr-only">操作</span>
           </TableHead>
         </TableRow>
       </TableHeader>
@@ -259,205 +105,128 @@ function resolveScriptParseModeLabel(mode?: ScriptParseMode): string {
           v-for="project in projects"
           :key="project.id"
           class="group cursor-pointer hover:bg-muted/50"
+          tabindex="0"
           @click="emit('open-project', project)"
+          @keydown.enter.self="emit('open-project', project)"
         >
-          <TableCell class="font-medium">
-            <div class="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span class="min-w-0 max-w-full truncate" :title="project.title">{{ project.title }}</span>
-              <Badge v-if="project.access && !project.access.isOwner" variant="outline" class="shrink-0 whitespace-nowrap">
-                {{ PROJECT_ROLE_LABELS[project.access.role] }}
-              </Badge>
-              <Badge v-if="project.cloudSyncStatus === 'conflict'" variant="destructive" class="shrink-0 whitespace-nowrap" :title="`${project.cloudSyncError || '云端项目版本冲突'}。本地修改已保留，可点击处理同步冲突。`">
-                云同步冲突
-              </Badge>
-              <Button
-                v-if="project.cloudSyncStatus === 'conflict' && (!project.access || projectAccessCan(project.access, 'edit'))"
-                variant="outline"
-                size="sm"
-                class="h-7 shrink-0 px-2 text-xs"
-                @click.stop="emit('resolve-sync-conflict', project)"
-              >处理冲突</Button>
-              <Badge v-else-if="project.cloudSyncStatus === 'pending' && project.cloudSyncError" variant="outline" :title="`云同步待重试：${project.cloudSyncError}`">
-                云同步待重试
-              </Badge>
+          <TableCell>
+            <div class="flex min-w-0 items-center gap-3">
+              <div class="flex aspect-video w-16 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+                <LazyImage
+                  v-if="project.coverImage"
+                  :image="project.coverImage"
+                  :alt="`${project.title} 封面`"
+                  class="h-full w-full object-cover"
+                  placeholder-class="bg-muted"
+                />
+                <Clapperboard
+                  v-else
+                  class="h-4 w-4 text-muted-foreground/50"
+                />
+              </div>
+              <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span
+                  class="min-w-0 max-w-full truncate font-medium"
+                  :title="project.title"
+                >{{ project.title }}</span>
+                <ProjectSyncBadges
+                  :project="project"
+                  @resolve-sync-conflict="emit('resolve-sync-conflict', $event)"
+                />
+              </div>
             </div>
           </TableCell>
-          <TableCell class="project-description truncate text-muted-foreground" :title="project.description || '暂无描述'">
-            {{ project.description || '暂无描述' }}
+          <TableCell
+            class="truncate text-sm text-muted-foreground"
+            :title="getStyleName(project.styleId)"
+          >
+            {{ getStyleName(project.styleId) }}
           </TableCell>
-          <TableCell class="truncate" :title="getStyleName(project.styleId)">
-            <span class="text-sm">{{ getStyleName(project.styleId) }}</span>
+          <TableCell
+            v-if="showOwnerColumn"
+            class="truncate text-sm text-muted-foreground"
+            :title="resolveOwner(project) || '我'"
+          >
+            {{ resolveOwner(project) || '我' }}
           </TableCell>
-          <TableCell class="truncate text-sm" :title="project.ownerDisplayName || project.ownerAccount || '-'">
-            {{ project.ownerDisplayName || project.ownerAccount || '-' }}
+          <TableCell class="whitespace-nowrap text-sm text-muted-foreground">
+            {{ resolveScriptParseModeLabel(project.scriptParseMode) }}
           </TableCell>
-          <TableCell class="whitespace-nowrap">
-            <Badge variant="outline">
-              {{ resolveScriptParseModeLabel(project.scriptParseMode) }}
-            </Badge>
+          <TableCell class="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
+            {{ project.aspectRatio }}
           </TableCell>
-          <TableCell class="whitespace-nowrap">
-            <Badge variant="outline">
-              {{ project.aspectRatio }}
-            </Badge>
-          </TableCell>
-          <TableCell class="whitespace-nowrap">
-            <div class="flex items-center gap-1">
-              <Video class="h-3.5 w-3.5 text-muted-foreground" />
-              <span>{{ project.totalScenes }}</span>
+          <TableCell>
+            <div class="space-y-1">
+              <div
+                class="h-1.5 overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                :aria-valuenow="resolveProjectProgress(project).percent"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-label="resolveProjectProgress(project).label"
+              >
+                <div
+                  class="h-full rounded-full"
+                  :class="resolveProjectProgress(project).percent === 100 ? 'bg-success' : 'bg-primary'"
+                  :style="{ width: `${resolveProjectProgress(project).percent}%` }"
+                />
+              </div>
+              <p class="text-xs tabular-nums text-muted-foreground">
+                {{ resolveProjectProgress(project).label }}
+              </p>
             </div>
           </TableCell>
-          <TableCell class="whitespace-nowrap">
-            <Badge :variant="statusMap[project.status || 'draft']?.variant || 'secondary'">
-              {{ statusMap[project.status || 'draft']?.label || '草稿' }}
-            </Badge>
+          <TableCell
+            class="whitespace-nowrap text-sm text-muted-foreground"
+            :title="`更新于 ${formatProjectDateTime(project.updatedAt)}`"
+          >
+            {{ formatProjectRelativeTime(project.updatedAt) }}
           </TableCell>
-          <TableCell class="project-created whitespace-nowrap text-sm">
-            <div class="flex flex-col">
-              <span>{{ formatProjectRelativeTime(project.createdAt) }}</span>
-              <span class="text-xs text-muted-foreground">
-                {{ formatProjectDateTime(project.createdAt) }}
-              </span>
-            </div>
-          </TableCell>
-          <TableCell class="whitespace-nowrap text-sm">
-            <div class="flex flex-col">
-              <span>{{ formatProjectRelativeTime(project.updatedAt) }}</span>
-              <span class="text-xs text-muted-foreground">
-                {{ formatProjectDateTime(project.updatedAt) }}
-              </span>
-            </div>
-          </TableCell>
-          <TableCell class="project-actions sticky right-0 z-20 whitespace-nowrap bg-background text-center">
-            <div class="inline-flex items-center justify-center gap-1">
-              <Button
+          <TableCell
+            class="text-right"
+            @click.stop
+          >
+            <div class="inline-flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              <IconActionButton
                 v-if="projectAccessCan(project.access, 'manage_members')"
-                variant="ghost"
-                size="icon"
-                class="h-8 w-8 text-muted-foreground transition-transform hover:text-foreground active:scale-[0.96]"
-                title="管理项目成员"
-                aria-label="管理项目成员"
-                @click.stop="emit('manage-members', project)"
+                label="管理项目成员"
+                @click="emit('manage-members', project)"
               >
-                <Users class="h-4 w-4" />
-              </Button>
-              <Button
+                <Users class="h-3.5 w-3.5" />
+              </IconActionButton>
+              <IconActionButton
                 v-if="projectAccessCan(project.access, 'delete')"
-                variant="ghost"
-                size="icon"
-                class="h-8 w-8 text-muted-foreground hover:text-destructive"
-                title="删除项目"
-                aria-label="删除项目"
-                @click.stop="emit('confirm-delete', project, $event)"
+                label="删除项目"
+                destructive
+                @click="emit('confirm-delete', project, $event)"
               >
-                <Trash2 class="h-4 w-4" />
-              </Button>
+                <Trash2 class="h-3.5 w-3.5" />
+              </IconActionButton>
             </div>
           </TableCell>
         </TableRow>
 
         <TableRow v-if="projects.length === 0">
           <TableCell
-            :colspan="11"
-            class="h-32 text-center"
+            :colspan="columnCount"
+            class="h-40 text-center"
           >
-            <div class="flex flex-col items-center justify-center text-muted-foreground">
-              <Video class="mb-2 h-10 w-10 opacity-50" />
-              <p>{{ hasActiveFilters ? '没有匹配结果' : '暂无项目' }}</p>
+            <div class="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+              <Clapperboard class="h-8 w-8 opacity-50" />
+              <p class="text-sm">
+                {{ hasActiveFilters ? '没有符合条件的项目' : '还没有项目' }}
+              </p>
               <Button
                 v-if="!hasActiveFilters"
                 variant="link"
-                class="mt-2"
                 @click="emit('open-create')"
               >
-                创建第一个项目
+                新建视频项目
               </Button>
             </div>
           </TableCell>
         </TableRow>
       </TableBody>
     </Table>
-
-    <div class="shrink-0 flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div class="text-xs text-muted-foreground">
-        第 {{ currentPage }} / {{ totalPages }} 页，共 {{ totalProjects }} 条
-      </div>
-      <div class="flex items-center gap-2 self-end sm:self-auto">
-        <div class="flex items-center gap-1 text-xs text-muted-foreground">
-          <span>每页</span>
-          <Select
-            :model-value="String(pageSize)"
-            @update:model-value="emit('page-size-change', String($event))"
-          >
-            <SelectTrigger class="h-8 w-[88px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem
-                v-for="size in pageSizeOptions"
-                :key="size"
-                :value="String(size)"
-              >
-                {{ size }} 条
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-8 px-2.5 text-xs"
-          :disabled="loading || currentPage <= 1"
-          @click="emit('page-change', currentPage - 1)"
-        >
-          上一页
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-8 px-2.5 text-xs"
-          :disabled="loading || currentPage >= totalPages"
-          @click="emit('page-change', currentPage + 1)"
-        >
-          下一页
-        </Button>
-      </div>
-    </div>
-  </Card>
+  </div>
 </template>
-
-<style scoped>
-.projects-table {
-  container-type: inline-size;
-}
-
-.project-description,
-.project-created {
-  display: none;
-}
-
-.project-actions {
-  box-shadow: -1px 0 0 hsl(var(--border));
-}
-
-td.project-actions {
-  background-color: color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background)));
-}
-
-tr:hover > td.project-actions {
-  background-color: color-mix(in srgb, hsl(var(--muted)) 65%, hsl(var(--background)));
-}
-
-@container (min-width: 1280px) {
-  .project-description {
-    display: table-cell;
-    width: 220px;
-  }
-}
-
-@container (min-width: 1480px) {
-  .project-created {
-    display: table-cell;
-  }
-}
-</style>

@@ -38,7 +38,7 @@ export function useProjectsIndexPage() {
   const statusFilter = ref<ProjectStatusFilter>('all')
   const sortBy = ref<ProjectSortBy>('updated')
   const currentPage = ref(1)
-  const pageSize = ref(10)
+  const pageSize = ref(12)
   const totalProjects = ref(0)
   const pageSizeOptions = projectPageSizeOptions
   let mountedUserId: string | undefined

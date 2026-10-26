@@ -18,6 +18,11 @@ export interface Project {
   aspectRatio: string
   status: string | null
   totalScenes: number
+  /** Scenes whose video is generated. */
+  completedScenes?: number
+  totalDuration?: number
+  /** First scene frame, or the first character image when no frame exists yet. */
+  coverImage?: string | null
   createdAt: string
   updatedAt: string
   collaboration?: boolean
@@ -57,7 +62,7 @@ export interface ProjectDraft {
   requirements: string
 }
 
-export const projectPageSizeOptions = [10, 20, 50]
+export const projectPageSizeOptions = [12, 24, 48]
 
 export function projectLastOpenedStorageKey(userId?: string | null): string | null {
   const normalizedUserId = userId?.trim()
@@ -164,3 +169,26 @@ export function formatProjectDateTime(dateStr: string): string {
 
   return `${year}-${month}-${day} ${hours}:${minutes}`
 }
+
+export interface ProjectProgress {
+  done: number
+  total: number
+  /** 0-100, for a progress bar. */
+  percent: number
+  label: string
+}
+
+export function resolveProjectProgress(project: Pick<Project, 'totalScenes' | 'completedScenes'>): ProjectProgress {
+  const total = Math.max(0, Number(project.totalScenes) || 0)
+  const done = Math.min(total, Math.max(0, Number(project.completedScenes) || 0))
+  if (total === 0) return { done: 0, total: 0, percent: 0, label: '尚未解析剧本' }
+  return {
+    done,
+    total,
+    percent: Math.round((done / total) * 100),
+    label: done === total ? `已全部出片 · ${total} 个场景` : `已出片 ${done} / ${total}`
+  }
+}
+
+export const PROJECT_VIEW_MODE_STORAGE_KEY = 'playlet:projects-view-mode'
+export type ProjectViewMode = 'grid' | 'list'

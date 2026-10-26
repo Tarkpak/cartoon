@@ -6043,7 +6043,21 @@ async fn api_project_list(
                 COALESCE(SUM(s.duration), 0),
                 (SELECT role FROM project_members current_pm WHERE current_pm.project_id = p.id AND current_pm.user_id = ?),
                 (SELECT permissions_json FROM project_members current_pm WHERE current_pm.project_id = p.id AND current_pm.user_id = ?),
-                EXISTS(SELECT 1 FROM system_config config WHERE config.key = 'project_collaboration_enabled:' || p.id AND config.value = 'true')
+                EXISTS(SELECT 1 FROM system_config config WHERE config.key = 'project_collaboration_enabled:' || p.id AND config.value = 'true'),
+                -- Cover: first scene frame, else the first character image. Inline data URLs are skipped to keep the list small.
+                COALESCE(
+                  (SELECT cover_scene.first_frame FROM scripts cover_script
+                     JOIN scenes cover_scene ON cover_scene.script_id = cover_script.id
+                    WHERE cover_script.project_id = p.id
+                      AND cover_scene.first_frame IS NOT NULL AND cover_scene.first_frame <> ''
+                      AND cover_scene.first_frame NOT LIKE 'data:%'
+                    ORDER BY cover_scene.order_index LIMIT 1),
+                  (SELECT cover_character.base_image FROM characters cover_character
+                    WHERE cover_character.project_id = p.id
+                      AND cover_character.base_image IS NOT NULL AND cover_character.base_image <> ''
+                      AND cover_character.base_image NOT LIKE 'data:%'
+                    ORDER BY cover_character.created_at LIMIT 1)
+                )
          FROM paged_projects p
          LEFT JOIN scripts sc ON sc.project_id = p.id
          LEFT JOIN scenes s ON s.script_id = sc.id
@@ -6097,6 +6111,7 @@ async fn api_project_list(
               "createdAt": row.get::<_, String>(8)?,
               "updatedAt": row.get::<_, String>(9)?,
               "collaboration": row.get::<_, bool>(20)?,
+              "coverImage": row.get::<_, Option<String>>(21)?,
               "cloudSyncStatus": row.get::<_, String>(13)?,
               "cloudSyncError": row.get::<_, Option<String>>(14)?,
               "ownerUserId": owner_user_id,
