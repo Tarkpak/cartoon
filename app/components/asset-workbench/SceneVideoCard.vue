@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Clock3, History, Loader2, Merge, MessageCircle, Split, Trash2 } from 'lucide-vue-next'
+import { Clock3, History, ImagePlus, Loader2, Merge, MessageCircle, Split, Trash2 } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
@@ -206,46 +206,35 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
         </Badge>
 
         <div class="flex max-w-0 items-center gap-1 overflow-hidden opacity-0 transition-all duration-200 group-hover:max-w-40 group-hover:opacity-100">
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 w-7 p-0"
-            title="对话修改场景"
+          <IconActionButton
+            label="对话修改场景"
             :disabled="sceneBusy"
             @click.stop="onToggleSceneChat(scene)"
           >
             <MessageCircle class="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 w-7 p-0"
-            title="拆分场景"
+          </IconActionButton>
+          <IconActionButton
+            label="拆分场景"
             :disabled="sceneBusy"
             @click.stop="onHandleSplitScene(scene.id)"
           >
             <Split class="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 w-7 p-0"
-            title="与下一场景合并"
+          </IconActionButton>
+          <IconActionButton
+            label="与下一场景合并"
             :disabled="!canMergeWithNext"
             @click.stop="onHandleMergeWithNextScene(scene.id)"
           >
             <Merge class="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 w-7 p-0 text-destructive hover:text-destructive"
-            title="删除场景"
+          </IconActionButton>
+          <IconActionButton
+            label="删除场景"
             :disabled="sceneBusy"
+            destructive
             @click.stop="onHandleDeleteScene(scene)"
           >
             <Trash2 class="h-3.5 w-3.5" />
-          </Button>
+          </IconActionButton>
         </div>
       </div>
     </div>
@@ -449,19 +438,6 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
     <div class="mt-3 flex items-center gap-2">
       <Button
         size="sm"
-        variant="outline"
-        class="h-7 px-2 text-xs"
-        :disabled="sceneBusy"
-        @click.stop="onGenerateSceneBaseline(scene.id)"
-      >
-        <Loader2
-          v-if="scene.referenceStatus === 'generating'"
-          class="mr-1 h-3.5 w-3.5 animate-spin"
-        />
-        {{ resolveSceneReferenceImage(scene) ? '重新生成环境图' : '生成环境图' }}
-      </Button>
-      <Button
-        size="sm"
         class="h-7 px-2 text-xs"
         :disabled="sceneBusy"
         @click.stop="onRetryScene(scene.id)"
@@ -472,16 +448,22 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
         />
         {{ scenePreparing ? '准备中' : scene.videoUrl ? '重新生成视频' : '生成视频' }}
       </Button>
-      <Button
+      <IconActionButton
+        :label="resolveSceneReferenceImage(scene) ? '重新生成环境图' : '生成环境图'"
+        :disabled="sceneBusy"
+        :loading="scene.referenceStatus === 'generating'"
+        @click.stop="onGenerateSceneBaseline(scene.id)"
+      >
+        <ImagePlus class="h-3.5 w-3.5" />
+      </IconActionButton>
+      <IconActionButton
         v-if="sceneVideoHistoryCount > 0"
-        size="sm"
-        variant="ghost"
-        class="h-7 px-2 text-xs"
+        :label="`视频历史版本（${sceneVideoHistoryCount}）`"
+        :badge="sceneVideoHistoryCount"
         @click.stop.prevent="onOpenSceneVideoHistory(scene.id)"
       >
-        <History class="mr-1 h-3.5 w-3.5" />
-        历史 {{ sceneVideoHistoryCount }}
-      </Button>
+        <History class="h-3.5 w-3.5" />
+      </IconActionButton>
     </div>
 
     <AssetWorkbenchSceneChatPanel

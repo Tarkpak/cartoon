@@ -39,16 +39,12 @@ const emit = defineEmits<{
   <div class="flex shrink-0 flex-col gap-1.5 border-b pb-2">
     <div class="flex flex-wrap items-center gap-3 lg:flex-nowrap">
       <div class="flex min-w-0 items-center gap-2 lg:max-w-sm">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8 shrink-0 rounded-full"
-          aria-label="返回项目列表"
-          title="返回项目列表"
+        <IconActionButton
+          label="返回项目列表"
           @click="emit('back')"
         >
           <ArrowLeft class="h-4 w-4" />
-        </Button>
+        </IconActionButton>
         <div class="min-w-0" :title="[projectDescription, styleSummary, projectAspectRatio].filter(Boolean).join(' · ')">
           <h1 :title="projectName" class="truncate text-base font-semibold leading-5 tracking-tight">
             {{ projectName || 'AI 视频创作工作台' }}

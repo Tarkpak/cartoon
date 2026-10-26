@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AudioLines, History, Loader2, Lock, Package, Plus, Sparkles, Trash2, Upload } from 'lucide-vue-next'
+import { AudioLines, History, ImageUp, Loader2, Lock, Package, Plus, Sparkles, Trash2, Upload } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
 import SaveToPersonalLibraryButton from './SaveToPersonalLibraryButton.vue'
 import type {
@@ -345,7 +345,7 @@ function buildImageLoadKey(prop: PropAsset): string {
         <div class="flex items-start gap-3 p-3">
           <!-- Thumbnail -->
           <div
-            class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/40"
+            class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/40"
             :class="prop.referenceImage ? 'cursor-zoom-in' : ''"
             @click="prop.referenceImage && emit('preview-image', { src: prop.referenceImage, alt: `${prop.name} 参考图` })"
           >
@@ -447,20 +447,13 @@ function buildImageLoadKey(prop: PropAsset): string {
           <span class="text-xs text-muted-foreground/60">
             {{ getPropUsageCount(prop.id) }} 个场景引用
           </span>
-          <div class="flex flex-wrap items-center gap-1">
-            <SaveToPersonalLibraryButton
-              :asset-key="`${prop.category === 'other' ? 'others' : 'props'}:${prop.id}`"
-              :available="!!(prop.referenceImage || prop.voiceAsset?.audioUrl)"
-              :busy="!!savingLibraryAssetKey"
-              :saving="savingLibraryAssetKey === `${prop.category === 'other' ? 'others' : 'props'}:${prop.id}`"
-              @save="emit('save-to-library', prop.id)"
-            />
+          <div class="flex flex-wrap items-center gap-0.5">
             <Button
               v-if="!showMediaSubTabs || otherAssetMediaSubTab === 'image'"
               type="button"
               size="sm"
-              variant="ghost"
-              class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              :variant="prop.referenceImage ? 'outline' : 'default'"
+              class="h-7 px-2.5 text-xs"
               :disabled="autoRunning || !!uploadingPropId || !!generatingPropId || !prop.name.trim()"
               @click="emit('generate-prop', prop.id)"
             >
@@ -474,64 +467,47 @@ function buildImageLoadKey(prop: PropAsset): string {
               />
               {{ resolveGenerateLabel(prop) }}
             </Button>
-            <Button
+            <IconActionButton
               v-if="!showMediaSubTabs || otherAssetMediaSubTab === 'image'"
-              type="button"
-              size="sm"
-              variant="ghost"
-              class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              :label="prop.referenceImage ? '更换图片' : '上传图片'"
               :disabled="autoRunning || !!uploadingPropId"
+              :loading="uploadingPropId === prop.id"
               @click="triggerUploadInput(prop.id)"
             >
-              <Loader2
-                v-if="uploadingPropId === prop.id"
-                class="mr-1 h-3 w-3 animate-spin"
-              />
-              <Upload
-                v-else
-                class="mr-1 h-3 w-3"
-              />
-              {{ prop.referenceImage ? '更换' : '上传' }}
-            </Button>
-            <Button
+              <ImageUp class="h-3.5 w-3.5" />
+            </IconActionButton>
+            <IconActionButton
               v-if="allowVoiceUpload && (!showMediaSubTabs || otherAssetMediaSubTab === 'voice')"
-              type="button"
-              size="sm"
-              variant="ghost"
-              class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              :label="prop.voiceAsset?.audioUrl ? '替换音频' : '上传音频'"
               :disabled="autoRunning || !!uploadingPropVoiceId"
+              :loading="uploadingPropVoiceId === prop.id"
               @click="triggerVoiceUploadInput(prop.id)"
             >
-              <Loader2
-                v-if="uploadingPropVoiceId === prop.id"
-                class="mr-1 h-3 w-3 animate-spin"
-              />
-              <AudioLines
-                v-else
-                class="mr-1 h-3 w-3"
-              />
-              {{ prop.voiceAsset?.audioUrl ? '替换音频' : '上传音频' }}
-            </Button>
-            <Button
+              <AudioLines class="h-3.5 w-3.5" />
+            </IconActionButton>
+            <IconActionButton
               v-if="resolveHistoryCount(prop) > 1"
-              type="button"
-              size="sm"
-              variant="ghost"
-              class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              :label="`历史版本（${resolveHistoryCount(prop)}）`"
+              :badge="resolveHistoryCount(prop)"
               @click="emit('open-history', prop.id)"
             >
-              <History class="mr-1 h-3 w-3" />
-              历史 {{ resolveHistoryCount(prop) }}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              class="h-7 w-7 p-0 text-muted-foreground/60 hover:text-destructive"
+              <History class="h-3.5 w-3.5" />
+            </IconActionButton>
+            <SaveToPersonalLibraryButton
+              icon-only
+              :asset-key="`${prop.category === 'other' ? 'others' : 'props'}:${prop.id}`"
+              :available="!!(prop.referenceImage || prop.voiceAsset?.audioUrl)"
+              :busy="!!savingLibraryAssetKey"
+              :saving="savingLibraryAssetKey === `${prop.category === 'other' ? 'others' : 'props'}:${prop.id}`"
+              @save="emit('save-to-library', prop.id)"
+            />
+            <IconActionButton
+              :label="`删除${assetLabel || '道具'}`"
+              destructive
               @click="emit('remove-prop', prop.id)"
             >
               <Trash2 class="h-3.5 w-3.5" />
-            </Button>
+            </IconActionButton>
           </div>
           <Input
             :id="buildAssetUploadInputId('prop', prop.id)"

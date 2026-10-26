@@ -367,24 +367,20 @@ function handleRunFinal() {
                   {{ scene.duration }}s
                 </p>
               </div>
-              <Button
-                size="icon"
-                variant="ghost"
-                class="h-7 w-7"
+              <IconActionButton
+                label="上移"
                 :disabled="index === 0"
                 @click="moveScene(scene.id, 'up')"
               >
                 <ArrowUp class="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                class="h-7 w-7"
+              </IconActionButton>
+              <IconActionButton
+                label="下移"
                 :disabled="index === orderedScenes.length - 1"
                 @click="moveScene(scene.id, 'down')"
               >
                 <ArrowDown class="h-3.5 w-3.5" />
-              </Button>
+              </IconActionButton>
             </div>
           </div>
         </div>
@@ -412,7 +408,7 @@ function handleRunFinal() {
                 <AudioLines class="h-4 w-4 text-primary" />
                 <span class="min-w-0 flex-1 truncate text-xs font-medium">{{ track.name }}</span>
                 <span class="text-xs text-muted-foreground">{{ track.kind === 'bgm' ? 'BGM' : '音效' }}</span>
-                <Button size="icon" variant="ghost" class="h-7 w-7" title="删除音轨" @click="removeAudioTrack(track.id)"><Trash2 class="h-3.5 w-3.5" /></Button>
+                <IconActionButton label="删除音轨" destructive @click="removeAudioTrack(track.id)"><Trash2 class="h-3.5 w-3.5" /></IconActionButton>
               </div>
               <div class="relative mt-2 h-6 overflow-hidden rounded bg-muted">
                 <div class="absolute inset-y-1 rounded bg-primary/65" :style="audioTrackStyle(track)" />

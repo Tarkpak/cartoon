@@ -19,6 +19,12 @@ import { prepareSubtitleErasureSource } from '~/lib/subtitle-erasure-source'
 import { useSubtitleErasureSettings } from '~/composables/useSubtitleErasureSettings'
 import { ensureVideoHistoryEntry } from '~/lib/asset-history'
 import { resolveVideoPreviewAspectRatio } from '~/lib/video-preview-aspect-ratio'
+import {
+  matchesSceneListFilter,
+  resolveSceneListStatus,
+  type SceneListFilter,
+  type SceneListStatus
+} from '~/lib/asset-workbench-progress'
 
 interface SceneEpisodeGroup {
   id: string
@@ -606,6 +612,75 @@ function resolveSceneGlobalIndex(sceneId: string): number {
   return sceneIndexMap.value.get(sceneId) ?? -1
 }
 
+const SCENE_LIST_FILTERS: Array<{ key: SceneListFilter, label: string }> = [
+  { key: 'all', label: '全部' },
+  { key: 'unfinished', label: '未完成' },
+  { key: 'error', label: '失败' }
+]
+const SCENE_STATUS_DOT_CLASS: Record<SceneListStatus, string> = {
+  done: 'bg-success',
+  running: 'bg-primary motion-safe:animate-pulse',
+  error: 'bg-destructive',
+  pending: 'bg-muted-foreground/30'
+}
+const SCENE_STATUS_LABEL: Record<SceneListStatus, string> = {
+  done: '已出片',
+  running: '生成中',
+  error: '失败',
+  pending: '待生成'
+}
+
+const sceneListFilter = ref<SceneListFilter>('all')
+const sceneListContainer = ref<HTMLElement | null>(null)
+
+const selectedEpisodeSceneStatuses = computed(() => {
+  return new Map(selectedEpisodeScenes.value.map(scene => [
+    scene.id,
+    resolveSceneListStatus(scene, props.isSceneBusy(scene))
+  ] as const))
+})
+
+function resolveSceneStatus(sceneId: string): SceneListStatus {
+  return selectedEpisodeSceneStatuses.value.get(sceneId) ?? 'pending'
+}
+
+const sceneFilterCounts = computed<Record<SceneListFilter, number>>(() => {
+  const statuses = [...selectedEpisodeSceneStatuses.value.values()]
+  return {
+    all: statuses.length,
+    unfinished: statuses.filter(status => matchesSceneListFilter(status, 'unfinished')).length,
+    error: statuses.filter(status => status === 'error').length
+  }
+})
+
+const visibleEpisodeScenes = computed(() => {
+  return selectedEpisodeScenes.value.filter(scene => matchesSceneListFilter(resolveSceneStatus(scene.id), sceneListFilter.value))
+})
+
+watch(sceneListFilter, () => {
+  sceneListContainer.value?.scrollTo({ top: 0 })
+})
+
+// A selection made elsewhere (task panel, preview) must stay visible in the list.
+watch(() => props.selectedSceneId, (sceneId) => {
+  if (!sceneId || sceneListFilter.value === 'all') return
+  if (selectedEpisodeSceneStatuses.value.has(sceneId) && !visibleEpisodeScenes.value.some(scene => scene.id === sceneId)) {
+    sceneListFilter.value = 'all'
+  }
+})
+
+function resolveSceneThumbnail(scene: SceneData): string | undefined {
+  return scene.firstFrame || props.resolveSceneReferenceImage(scene)
+}
+
+function focusScene(sceneId: string) {
+  props.onSelectScene(sceneId)
+  void nextTick(() => {
+    const card = sceneListContainer.value?.querySelector<HTMLElement>(`[data-scene-id="${CSS.escape(sceneId)}"]`)
+    card?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  })
+}
+
 function handleSelectEpisode(groupId: string) {
   if (!groupId.trim()) return
   activeEpisodeId.value = groupId
@@ -707,21 +782,21 @@ watch(episodeDirectoryCollapsed, (value) => {
         >
           <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span
-              class="inline-block h-2 w-2 rounded-full bg-blue-500"
+              class="inline-block h-2 w-2 rounded-full bg-muted-foreground/40"
               aria-hidden="true"
             />
             场景 {{ scenes.length }}
           </div>
           <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span class="inline-block h-2 w-2 rounded-full bg-amber-500" />
+            <span class="inline-block h-2 w-2 rounded-full bg-muted-foreground/40" aria-hidden="true" />
             分集 {{ episodeCount }}
           </div>
           <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span class="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+            <span class="inline-block h-2 w-2 rounded-full bg-primary/60" aria-hidden="true" />
             环境图就绪 {{ readySceneCount }}
           </div>
           <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span class="inline-block h-2 w-2 rounded-full bg-violet-500" />
+            <span class="inline-block h-2 w-2 rounded-full bg-success" aria-hidden="true" />
             视频完成 {{ queueSummary.done }}
           </div>
           <div
@@ -794,9 +869,12 @@ watch(episodeDirectoryCollapsed, (value) => {
             </div>
 
             <div class="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
-              <Button
+              <div
                 v-for="episode in episodeDirectoryItems"
                 :key="episode.id"
+                class="space-y-0.5"
+              >
+              <Button
                 type="button"
                 variant="ghost"
                 class="h-auto w-full justify-start rounded-xl bg-muted/15 px-2 py-1.5 text-left text-xs transition-colors"
@@ -816,6 +894,49 @@ watch(episodeDirectoryCollapsed, (value) => {
                   {{ resolveEpisodeStatsText(episode) }}
                 </div>
               </Button>
+              <ul
+                v-if="selectedEpisodeId === episode.id && selectedEpisodeScenes.length > 0"
+                class="space-y-0.5 py-1 pl-1"
+                :aria-label="`${resolveEpisodeDisplayTitle(episode)} 的场景`"
+              >
+                <li
+                  v-for="scene in selectedEpisodeScenes"
+                  :key="scene.id"
+                >
+                  <button
+                    type="button"
+                    class="grid w-full grid-cols-[48px_minmax(0,1fr)] items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    :class="selectedSceneId === scene.id ? 'bg-primary/10 text-foreground' : 'text-foreground/80 hover:bg-muted/60'"
+                    :aria-current="selectedSceneId === scene.id ? 'true' : undefined"
+                    :title="`场景 ${resolveSceneGlobalIndex(scene.id) + 1} · ${scene.title} · ${SCENE_STATUS_LABEL[resolveSceneStatus(scene.id)]}`"
+                    @click="focusScene(scene.id)"
+                  >
+                    <LazyImage
+                      :image="resolveSceneThumbnail(scene)"
+                      :alt="scene.title"
+                      class="aspect-video w-12 rounded object-cover"
+                      placeholder-class="bg-muted"
+                    />
+                    <span class="min-w-0">
+                      <span class="flex items-center gap-1.5">
+                        <span
+                          class="h-1.5 w-1.5 shrink-0 rounded-full"
+                          :class="SCENE_STATUS_DOT_CLASS[resolveSceneStatus(scene.id)]"
+                          aria-hidden="true"
+                        />
+                        <span class="truncate">{{ scene.title }}</span>
+                      </span>
+                      <span
+                        class="mt-0.5 block truncate tabular-nums"
+                        :class="resolveSceneStatus(scene.id) === 'error' ? 'text-destructive' : 'text-muted-foreground'"
+                      >
+                        {{ resolveSceneGlobalIndex(scene.id) + 1 }} · {{ resolveSceneDuration(scene) }}s · {{ SCENE_STATUS_LABEL[resolveSceneStatus(scene.id)] }}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              </ul>
+              </div>
             </div>
             <div
               v-if="selectedEpisodeDirectoryItem"
@@ -896,18 +1017,59 @@ watch(episodeDirectoryCollapsed, (value) => {
               class="h-3 w-3"
             />
           </Button>
-          <span>{{ sceneListHeaderLabel }}</span>
+          <span class="min-w-0 truncate">{{ sceneListHeaderLabel }}</span>
+          <div
+            v-if="selectedEpisodeScenes.length > 0"
+            class="ml-auto flex shrink-0 items-center gap-0.5 rounded-lg bg-background/60 p-0.5"
+            role="group"
+            aria-label="按状态筛选场景"
+          >
+            <button
+              v-for="option in SCENE_LIST_FILTERS"
+              :key="option.key"
+              type="button"
+              class="rounded-md px-2 py-0.5 tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+              :class="sceneListFilter === option.key
+                ? 'bg-background font-medium text-foreground shadow-sm'
+                : option.key === 'error' && sceneFilterCounts.error > 0
+                  ? 'text-destructive hover:bg-background/70'
+                  : 'hover:bg-background/70 hover:text-foreground'"
+              :aria-pressed="sceneListFilter === option.key"
+              :disabled="option.key !== 'all' && sceneFilterCounts[option.key] === 0"
+              @click="sceneListFilter = option.key"
+            >
+              {{ option.label }} {{ sceneFilterCounts[option.key] }}
+            </button>
+          </div>
         </div>
-        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto">
+        <div
+          ref="sceneListContainer"
+          class="min-h-0 flex-1 space-y-2 overflow-y-auto"
+        >
           <div
             v-if="selectedEpisodeScenes.length === 0"
             class="rounded-xl bg-muted/15 bg-muted/20 px-3 py-4 text-xs text-muted-foreground"
           >
             {{ emptySelectedEpisodeMessage }}
           </div>
+          <div
+            v-else-if="visibleEpisodeScenes.length === 0"
+            class="rounded-xl bg-muted/20 px-3 py-4 text-xs text-muted-foreground"
+          >
+            本集没有符合筛选条件的场景。
+            <button
+              type="button"
+              class="text-primary hover:underline"
+              @click="sceneListFilter = 'all'"
+            >
+              显示全部
+            </button>
+          </div>
           <AssetWorkbenchSceneVideoCard
-            v-for="scene in selectedEpisodeScenes"
+            v-for="scene in visibleEpisodeScenes"
             :key="scene.id"
+            :data-scene-id="scene.id"
+            class="scroll-mt-2"
             :scene="scene"
             :index="resolveSceneGlobalIndex(scene.id)"
             :selected="selectedSceneId === scene.id"
@@ -983,50 +1145,40 @@ watch(episodeDirectoryCollapsed, (value) => {
                   {{ selectedScene.title }}
                 </div>
               </div>
-              <div class="flex shrink-0 items-center gap-1">
-                <Button
+              <div class="flex shrink-0 items-center gap-0.5">
+                <IconActionButton
                   v-if="selectedScene.videoUrl"
-                  variant="ghost"
-                  size="sm"
-                  class="h-8 shrink-0 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
-                  :disabled="selectedSceneErasing || isSceneBusy(selectedScene)"
-                  :aria-busy="selectedSceneErasing"
+                  :label="selectedSceneErasing ? '去字幕中…' : '去字幕'"
+                  :disabled="isSceneBusy(selectedScene)"
+                  :loading="selectedSceneErasing"
                   @click="eraseSelectedVideo"
                 >
-                  <Loader2 v-if="selectedSceneErasing" class="h-3.5 w-3.5 animate-spin" />
-                  <Eraser v-else class="h-3.5 w-3.5" :stroke-width="1.5" />
-                  {{ selectedSceneErasing ? '去字幕中...' : '去字幕' }}
-                </Button>
-                <Button
+                  <Eraser class="h-3.5 w-3.5" />
+                </IconActionButton>
+                <IconActionButton
                   v-if="selectedScene.videoUrl"
-                  variant="ghost"
-                  size="sm"
-                  class="h-8 shrink-0 gap-1.5 px-2 text-xs font-normal"
-                  :class="selectedVideoDownloaded
-                    ? 'text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300'
-                    : 'text-muted-foreground hover:text-foreground'"
-                  :title="selectedVideoDownloaded ? '此视频已下载，点击可重新下载' : '下载视频'"
-                  :disabled="downloadingVideo"
-                  :aria-busy="downloadingVideo"
+                  :label="downloadingVideo ? '下载中…' : selectedVideoDownloaded ? '已下载，点击重新下载' : '下载视频'"
+                  :loading="downloadingVideo"
+                  :success="selectedVideoDownloaded"
                   @click="downloadSelectedVideo"
                 >
-                  <Loader2 v-if="downloadingVideo" class="h-3.5 w-3.5 animate-spin" />
-                  <Check v-else-if="selectedVideoDownloaded" class="h-3.5 w-3.5" :stroke-width="2" />
-                  <Download v-else class="h-3.5 w-3.5" :stroke-width="1.5" />
-                  {{ downloadingVideo ? '下载中...' : selectedVideoDownloaded ? '已下载' : '下载' }}
-                </Button>
-                <Button
+                  <Check
+                    v-if="selectedVideoDownloaded"
+                    class="h-3.5 w-3.5"
+                  />
+                  <Download
+                    v-else
+                    class="h-3.5 w-3.5"
+                  />
+                </IconActionButton>
+                <IconActionButton
                   v-if="desktopRuntime"
-                  variant="ghost"
-                  size="icon"
-                  class="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-                  title="打开下载目录"
-                  aria-label="打开下载目录"
+                  label="打开下载目录"
                   :disabled="openingDownloadDirectory"
                   @click="openDownloadDirectory"
                 >
-                  <FolderOpen class="h-3.5 w-3.5" :stroke-width="1.5" />
-                </Button>
+                  <FolderOpen class="h-3.5 w-3.5" />
+                </IconActionButton>
               </div>
             </div>
             <div
@@ -1036,7 +1188,7 @@ watch(episodeDirectoryCollapsed, (value) => {
               <AssetWorkbenchSceneVoiceReferenceSummary :summary="selectedSceneVoiceReferenceSummary" />
             </div>
           </div>
-          <div class="min-h-0 flex flex-1 items-center justify-center p-4">
+          <div class="min-h-0 flex flex-1 items-start justify-center p-4">
             <div
               class="max-h-full max-w-full overflow-hidden rounded-lg bg-black/90 outline outline-1 outline-white/10"
               :class="previewAspectRatio.portrait ? 'h-full w-auto' : 'h-auto w-full'"

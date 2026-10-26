@@ -257,6 +257,7 @@ watch(
               isEnvironmentHistory ? 'asset-history-preview--environment' : '',
               isCharacterHistory ? 'asset-history-preview--character' : ''
             ]"
+            :aria-label="`放大查看 ${targetLabel} 历史资产`"
             @click="emit('preview', { src: selectedEntry.image, alt: `${targetLabel} 历史资产` })"
           >
             <LazyImage
@@ -336,6 +337,7 @@ watch(
               'h-auto w-full p-0 hover:bg-transparent',
               resolvePreviewClass(displayedEntries.length)
             ]"
+            :aria-label="`放大查看 ${targetLabel} 历史资产`"
             @click="emit('preview', { src: entry.image, alt: `${targetLabel} 历史资产` })"
           >
             <LazyImage

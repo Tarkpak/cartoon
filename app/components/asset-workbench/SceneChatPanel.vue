@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { History, Info, Loader2, Sparkles, Upload, X } from 'lucide-vue-next'
+import { History, ImageUp, Info, Loader2, Sparkles, X } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
 import type { DisplayAsset, SceneChatMentionCandidate, SceneChatMessage, SceneDescriptionVersion } from '~/lib/asset-workbench-types'
 
@@ -81,25 +81,21 @@ function formatVersionTime(timestamp: number) {
         </p>
       </div>
       <div class="flex items-center gap-1">
-        <Button
+        <IconActionButton
           v-if="descriptionHistory.length > 0"
-          size="sm"
-          variant="ghost"
-          class="h-7 gap-1 px-1.5 text-[11px]"
-          :class="historyOpen ? 'bg-accent' : ''"
+          :label="`描述历史版本（${descriptionHistory.length}）`"
+          :badge="descriptionHistory.length"
+          :active="historyOpen"
           @click.stop="historyOpen = !historyOpen"
         >
           <History class="h-3.5 w-3.5" />
-          历史 {{ descriptionHistory.length }}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          class="h-7 w-7 p-0"
+        </IconActionButton>
+        <IconActionButton
+          label="关闭对话"
           @click.stop="onClose()"
         >
           <X class="h-3.5 w-3.5" />
-        </Button>
+        </IconActionButton>
       </div>
     </div>
 
@@ -194,6 +190,8 @@ function formatVersionTime(timestamp: number) {
             variant="ghost"
             size="icon"
             class="h-3.5 w-3.5 rounded-sm p-0"
+            :aria-label="`移除 ${asset.name}`"
+            :title="`移除 ${asset.name}`"
             @click.stop="onRemoveComposerAsset(asset.id)"
           >
             <X class="h-3 w-3" />
@@ -249,35 +247,21 @@ function formatVersionTime(timestamp: number) {
       </div>
 
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          class="h-7 w-7 text-muted-foreground"
-          title="请输入二次改写指令，支持 @资产引用，也可以上传图片资产（自动归类到“其他”）后一起调整场景。"
-          aria-label="查看场景二次改写提示"
+        <IconActionButton
+          label="输入二次改写指令，支持 @资产引用，也可以上传图片资产（自动归类到“其他”）后一起调整场景。"
           @click.stop
         >
           <Info class="h-3.5 w-3.5" />
-        </Button>
+        </IconActionButton>
         <div class="flex items-center gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            class="h-7 px-2 text-xs"
-            :disabled="uploading || applying"
+          <IconActionButton
+            label="上传图片资产"
+            :disabled="applying"
+            :loading="uploading"
             @click.stop="triggerUpload"
           >
-            <Loader2
-              v-if="uploading"
-              class="mr-1 h-3.5 w-3.5 animate-spin"
-            />
-            <Upload
-              v-else
-              class="mr-1 h-3.5 w-3.5"
-            />
-            上传图片资产
-          </Button>
+            <ImageUp class="h-3.5 w-3.5" />
+          </IconActionButton>
           <Button
             size="sm"
             class="h-7 px-2 text-xs"

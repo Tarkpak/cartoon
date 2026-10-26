@@ -1158,6 +1158,13 @@ export function useAssetWorkbenchSceneGeneration(
     })
   }
 
+  /** Retries the given scenes through the shared queue so the concurrency limit still applies. */
+  async function retryScenes(sceneIds: string[]) {
+    const ids = sceneIds.filter(sceneId => !!findQueueItem(sceneId))
+    if (ids.length === 0) return
+    await runSceneQueue(ids, { skipCompletionNotice: false })
+  }
+
   async function retryFailedQueueItemsOnce() {
     const failedSceneIds = options.queueItems.value
       .filter(item => item.status === 'error')
@@ -1172,6 +1179,7 @@ export function useAssetWorkbenchSceneGeneration(
     runBatchSceneGeneration,
     runBatchSceneGenerationByEpisode,
     retryScene,
+    retryScenes,
     retryFailedQueueItemsOnce,
     resumeActiveSceneVideoTasks
   }

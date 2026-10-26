@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, History, Image, Loader2, Pencil, RefreshCw, ScanSearch, Sparkles, Upload } from 'lucide-vue-next'
+import { ArrowRight, History, Image, ImageUp, Loader2, Pencil, RefreshCw, ScanSearch, WandSparkles } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
 import SaveToPersonalLibraryButton from './SaveToPersonalLibraryButton.vue'
 import type { EnvironmentAssetCard, EnvironmentCropCaptureMode } from '~/lib/asset-workbench-types'
@@ -239,13 +239,56 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
 
         <!-- Actions -->
         <div class="flex flex-wrap items-center gap-1 border-t px-3 py-1.5">
-          <SaveToPersonalLibraryButton
-            :asset-key="`environments:${asset.id}`"
-            :available="!!(asset.referenceImage || asset.singleViewImage || asset.fourViewImage)"
-            :busy="!!savingLibraryAssetKey"
-            :saving="savingLibraryAssetKey === `environments:${asset.id}`"
-            @save="emit('save-to-library', asset.id)"
-          />
+          <Button
+            size="sm"
+            :variant="hasEnvironmentImage(asset) ? 'outline' : 'default'"
+            class="h-7 px-2.5 text-xs"
+            :title="resolveEnvironmentGenerateTitle(asset)"
+            :disabled="asset.referenceStatus === 'generating' || !canGenerateEnvironmentAsset(asset.id)"
+            @click="emit('regenerate', asset.id)"
+          >
+            <Loader2
+              v-if="asset.referenceStatus === 'generating'"
+              class="mr-1 h-3 w-3 animate-spin"
+            />
+            <RefreshCw
+              v-else
+              class="mr-1 h-3 w-3"
+            />
+            {{ resolveEnvironmentGenerateLabel(asset) }}
+          </Button>
+          <IconActionButton
+            v-if="hasEnvironmentImage(asset)"
+            label="定向修改"
+            :disabled="asset.referenceStatus === 'generating'"
+            @click="emit('open-regenerate', asset.id)"
+          >
+            <WandSparkles class="h-3.5 w-3.5" />
+          </IconActionButton>
+          <IconActionButton
+            label="上传环境图"
+            :disabled="autoRunning || asset.referenceStatus === 'generating' || !!uploadingEnvironmentAssetId"
+            :loading="uploadingEnvironmentAssetId === asset.id"
+            @click="triggerUploadInput(asset.id)"
+          >
+            <ImageUp class="h-3.5 w-3.5" />
+          </IconActionButton>
+          <IconActionButton
+            v-if="resolveHistoryCount(asset) > 1"
+            :label="`历史版本（${resolveHistoryCount(asset)}）`"
+            :badge="resolveHistoryCount(asset)"
+            :disabled="asset.referenceStatus === 'generating'"
+            @click="emit('open-history', asset.id)"
+          >
+            <History class="h-3.5 w-3.5" />
+          </IconActionButton>
+          <IconActionButton
+            label="编辑代表场景"
+            :disabled="!hasEnvironmentRepresentativeScene(asset.id)"
+            @click="emit('edit-scene', asset.id)"
+          >
+            <Pencil class="h-3.5 w-3.5" />
+          </IconActionButton>
           <Select
             :model-value="getEnvironmentSelectedMotherId(asset.id) || '__none__'"
             @update:model-value="emit('update-mother', { assetId: asset.id, motherAssetId: $event === '__none__' ? '' : String($event) })"
@@ -269,73 +312,16 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
               </SelectItem>
             </SelectContent>
           </Select>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :title="resolveEnvironmentGenerateTitle(asset)"
-            :disabled="asset.referenceStatus === 'generating' || !canGenerateEnvironmentAsset(asset.id)"
-            @click="emit('regenerate', asset.id)"
-          >
-            <Loader2
-              v-if="asset.referenceStatus === 'generating'"
-              class="mr-1 h-3 w-3 animate-spin"
+          <div class="ml-auto flex items-center">
+            <SaveToPersonalLibraryButton
+              icon-only
+              :asset-key="`environments:${asset.id}`"
+              :available="!!(asset.referenceImage || asset.singleViewImage || asset.fourViewImage)"
+              :busy="!!savingLibraryAssetKey"
+              :saving="savingLibraryAssetKey === `environments:${asset.id}`"
+              @save="emit('save-to-library', asset.id)"
             />
-            <RefreshCw
-              v-else
-              class="mr-1 h-3 w-3"
-            />
-            {{ resolveEnvironmentGenerateLabel(asset) }}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || asset.referenceStatus === 'generating' || !!uploadingEnvironmentAssetId"
-            @click="triggerUploadInput(asset.id)"
-          >
-            <Loader2
-              v-if="uploadingEnvironmentAssetId === asset.id"
-              class="mr-1 h-3 w-3 animate-spin"
-            />
-            <Upload
-              v-else
-              class="mr-1 h-3 w-3"
-            />
-            上传
-          </Button>
-          <Button
-            v-if="hasEnvironmentImage(asset)"
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="asset.referenceStatus === 'generating'"
-            @click="emit('open-regenerate', asset.id)"
-          >
-            <Sparkles class="mr-1 h-3 w-3" />
-            定向修改
-          </Button>
-          <Button
-            v-if="resolveHistoryCount(asset) > 1"
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="asset.referenceStatus === 'generating'"
-            @click="emit('open-history', asset.id)"
-          >
-            <History class="mr-1 h-3 w-3" />
-            历史 {{ resolveHistoryCount(asset) }}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="!hasEnvironmentRepresentativeScene(asset.id)"
-            @click="emit('edit-scene', asset.id)"
-          >
-            <Pencil class="mr-1 h-3 w-3" />
-            编辑
-          </Button>
+          </div>
           <Input
             :id="buildAssetUploadInputId('env', asset.id)"
             type="file"

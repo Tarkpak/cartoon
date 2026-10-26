@@ -72,6 +72,7 @@ import {
   AUTO_STAGE_HINTS,
   buildAutoStages
 } from '~/lib/asset-workbench-progress'
+import { buildWorkbenchTasks, type WorkbenchTask } from '~/lib/asset-workbench-tasks'
 import {
   buildSceneMentionDescription,
   extractSceneDescriptionMentionTokens,
@@ -1255,6 +1256,7 @@ const {
   ensureCharacterAssetsReady,
   runBatchSceneGeneration,
   retryScene,
+  retryScenes,
   retryFailedQueueItemsOnce,
   resumeActiveSceneVideoTasks
 } = useAssetWorkbenchSceneGeneration({
@@ -1960,6 +1962,25 @@ const autoStages = computed(() => {
   })
   return stages.map(stage => ({ ...stage, ...resolveStageProgress(stage.key) }))
 })
+
+const workbenchTasks = computed(() => buildWorkbenchTasks({
+  parsing: parsing.value,
+  parseMessage: parseProgress.value?.message,
+  scenes: scenes.value,
+  queueItems: queueItems.value,
+  characters: characters.value,
+  environments: environmentAssetCards.value
+}))
+
+function openWorkbenchTask(task: WorkbenchTask) {
+  selectAutoStage(task.stage)
+  if (task.sceneId) selectScene(task.sceneId)
+}
+
+function retryFailedSceneTasks() {
+  const sceneIds = workbenchTasks.value.filter(task => task.retryable && task.sceneId).map(task => task.sceneId!)
+  void retryScenes(sceneIds)
+}
 
 function resolveStageProgress(key: AutoStageKey): { progress?: string, progressTitle?: string, hasError?: boolean } {
   if (key === 'assets' && characters.value.length > 0) {
@@ -3812,6 +3833,12 @@ function reportWorkbenchActivity() {
       @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
     >
       <template #actions>
+        <AssetWorkbenchTaskPanel
+          :tasks="workbenchTasks"
+          :read-only="!canEditProject"
+          @open="openWorkbenchTask"
+          @retry-failed-scenes="retryFailedSceneTasks"
+        />
         <ProjectEditSessionBanner
           compact
           :session="editSession"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generatedEpisodePlans } from './asset-workbench-progress'
+import { generatedEpisodePlans, matchesSceneListFilter, resolveSceneListStatus } from './asset-workbench-progress'
 
 describe('generated episode directory state', () => {
   it('does not count migration holding episodes as a generated directory', () => {
@@ -14,5 +14,22 @@ describe('generated episode directory state', () => {
     expect(generatedEpisodePlans(items)).toEqual([plan])
     expect(items).toEqual([placeholder, plan])
     expect(generatedEpisodePlans([{ ...placeholder, charCount: 100 }])).toHaveLength(1)
+  })
+})
+
+describe('scene list status', () => {
+  it('prefers running, then a finished video, then failures', () => {
+    expect(resolveSceneListStatus({ videoStatus: 'error', referenceStatus: 'done' }, true)).toBe('running')
+    expect(resolveSceneListStatus({ videoStatus: 'done', referenceStatus: 'error' }, false)).toBe('done')
+    expect(resolveSceneListStatus({ videoStatus: 'pending', referenceStatus: 'error' }, false)).toBe('error')
+    expect(resolveSceneListStatus({ videoStatus: 'pending', referenceStatus: 'pending' }, false)).toBe('pending')
+  })
+
+  it('filters unfinished and failed scenes', () => {
+    expect(matchesSceneListFilter('done', 'all')).toBe(true)
+    expect(matchesSceneListFilter('done', 'unfinished')).toBe(false)
+    expect(matchesSceneListFilter('running', 'unfinished')).toBe(true)
+    expect(matchesSceneListFilter('pending', 'error')).toBe(false)
+    expect(matchesSceneListFilter('error', 'error')).toBe(true)
   })
 })

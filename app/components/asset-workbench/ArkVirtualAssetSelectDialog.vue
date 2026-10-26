@@ -161,15 +161,13 @@ watch(
                 placeholder="方舟项目：默认 default"
                 @keydown.enter="refreshGroups"
               />
-              <Button
-                size="sm"
-                variant="outline"
-                class="h-8 px-2"
-                :disabled="loadingGroups"
+              <IconActionButton
+                label="查询分组"
+                :loading="loadingGroups"
                 @click="refreshGroups"
               >
                 <Search class="h-3.5 w-3.5" />
-              </Button>
+              </IconActionButton>
             </div>
           </div>
           <div class="min-h-0 flex-1 overflow-y-auto">

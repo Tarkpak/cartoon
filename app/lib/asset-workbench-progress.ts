@@ -167,3 +167,23 @@ export function resolveSceneVideoBadge(
 export function generatedEpisodePlans<T extends { id: string, title: string, charCount?: number }>(episodes: T[] = []): T[] {
   return episodes.filter(item => !(item.id.startsWith('legacy-unassigned') && item.title === '未分集内容' && !item.charCount))
 }
+
+export type SceneListStatus = 'done' | 'running' | 'error' | 'pending'
+export type SceneListFilter = 'all' | 'unfinished' | 'error'
+
+/** One status per scene for compact lists: running wins, then a finished video, then any failure. */
+export function resolveSceneListStatus(
+  scene: Pick<SceneData, 'videoStatus' | 'referenceStatus'>,
+  busy: boolean
+): SceneListStatus {
+  if (busy) return 'running'
+  if (scene.videoStatus === 'done') return 'done'
+  if (scene.videoStatus === 'error' || scene.referenceStatus === 'error') return 'error'
+  return 'pending'
+}
+
+export function matchesSceneListFilter(status: SceneListStatus, filter: SceneListFilter): boolean {
+  if (filter === 'error') return status === 'error'
+  if (filter === 'unfinished') return status !== 'done'
+  return true
+}

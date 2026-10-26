@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AudioLines, ChevronDown, ChevronRight, CloudUpload, Database, History, Loader2, Lock, Pencil, Plus, Sparkles, Trash2, Upload, User } from 'lucide-vue-next'
+import { AudioLines, ChevronDown, ChevronRight, CloudUpload, CopyPlus, Database, History, ImageUp, Loader2, Lock, Pencil, Sparkles, Trash2, Upload, User, WandSparkles } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
 import SaveToPersonalLibraryButton from './SaveToPersonalLibraryButton.vue'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
@@ -103,9 +103,34 @@ watch(localDraft, (draft) => {
 }, { deep: true })
 
 function resolveStatusColor(char: CharacterData): string {
-  if (char.generating) return 'bg-blue-500'
-  if (char.baseImage) return 'bg-emerald-500'
-  return 'bg-amber-500'
+  if (char.generating) return 'bg-primary'
+  if (char.baseImage) return 'bg-success'
+  return 'bg-muted-foreground/40'
+}
+
+const expandedVoiceIds = ref<string[]>([])
+
+function isVoiceExpanded(characterId: string): boolean {
+  return expandedVoiceIds.value.includes(characterId)
+}
+
+function toggleVoiceExpanded(characterId: string) {
+  expandedVoiceIds.value = isVoiceExpanded(characterId)
+    ? expandedVoiceIds.value.filter(id => id !== characterId)
+    : [...expandedVoiceIds.value, characterId]
+}
+
+function resolveVoiceChipLabel(char: CharacterData): string {
+  if (!char.voiceAsset?.audioUrl) return '无声音参考'
+  return char.voiceAsset.locked ? '声音参考 · 已锁定' : '声音参考'
+}
+
+function canSaveToLibrary(char: CharacterData): boolean {
+  return !!(char.baseImage || Object.values(char.views || {}).some(Boolean) || char.voiceAsset?.audioUrl)
+}
+
+function isCharacterBusy(char: CharacterData): boolean {
+  return props.autoRunning || char.generating
 }
 
 function resolveStatusText(char: CharacterData): string {
@@ -151,11 +176,10 @@ function resolveArkAssetLabel(char: CharacterData): string {
 
 function resolveArkAssetClass(char: CharacterData): string {
   const status = char.arkAsset?.status
-  if (status === 'Active') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (status === 'Active') return 'border-success/25 bg-success/10 text-success'
   if (status === 'Failed') return 'border-destructive/25 bg-destructive/5 text-destructive'
-  if (status === 'Processing') return 'border-blue-200 bg-blue-50 text-blue-700'
-  if (status === 'Unknown') return 'border-amber-200 bg-amber-50 text-amber-700'
-  if (status === 'Stale') return 'border-orange-200 bg-orange-50 text-orange-700'
+  if (status === 'Processing') return 'border-primary/25 bg-primary/10 text-primary'
+  if (status === 'Unknown' || status === 'Stale') return 'border-warning/25 bg-warning/10 text-warning'
   return 'border-dashed bg-muted/20 text-muted-foreground'
 }
 
@@ -239,53 +263,49 @@ watch(
     >
       <!-- Card body -->
       <div class="flex items-start gap-3 p-3">
-        <!-- Avatar -->
-        <div class="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/40">
+        <!-- Character sheet: shown whole, never cropped -->
+        <div class="relative aspect-video w-40 shrink-0 overflow-hidden rounded-lg bg-muted/40 sm:w-48">
           <LazyImage
             v-if="char.baseImage"
             :image="char.baseImage"
             :alt="`${char.name} 角色图`"
-            class="h-full w-full cursor-zoom-in object-cover transition-transform hover:scale-105"
+            class="h-full w-full cursor-zoom-in object-contain"
             @click="emit('preview-image', { src: char.baseImage, alt: `${char.name} 角色图` })"
           />
-          <User
+          <div
             v-else
-            class="h-8 w-8 text-muted-foreground/40"
-          />
-          <!-- Status dot -->
-          <span
-            class="absolute bottom-1 right-1 h-2.5 w-2.5 rounded-full ring-2 ring-card"
-            :class="resolveStatusColor(char)"
-            :title="resolveStatusText(char)"
-          />
+            class="flex h-full w-full flex-col items-center justify-center gap-1.5 text-muted-foreground/70"
+          >
+            <Loader2
+              v-if="char.generating"
+              class="h-5 w-5 animate-spin text-primary"
+            />
+            <User
+              v-else
+              class="h-7 w-7 opacity-50"
+            />
+            <span class="text-[11px]">{{ char.generating ? '正在生成角色图…' : '还没有角色图' }}</span>
+          </div>
+          <div
+            v-if="char.generating && char.baseImage"
+            class="absolute inset-0 flex items-center justify-center bg-background/60 text-xs text-foreground backdrop-blur-[1px]"
+          >
+            <Loader2 class="mr-1.5 h-4 w-4 animate-spin text-primary" />
+            重新生成中…
+          </div>
         </div>
 
         <!-- Info -->
         <div class="min-w-0 flex-1">
-          <div class="flex items-start justify-between gap-2">
-            <div class="flex min-w-0 items-center gap-2">
-              <span class="truncate text-sm font-medium">{{ char.name }}</span>
-              <span class="shrink-0 text-xs text-muted-foreground/70">{{ resolveCharacterRoleLabel(char.role) }}</span>
-              <span
-                v-if="!char.parentCharacterId && resolveVariantCount(char) > 0"
-                class="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
-              >
-                {{ resolveVariantCount(char) }} 个变体
-              </span>
-            </div>
-            <div
-              class="flex max-w-[42%] shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[11px]"
-              :class="resolveArkAssetClass(char)"
-              :title="char.arkAsset?.assetId || char.arkAsset?.errorMessage || '未绑定虚拟人像'"
+          <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span class="truncate text-sm font-medium">{{ char.name }}</span>
+            <span class="shrink-0 text-xs text-muted-foreground/70">{{ resolveCharacterRoleLabel(char.role) }}</span>
+            <span
+              v-if="!char.parentCharacterId && resolveVariantCount(char) > 0"
+              class="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
             >
-              <Database class="h-3 w-3 shrink-0" />
-              <span class="shrink-0 font-medium">火山素材</span>
-              <span class="truncate">
-                <span v-if="char.arkAsset?.assetId">{{ char.arkAsset.assetId }}</span>
-                <span v-else>{{ char.arkAsset?.errorMessage || '未绑定' }}</span>
-              </span>
-              <span class="shrink-0 font-medium">{{ resolveArkAssetLabel(char) }}</span>
-            </div>
+              {{ resolveVariantCount(char) }} 个变体
+            </span>
           </div>
           <div
             v-if="char.variantName || char.parentCharacterId"
@@ -320,11 +340,13 @@ watch(
             </div>
           </template>
           <template v-else>
-            <p class="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+            <p
+              class="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground"
+              :title="char.appearance"
+            >
               {{ char.appearance || '暂无外观描述' }}
             </p>
-            <div class="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground/70">
-              <span>{{ getCharacterSceneCount(char) }} 个场景</span>
+            <div class="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground/80">
               <span class="flex items-center gap-1">
                 <span
                   class="inline-block h-1.5 w-1.5 rounded-full"
@@ -332,39 +354,57 @@ watch(
                 />
                 {{ resolveStatusText(char) }}
               </span>
+              <span>{{ getCharacterSceneCount(char) }} 个场景</span>
+            </div>
+            <div class="mt-2 flex flex-wrap items-center gap-1.5">
+              <!-- data-asset-tab: only reveals the player, so read-only viewers keep it -->
+              <button
+                type="button"
+                data-asset-tab
+                class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                :class="char.voiceAsset?.audioUrl ? 'bg-primary/10 text-primary hover:bg-primary/15' : 'bg-muted text-muted-foreground hover:text-foreground'"
+                :aria-expanded="isVoiceExpanded(char.id)"
+                @click="toggleVoiceExpanded(char.id)"
+              >
+                <AudioLines class="h-3 w-3" />
+                {{ resolveVoiceChipLabel(char) }}
+                <ChevronDown
+                  class="h-3 w-3 transition-transform"
+                  :class="isVoiceExpanded(char.id) ? 'rotate-180' : ''"
+                />
+              </button>
+              <span
+                v-if="char.arkAsset?.status"
+                class="inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
+                :class="resolveArkAssetClass(char)"
+                :title="char.arkAsset?.assetId || char.arkAsset?.errorMessage || ''"
+              >
+                <Database class="h-3 w-3 shrink-0" />
+                火山素材 · {{ resolveArkAssetLabel(char) }}
+              </span>
             </div>
           </template>
         </div>
       </div>
 
-      <div class="border-t px-3 py-2.5">
+      <div
+        v-if="isVoiceExpanded(char.id)"
+        class="border-t px-3 py-2.5"
+      >
         <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <div class="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <AudioLines class="h-3.5 w-3.5" />
-            </div>
-            <div class="min-w-0">
-              <p class="text-xs font-medium">
-                角色参考音频
-              </p>
-              <p class="text-xs text-muted-foreground">
-                {{ resolveVoiceSourceLabel(char) }}
-                <span v-if="resolveVoiceUpdatedText(char)"> · {{ resolveVoiceUpdatedText(char) }}</span>
-              </p>
-            </div>
-          </div>
-          <div
-            v-if="char.voiceAsset?.audioUrl"
-            class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs text-muted-foreground"
+          <p class="text-xs text-muted-foreground">
+            {{ resolveVoiceSourceLabel(char) }}
+            <span v-if="resolveVoiceUpdatedText(char)"> · {{ resolveVoiceUpdatedText(char) }}</span>
+          </p>
+          <IconActionButton
+            :label="char.voiceAsset?.audioUrl ? '替换参考音频' : '上传参考音频'"
+            :disabled="isCharacterBusy(char) || !!uploadingCharacterVoiceId"
+            :loading="uploadingCharacterVoiceId === char.id"
+            @click="triggerVoiceUploadInput(char.id)"
           >
-            <Lock
-              v-if="char.voiceAsset.locked"
-              class="h-3 w-3 text-primary"
-            />
-            {{ char.voiceAsset.locked ? '已锁定参考' : '未锁定' }}
-          </div>
+            <Upload class="h-3.5 w-3.5" />
+          </IconActionButton>
         </div>
-
         <div
           v-if="char.voiceAsset?.audioUrl"
           class="mt-2 space-y-2"
@@ -402,17 +442,19 @@ watch(
             </div>
           </div>
         </div>
-        <div
+        <p
           v-else
-          class="mt-2 rounded-xl bg-muted/15 bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+          class="mt-1 text-xs text-muted-foreground"
         >
           生成带对白的视频后会自动抽取人物声音，也可以直接上传现有配音作为参考。
-        </div>
+        </p>
       </div>
 
-      <div class="border-t">
+      <div
+        v-if="resolveCharacterVariants(char).length > 0"
+        class="border-t"
+      >
         <button
-          v-if="resolveCharacterVariants(char).length > 0"
           type="button"
           class="flex min-h-[52px] w-full items-center justify-between gap-3 px-3 py-1.5 text-left transition-colors hover:bg-muted/30"
           :aria-expanded="isVariantSectionExpanded(char.id)"
@@ -485,22 +527,6 @@ watch(
             <span class="text-xs text-muted-foreground">{{ resolveVariantCount(char) }} 个</span>
           </div>
         </button>
-        <div
-          v-else
-          class="flex min-h-[52px] items-center justify-between gap-3 px-3 py-1.5"
-        >
-          <div class="flex min-w-0 items-center gap-2">
-            <ChevronRight class="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-            <div class="min-w-0">
-              <p class="text-xs font-medium text-muted-foreground">
-                角色变体
-              </p>
-              <p class="text-[11px] text-muted-foreground/70">
-                暂无变体
-              </p>
-            </div>
-          </div>
-        </div>
         <Transition name="character-variant-collapse">
           <div
             v-if="resolveCharacterVariants(char).length > 0 && isVariantSectionExpanded(char.id)"
@@ -616,17 +642,10 @@ watch(
                       {{ variant.appearance || '暂无外观描述' }}
                     </p>
                     <div class="mt-2 flex flex-wrap items-center gap-1.5">
-                      <SaveToPersonalLibraryButton
-                        :asset-key="`characters:${variant.id}`"
-                        :available="!!(variant.baseImage || Object.values(variant.views || {}).some(Boolean) || variant.voiceAsset?.audioUrl)"
-                        :busy="!!savingLibraryAssetKey"
-                        :saving="savingLibraryAssetKey === `characters:${variant.id}`"
-                        @save="emit('save-to-library', variant.id)"
-                      />
                       <Button
                         size="sm"
-                        variant="ghost"
-                        class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        :variant="variant.baseImage ? 'outline' : 'default'"
+                        class="h-7 px-2.5 text-xs"
                         :disabled="autoRunning || variant.generating"
                         @click="emit('generate', variant.id)"
                       >
@@ -638,93 +657,74 @@ watch(
                           v-else
                           class="mr-1 h-3 w-3"
                         />
-                        {{ variant.baseImage ? '重新生成' : '生成' }}
+                        {{ variant.generating ? '生成中…' : variant.baseImage ? '重新生成' : '生成' }}
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                        :disabled="autoRunning || variant.generating || !!uploadingCharacterId"
-                        @click="triggerUploadInput(variant.id)"
-                      >
-                        <Loader2
-                          v-if="uploadingCharacterId === variant.id"
-                          class="mr-1 h-3 w-3 animate-spin"
-                        />
-                        <Upload
-                          v-else
-                          class="mr-1 h-3 w-3"
-                        />
-                        上传
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                        :disabled="autoRunning || variant.generating || !variant.baseImage || !!uploadingArkCharacterId"
-                        @click="emit('ingest-ark-asset', variant.id)"
-                      >
-                        <Loader2
-                          v-if="uploadingArkCharacterId === variant.id"
-                          class="mr-1 h-3 w-3 animate-spin"
-                        />
-                        <CloudUpload
-                          v-else
-                          class="mr-1 h-3 w-3"
-                        />
-                        {{ variant.arkAsset?.status === 'Active' ? '重新入库' : '入库' }}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                        :disabled="autoRunning || variant.generating"
-                        @click="emit('select-ark-asset', variant)"
-                      >
-                        <Database class="mr-1 h-3 w-3" />
-                        素材
-                      </Button>
-                      <Button
+                      <IconActionButton
                         v-if="variant.baseImage"
-                        size="sm"
-                        variant="ghost"
-                        class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        label="定向修改"
                         :disabled="autoRunning || variant.generating"
                         @click="emit('open-regenerate', variant)"
                       >
-                        <Sparkles class="mr-1 h-3 w-3" />
-                        定向修改
-                      </Button>
-                      <Button
+                        <WandSparkles class="h-3.5 w-3.5" />
+                      </IconActionButton>
+                      <IconActionButton
+                        label="上传变体图"
+                        :disabled="autoRunning || variant.generating || !!uploadingCharacterId"
+                        :loading="uploadingCharacterId === variant.id"
+                        @click="triggerUploadInput(variant.id)"
+                      >
+                        <ImageUp class="h-3.5 w-3.5" />
+                      </IconActionButton>
+                      <IconActionButton
                         v-if="resolveHistoryCount(variant) > 1"
-                        size="sm"
-                        variant="ghost"
-                        class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        :label="`历史版本（${resolveHistoryCount(variant)}）`"
+                        :badge="resolveHistoryCount(variant)"
                         :disabled="autoRunning || variant.generating"
                         @click="emit('open-history', variant.id)"
                       >
-                        <History class="mr-1 h-3 w-3" />
-                        历史 {{ resolveHistoryCount(variant) }}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        <History class="h-3.5 w-3.5" />
+                      </IconActionButton>
+                      <span class="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
+                      <IconActionButton
+                        :label="variant.arkAsset?.status === 'Active' ? '重新入库虚拟人像' : '入库虚拟人像'"
+                        :disabled="autoRunning || variant.generating || !variant.baseImage || !!uploadingArkCharacterId"
+                        :loading="uploadingArkCharacterId === variant.id"
+                        @click="emit('ingest-ark-asset', variant.id)"
+                      >
+                        <CloudUpload class="h-3.5 w-3.5" />
+                      </IconActionButton>
+                      <IconActionButton
+                        label="选择火山素材"
+                        :disabled="autoRunning || variant.generating"
+                        @click="emit('select-ark-asset', variant)"
+                      >
+                        <Database class="h-3.5 w-3.5" />
+                      </IconActionButton>
+                      <IconActionButton
+                        label="编辑变体"
                         :disabled="autoRunning || variant.generating"
                         @click="emit('start-edit', variant)"
                       >
-                        <Pencil class="mr-1 h-3 w-3" />
-                        编辑
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        class="h-7 w-7 p-0 text-muted-foreground/60 hover:text-destructive"
-                        :disabled="autoRunning || variant.generating"
-                        @click="emit('remove-variant', variant.id)"
-                      >
-                        <Trash2 class="h-3.5 w-3.5" />
-                      </Button>
+                        <Pencil class="h-3.5 w-3.5" />
+                      </IconActionButton>
+                      <div class="ml-auto flex items-center">
+                        <SaveToPersonalLibraryButton
+                          icon-only
+                          :asset-key="`characters:${variant.id}`"
+                          :available="!!(variant.baseImage || Object.values(variant.views || {}).some(Boolean) || variant.voiceAsset?.audioUrl)"
+                          :busy="!!savingLibraryAssetKey"
+                          :saving="savingLibraryAssetKey === `characters:${variant.id}`"
+                          @save="emit('save-to-library', variant.id)"
+                        />
+                        <IconActionButton
+                          label="删除变体"
+                          destructive
+                          :disabled="autoRunning || variant.generating"
+                          @click="emit('remove-variant', variant.id)"
+                        >
+                          <Trash2 class="h-3.5 w-3.5" />
+                        </IconActionButton>
+                      </div>
                       <Input
                         :id="buildAssetUploadInputId('char', variant.id)"
                         type="file"
@@ -783,18 +783,11 @@ watch(
           </Button>
         </template>
         <template v-else>
-          <SaveToPersonalLibraryButton
-            :asset-key="`characters:${char.id}`"
-            :available="!!(char.baseImage || Object.values(char.views || {}).some(Boolean) || char.voiceAsset?.audioUrl)"
-            :busy="!!savingLibraryAssetKey"
-            :saving="savingLibraryAssetKey === `characters:${char.id}`"
-            @save="emit('save-to-library', char.id)"
-          />
           <Button
             size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || char.generating"
+            :variant="char.baseImage ? 'outline' : 'default'"
+            class="h-7 px-2.5 text-xs"
+            :disabled="isCharacterBusy(char)"
             @click="emit('generate', char.id)"
           >
             <Loader2
@@ -805,123 +798,92 @@ watch(
               v-else
               class="mr-1 h-3 w-3"
             />
-            {{ char.baseImage ? '重新生成' : '生成' }}
+            {{ char.generating ? '生成中…' : char.baseImage ? '重新生成' : '生成' }}
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || char.generating || !!uploadingCharacterId"
-            @click="triggerUploadInput(char.id)"
-          >
-            <Loader2
-              v-if="uploadingCharacterId === char.id"
-              class="mr-1 h-3 w-3 animate-spin"
-            />
-            <Upload
-              v-else
-              class="mr-1 h-3 w-3"
-            />
-            上传
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || char.generating || !char.baseImage || !!uploadingArkCharacterId"
-            @click="emit('ingest-ark-asset', char.id)"
-          >
-            <Loader2
-              v-if="uploadingArkCharacterId === char.id"
-              class="mr-1 h-3 w-3 animate-spin"
-            />
-            <CloudUpload
-              v-else
-              class="mr-1 h-3 w-3"
-            />
-            {{ char.arkAsset?.status === 'Active' ? '重新入库' : '入库虚拟人像' }}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || char.generating"
-            @click="emit('select-ark-asset', char)"
-          >
-            <Database class="mr-1 h-3 w-3" />
-            选择素材
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || char.generating || !!uploadingCharacterVoiceId"
-            @click="triggerVoiceUploadInput(char.id)"
-          >
-            <Loader2
-              v-if="uploadingCharacterVoiceId === char.id"
-              class="mr-1 h-3 w-3 animate-spin"
-            />
-            <AudioLines
-              v-else
-              class="mr-1 h-3 w-3"
-            />
-            {{ char.voiceAsset?.audioUrl ? '替换音频' : '上传音频' }}
-          </Button>
-          <Button
-            v-if="!char.parentCharacterId"
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || char.generating"
-            @click="emit('add-variant', char)"
-          >
-            <Plus class="mr-1 h-3 w-3" />
-            添加变体
-          </Button>
-          <Button
+          <IconActionButton
             v-if="char.baseImage"
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || char.generating"
+            label="定向修改"
+            :disabled="isCharacterBusy(char)"
             @click="emit('open-regenerate', char)"
           >
-            <Sparkles class="mr-1 h-3 w-3" />
-            定向修改
-          </Button>
-          <Button
+            <WandSparkles class="h-3.5 w-3.5" />
+          </IconActionButton>
+          <IconActionButton
+            label="上传角色图"
+            :disabled="isCharacterBusy(char) || !!uploadingCharacterId"
+            :loading="uploadingCharacterId === char.id"
+            @click="triggerUploadInput(char.id)"
+          >
+            <ImageUp class="h-3.5 w-3.5" />
+          </IconActionButton>
+          <IconActionButton
             v-if="resolveHistoryCount(char) > 1"
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || char.generating"
+            :label="`历史版本（${resolveHistoryCount(char)}）`"
+            :badge="resolveHistoryCount(char)"
+            :disabled="isCharacterBusy(char)"
             @click="emit('open-history', char.id)"
           >
-            <History class="mr-1 h-3 w-3" />
-            历史 {{ resolveHistoryCount(char) }}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-            :disabled="autoRunning || char.generating"
+            <History class="h-3.5 w-3.5" />
+          </IconActionButton>
+          <span class="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
+          <IconActionButton
+            :label="char.voiceAsset?.audioUrl ? '替换参考音频' : '上传参考音频'"
+            :disabled="isCharacterBusy(char) || !!uploadingCharacterVoiceId"
+            :loading="uploadingCharacterVoiceId === char.id"
+            @click="triggerVoiceUploadInput(char.id)"
+          >
+            <AudioLines class="h-3.5 w-3.5" />
+          </IconActionButton>
+          <IconActionButton
+            :label="char.arkAsset?.status === 'Active' ? '重新入库虚拟人像' : '入库虚拟人像'"
+            :disabled="isCharacterBusy(char) || !char.baseImage || !!uploadingArkCharacterId"
+            :loading="uploadingArkCharacterId === char.id"
+            @click="emit('ingest-ark-asset', char.id)"
+          >
+            <CloudUpload class="h-3.5 w-3.5" />
+          </IconActionButton>
+          <IconActionButton
+            label="选择火山素材"
+            :disabled="isCharacterBusy(char)"
+            @click="emit('select-ark-asset', char)"
+          >
+            <Database class="h-3.5 w-3.5" />
+          </IconActionButton>
+          <span class="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
+          <IconActionButton
+            label="编辑名称和描述"
+            :disabled="isCharacterBusy(char)"
             @click="emit('start-edit', char)"
           >
-            <Pencil class="mr-1 h-3 w-3" />
-            编辑
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            class="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-            title="删除角色"
-            aria-label="删除角色"
-            :disabled="autoRunning || char.generating || char.generatingViews || !!uploadingCharacterId || !!uploadingArkCharacterId || !!uploadingCharacterVoiceId"
-            @click="emit('remove-character', char.id)"
+            <Pencil class="h-3.5 w-3.5" />
+          </IconActionButton>
+          <IconActionButton
+            v-if="!char.parentCharacterId"
+            label="添加变体"
+            :disabled="isCharacterBusy(char)"
+            @click="emit('add-variant', char)"
           >
-            <Trash2 class="h-3.5 w-3.5" />
-          </Button>
+            <CopyPlus class="h-3.5 w-3.5" />
+          </IconActionButton>
+          <!-- Library save stays usable for read-only viewers (data-library-save) -->
+          <div class="ml-auto flex items-center">
+            <SaveToPersonalLibraryButton
+              icon-only
+              :asset-key="`characters:${char.id}`"
+              :available="canSaveToLibrary(char)"
+              :busy="!!savingLibraryAssetKey"
+              :saving="savingLibraryAssetKey === `characters:${char.id}`"
+              @save="emit('save-to-library', char.id)"
+            />
+            <IconActionButton
+              label="删除角色"
+              destructive
+              :disabled="isCharacterBusy(char) || char.generatingViews || !!uploadingCharacterId || !!uploadingArkCharacterId || !!uploadingCharacterVoiceId"
+              @click="emit('remove-character', char.id)"
+            >
+              <Trash2 class="h-3.5 w-3.5" />
+            </IconActionButton>
+          </div>
           <Input
             :id="buildAssetUploadInputId('char', char.id)"
             type="file"
