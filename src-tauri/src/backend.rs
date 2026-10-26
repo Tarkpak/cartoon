@@ -12611,7 +12611,7 @@ fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usi
                 cloud_value_text(log, "scene_id"),
                 log.get("request_json").and_then(Value::as_str),
                 log.get("response_json").and_then(Value::as_str),
-                log.get("media_refs_json").and_then(Value::as_str),
+                strip_inline_model_log_media_refs(log.get("media_refs_json").and_then(Value::as_str)),
                 log.get("error_json").and_then(Value::as_str),
                 cloud_value_text(log, "user_id"),
                 cloud_value_text(log, "owner_account"),

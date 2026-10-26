@@ -330,6 +330,28 @@ fn model_log_media_type(path: &str, url: &str) -> Option<&'static str> {
     None
 }
 
+const INLINE_MEDIA_OMITTED_NOTE: &str = "内嵌 base64 媒体未保存到日志，避免日志体积过大";
+
+/// Drops inline base64 bodies from stored media refs (e.g. old logs pulled from the cloud).
+pub(super) fn strip_inline_model_log_media_refs(raw: Option<&str>) -> Option<String> {
+    let raw = raw?;
+    if !raw.contains(";base64,") {
+        return Some(raw.to_string());
+    }
+    let Ok(Value::Array(mut refs)) = serde_json::from_str::<Value>(raw) else {
+        return Some(raw.to_string());
+    };
+    for item in &mut refs {
+        let Some(object) = item.as_object_mut() else { continue };
+        if object.get("url").and_then(Value::as_str).is_some_and(|url| url.trim_start().starts_with("data:")) {
+            object.remove("url");
+            object.insert("status".to_string(), json!("omitted"));
+            object.insert("note".to_string(), json!(INLINE_MEDIA_OMITTED_NOTE));
+        }
+    }
+    Some(Value::Array(refs).to_string())
+}
+
 fn collect_model_log_media_refs(value: &Value, direction: &str, refs: &mut Vec<Value>) {
     fn visit(value: &Value, direction: &str, path: &str, depth: usize, refs: &mut Vec<Value>) {
         if depth > 10 {
@@ -349,6 +371,7 @@ fn collect_model_log_media_refs(value: &Value, direction: &str, refs: &mut Vec<V
                     return;
                 };
                 if trimmed.starts_with("data:") {
+                    // Inline base64 is often several MB; keeping it bloats local and cloud logs.
                     refs.push(json!({
                       "id": format!("media_{}", refs.len() + 1),
                       "direction": direction,
@@ -358,9 +381,8 @@ fn collect_model_log_media_refs(value: &Value, direction: &str, refs: &mut Vec<V
                         .strip_prefix("data:")
                         .and_then(|value| value.split([';', ',']).next()),
                       "originalLength": url.len(),
-                      "url": trimmed,
-                      "status": "ready",
-                      "note": "内嵌媒体内容已保存，可直接预览"
+                      "status": "omitted",
+                      "note": INLINE_MEDIA_OMITTED_NOTE
                     }));
                     return;
                 }
@@ -17008,7 +17030,7 @@ mod tests {
     }
 
     #[test]
-    fn model_log_media_refs_preserve_inline_audio_for_preview() {
+    fn model_log_media_refs_omit_inline_base64() {
         let mut refs = Vec::new();
         collect_model_log_media_refs(
             &json!({ "audioUrl": "data:audio/mpeg;base64,AAAA" }),
@@ -17018,8 +17040,25 @@ mod tests {
 
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0]["mediaType"], "audio");
-        assert_eq!(refs[0]["status"], "ready");
-        assert_eq!(refs[0]["url"], "data:audio/mpeg;base64,AAAA");
+        assert_eq!(refs[0]["mimeType"], "audio/mpeg");
+        assert_eq!(refs[0]["status"], "omitted");
+        assert!(refs[0].get("url").is_none());
+    }
+
+    #[test]
+    fn stored_model_log_media_refs_drop_inline_base64_only() {
+        let raw = json!([
+          { "id": "media_1", "url": "data:image/png;base64,AAAA", "status": "ready" },
+          { "id": "media_2", "url": "https://cdn.example/a.png", "status": "ready" }
+        ])
+        .to_string();
+        let stripped: Value =
+            serde_json::from_str(&strip_inline_model_log_media_refs(Some(&raw)).unwrap()).unwrap();
+
+        assert!(stripped[0].get("url").is_none());
+        assert_eq!(stripped[0]["status"], "omitted");
+        assert_eq!(stripped[1]["url"], "https://cdn.example/a.png");
+        assert_eq!(strip_inline_model_log_media_refs(None), None);
     }
 
     #[test]

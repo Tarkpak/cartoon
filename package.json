@@ -36,7 +36,8 @@
     "release:version:minor": "bun run release minor --yes",
     "release:version:major": "bun run release major --yes",
     "release:version:current": "bun run release --force --yes",
-    "migrate:desktop-data": "bash ./scripts/migrate-history-to-desktop.sh"
+    "migrate:desktop-data": "bash ./scripts/migrate-history-to-desktop.sh",
+    "db:clean-log-media": "bun scripts/clean-model-log-media.ts"
   },
   "dependencies": {
     "@google/genai": "^1.32.0",
