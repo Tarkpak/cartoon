@@ -93,7 +93,7 @@ export function handleProjectCollaboration(db: Database, auth: AuthContext, body
     }
     const result = writeCollaboration(db, {
       projectId: project.id, userId: auth.user.id, deviceId, sessionId,
-      operationId: body.operationId as string, mutations: body.mutations as CollaborationMutation[]
+      operationId: body.operationId as string, mutations: body.mutations as CollaborationMutation[], compactReceipt: body.compactReceipt === true
     })
     // Keep the stored receipt canonical so retries can choose either representation.
     return body.compactReceipt === true

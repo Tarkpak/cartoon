@@ -1,7 +1,7 @@
 import { applyCollaborationPatch, diffCollaborationBody, type CollaborationPatch } from '#shared/utils/collaboration-patch'
 import { createCollaborationStorage } from '~/lib/collaboration-storage'
 import { computed, getCurrentInstance, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
-import type { CollaborationBody, CollaborationLease, CollaborationPresence, CollaborationWindowPresence, CollaborationResource } from '../../shared/types/project-collaboration'
+import { COLLABORATION_PRESENCE_TTL_MS, type CollaborationBody, type CollaborationLease, type CollaborationPresence, type CollaborationWindowPresence, type CollaborationResource } from '../../shared/types/project-collaboration'
 import { projectDraftSession } from '~/lib/project-edit-session'
 import type { ProjectAccess } from '#shared/types/project'
 import type { CollaborationAssetResult } from '~/lib/project-collaboration-assets'
@@ -244,17 +244,27 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       if (version !== sequence || saving || pending) return
       const draft = sync.draft()
       if (!draft) return // Initial project loading has not established the UI baseline yet.
-      const dirty = new Set(buildWorkbenchMutations(resources.value, draft.before, draft.after).map(keyOf))
+      const localBodies = new Map(buildWorkbenchMutations(resources.value, draft.before, draft.after).map(item => [keyOf(item), item.body]))
+      const dirty = new Set(localBodies.keys())
       const next = new Map(resources.value.map(item => [keyOf(item), item]))
       let conflict = false
       let changed = false
+      let merged = false
       // A structural change must be applied together. Preserve the complete local
       // structure when a changed episode also has a local draft.
       const structureConflict = [...updates.values()].some(item => item.type === 'directory')
         && [...updates.values()].some(item => dirty.has(keyOf(item)))
       for (const [key, item] of updates) {
         if ((next.get(key)?.revision ?? 0) >= item.revision) continue
-        if (dirty.has(key) || (structureConflict && ['directory', 'episode'].includes(item.type))) { conflict = true; continue }
+        if (structureConflict && ['directory', 'episode'].includes(item.type)) { conflict = true; continue }
+        if (dirty.has(key)) {
+          // Edits to different fields merge automatically; the local draft is
+          // re-applied on top of the remote version below.
+          const base = next.get(key)?.body
+          const local = localBodies.get(key)
+          if (item.deleted || !item.body || !base || !local || mergeCollaborationValue(base, local, item.body).conflicts.length) { conflict = true; continue }
+          merged = true
+        }
         next.set(key, item)
         changed = true
       }
@@ -268,7 +278,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       if (connectionLost && !editSession.value.scopeConflict) editSession.value.reason = undefined
       connectionLost = false
       editSession.value.syncStatus = dirty.size ? 'editing' : 'synced'
-      if (changed) editSession.value.lastRemoteUpdate = '已收到其他成员的更新'
+      if (changed) editSession.value.lastRemoteUpdate = merged ? '已自动合并其他成员的更新' : '已收到其他成员的更新'
       if (conflict) {
         permissionOnlyConflict = false
         stashDraft(draft.before, draft.after)
@@ -302,7 +312,20 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       }
     } finally { heartbeatBusy = false }
   }
+  // Closing or reloading the window does not unmount components. Tell the cloud
+  // now so other members are not blocked until the lease expires.
+  function leaveOnPageHide() {
+    if (!activeId) return
+    const draft = sync?.draft()
+    if (draft) stashDraft(draft.before, draft.after)
+    const url = `/api/project/${encodeURIComponent(activeId)}/collaboration`
+    const send = (body: CollaborationBody) => $fetch(url, { method: 'POST', body, retry: 0, keepalive: true }).catch(() => {})
+    void send({ action: 'presence', leaving: true })
+    // An unconfirmed save still needs its leases; it is confirmed when the project reopens.
+    if (!saving && !pending) for (const scope of held.values()) void send({ action: 'lease', leaseAction: 'release', ...scope })
+  }
   async function releaseEditSession() {
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', leaveOnPageHide)
     const id = activeId
     if (activeId && actorId) { exportedDraftKey = draftKey(); exportedConflictKey = `${storageKey()}:conflict` }
     sequence++
@@ -418,6 +441,9 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       unregister = registerWorkbenchCollaboration(id, async (_path, body, onSettled) => {
         if (!await saveCurrent()) throw new Error('请先保存当前修改并处理协作冲突后再生成')
         if (version !== sequence) throw new Error('项目已切换，请在当前项目重新生成')
+        // Pick up other members' recent edits so the generation check uses current revisions.
+        await poll()
+        if (version !== sequence) throw new Error('项目已切换，请在当前项目重新生成')
         const scene = body.scene && typeof body.scene === 'object' ? body.scene as CollaborationBody : {}
         const sceneId = typeof body.sceneId === 'string' ? body.sceneId : typeof scene.id === 'string' ? scene.id : undefined
         const context = body.context && typeof body.context === 'object' ? body.context as CollaborationBody : {}
@@ -450,9 +476,10 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
         }
         return { ...body, collaborationInput: { type: resource.type, id: resource.id, episodeId: resource.type === 'episode' ? resource.id : undefined, revision: resource.revision, settingsRevision: settings.revision } }
       })
+      if (typeof window !== 'undefined') window.addEventListener('pagehide', leaveOnPageHide)
       void refreshPresence()
       timer = setInterval(() => {
-        if (Date.now() - presenceUpdatedAt > 45_000) participants.value = []
+        if (Date.now() - presenceUpdatedAt > COLLABORATION_PRESENCE_TTL_MS) participants.value = []
         void heartbeat()
         void poll()
         if (!combinedPresence || !sync || saving || pending || mergePreview.value) void refreshPresence()
@@ -469,7 +496,7 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     const savedDraftKey = draftKey()
     try {
       await storage.flush()
-      type WriteResult = { resources: CollaborationResource[], compactReceipt?: boolean }
+      type WriteResult = { resources: CollaborationResource[], compactReceipt?: boolean, unsharedMediaCount?: number }
       const useCompactReceipt = compactReceipt && sent.submittedResources?.length === sent.mutations.length
       const writeBody = { action: 'write', operationId: sent.operationId, mutations: sent.mutations, ...(useCompactReceipt ? { compactReceipt: true } : {}) }
       let result: WriteResult
@@ -530,7 +557,9 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
       editSession.value.scopeConflict = false
       editSession.value.syncStatus = 'synced'
       editSession.value.lastRemoteUpdate = undefined
-      editSession.value.reason = undefined
+      editSession.value.reason = result.unsharedMediaCount
+        ? `已保存，但有 ${result.unsharedMediaCount} 个图片、视频或音频只在本机，其他成员无法查看。请在设置中开启云存储后重新保存。`
+        : undefined
       // A successful save ends this edit operation. Do not hold every episode
       // visited by an otherwise idle workbench window until it is closed.
       const scopes = [...held.values()].filter(scope => !generating.has(keyOf(scope)))
@@ -603,10 +632,11 @@ export function useWorkbenchCollaborationSession(saveCurrent: () => Promise<bool
     const meta = result.collaboration
     const draft = sync?.draft()
     const dirty = draft ? buildWorkbenchMutations(resources.value, draft.before, draft.after) : []
-    if (dirty.some(item => item.type === 'settings' || (item.type === meta.resourceType && item.id === meta.resourceId))) return false
+    if (dirty.some(item => item.type === meta.resourceType && item.id === meta.resourceId)) return false
+    // A character candidate only depends on that character; settings edits by others must not block it.
     return editSession.value.editable && !pending && !saving && meta.projectId === activeId && meta.actorId === actorId
       && resources.value.some(item => !item.deleted && item.type === meta.resourceType && item.id === meta.resourceId && item.revision === meta.revision)
-      && resources.value.some(item => !item.deleted && item.type === 'settings' && item.revision === meta.settingsRevision)
+      && (meta.resourceType === 'character' || resources.value.some(item => !item.deleted && item.type === 'settings' && item.revision === meta.settingsRevision))
   }
   function mergeResources(context: NonNullable<typeof mergeContext>, choices: MergeChoices) {
     const key = (item: CollaborationResource) => keyOf(item)

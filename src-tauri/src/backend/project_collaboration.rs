@@ -280,6 +280,85 @@ fn prepare_collaboration_write_locked(
     Ok(())
 }
 
+/// Local media URLs only resolve on this machine. Collaboration writes replace them
+/// with shared-storage URLs, so other members can load the same images and videos.
+const LOCAL_MEDIA_ROUTES: [(&str, &str, &str); 5] = [
+    ("/api/image/file/", "generated-images", "images"),
+    ("/api/video/file/", "videos", "videos"),
+    ("/generated-images/", "generated-images", "images"),
+    ("/videos/", "videos", "videos"),
+    ("/audios/", "audios", "audios"),
+];
+
+fn local_media_file(state: &BackendState, value: &str) -> Option<(&'static str, PathBuf, String)> {
+    let mut path = value.trim();
+    // Absolute URLs to the local backend are just as unreachable for other members.
+    for origin in ["http://127.0.0.1:", "http://localhost:", "http://[::1]:"] {
+        if let Some(rest) = path.strip_prefix(origin) {
+            path = &rest[rest.find('/')?..];
+        }
+    }
+    let path = path.split(['?', '#']).next().unwrap_or("");
+    for (prefix, dir, category) in LOCAL_MEDIA_ROUTES {
+        let Some(name) = path.strip_prefix(prefix) else { continue };
+        let name = sanitize_rel_path(&decode_url_component(name)?)?;
+        if name.contains('/') { return None; }
+        let mut candidates = vec![state.public_dir.join(dir).join(&name)];
+        if dir == "audios" { candidates.push(state.data_dir.join(dir).join(&name)); }
+        return candidates.into_iter().find(|file| file.is_file()).map(|file| (category, file, name));
+    }
+    None
+}
+
+fn collect_local_media(state: &BackendState, value: &Value, found: &mut Vec<(String, &'static str, PathBuf, String)>) {
+    match value {
+        Value::String(text) => if !found.iter().any(|item| &item.0 == text) {
+            if let Some((category, file, name)) = local_media_file(state, text) { found.push((text.clone(), category, file, name)); }
+        },
+        Value::Array(items) => for item in items { collect_local_media(state, item, found); },
+        Value::Object(map) => for item in map.values() { collect_local_media(state, item, found); },
+        _ => {}
+    }
+}
+
+fn replace_local_media(value: &mut Value, shared: &std::collections::HashMap<String, String>) {
+    match value {
+        Value::String(text) => if let Some(url) = shared.get(text.as_str()) { *text = url.clone(); },
+        Value::Array(items) => for item in items { replace_local_media(item, shared); },
+        Value::Object(map) => for item in map.values_mut() { replace_local_media(item, shared); },
+        _ => {}
+    }
+}
+
+/// Returns how many local media files stay unshared because shared storage is off.
+async fn share_collaboration_media(state: &BackendState, body: &mut Value) -> Result<usize, ApiError> {
+    let mut found = Vec::new();
+    collect_local_media(state, &body["mutations"], &mut found);
+    if found.is_empty() { return Ok(0); }
+    if !load_backend_tos_config().enabled { return Ok(found.len()); }
+    let mut shared = std::collections::HashMap::new();
+    for (local, category, file, name) in found {
+        // A stable mapping keeps retried operations byte-identical.
+        let key = format!("collaboration_shared_media:{}", json!([local]));
+        let cached = get_config_json(&db_connection(state)?, &key)?.and_then(|value| value.as_str().map(str::to_string));
+        let url = match cached {
+            Some(url) => url,
+            None => {
+                let url = upload_media_file_to_tos_async(category, name, file).await
+                    .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, format!("上传共享媒体失败，本地修改已保留，请稍后重试：{}", error.message)))?
+                    .ok_or_else(|| ApiError::new(StatusCode::BAD_GATEWAY, "共享存储未开启，无法上传协作媒体"))?;
+                set_config_json(&db_connection(state)?, &key, &json!(url))?;
+                url
+            }
+        };
+        shared.insert(local, url);
+    }
+    replace_local_media(&mut body["mutations"], &shared);
+    // The window's own copy still holds local URLs, so ask for full resources back.
+    if let Some(object) = body.as_object_mut() { object.remove("compactReceipt"); }
+    Ok(0)
+}
+
 fn cache_collaboration_lease_response(
     conn: &Connection,
     key: &str,
@@ -531,7 +610,13 @@ pub(super) async fn api_project_collaboration(
         let (kind, resource_id) = collaboration_scope(&body)?;
         body["token"] = json!(scoped_lease_token(&db_connection(&state)?, &id, &session_id, kind, resource_id)?);
     }
+    let mut unshared_media = 0;
     if action == "write" {
+        // An operation stored before sharing existed must replay byte-identically.
+        let operation_key = format!("project_collaboration_operation:{}", json!([user_id, id, body.get("operationId").and_then(Value::as_str).unwrap_or("")]));
+        if get_config_json(&db_connection(&state)?, &operation_key)?.is_none() {
+            unshared_media = share_collaboration_media(&state, &mut body).await?;
+        }
         let mut conn = db_connection(&state)?;
         prepare_collaboration_write(&mut conn, &user_id, &id, &session_id, &mut body)?;
     }
@@ -607,6 +692,9 @@ pub(super) async fn api_project_collaboration(
         if let Some(object) = data.as_object_mut() {
             object.remove("token");
         }
+    }
+    if unshared_media > 0 {
+        data["unsharedMediaCount"] = json!(unshared_media);
     }
     if data.get("enabled").and_then(Value::as_bool) == Some(true) {
         remember_collaboration_mode(&state, &id)?;
@@ -702,6 +790,47 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0.data_dir);
         }
+    }
+
+    #[test]
+    fn collaboration_writes_find_and_replace_only_existing_local_media() {
+        let test = ManagementProject::new("owner");
+        let state = &test.0;
+        fs::create_dir_all(state.public_dir.join("videos")).unwrap();
+        fs::write(state.public_dir.join("videos").join("clip.mp4"), b"video").unwrap();
+        fs::create_dir_all(state.data_dir.join("audios")).unwrap();
+        fs::write(state.data_dir.join("audios").join("line.mp3"), b"audio").unwrap();
+        let mut body = json!({"mutations":[{"body":{"scenes":[
+            {"videoUrl":"/api/video/file/clip.mp4","description":"/videos/clip.mp4 is not a whole value"},
+            {"videoUrl":"http://127.0.0.1:43127/api/video/file/clip.mp4?t=1"},
+            {"audio":"/audios/line.mp3","missing":"/api/image/file/gone.png","escape":"/api/video/file/..%2Fsecret"},
+            {"shared":"https://cdn.example/clip.mp4"}
+        ]}}]});
+        let mut found = Vec::new();
+        collect_local_media(state, &body["mutations"], &mut found);
+        let mut names: Vec<_> = found.iter().map(|item| (item.0.as_str(), item.1)).collect();
+        names.sort();
+        assert_eq!(names, vec![("/api/video/file/clip.mp4", "videos"), ("/audios/line.mp3", "audios"), ("http://127.0.0.1:43127/api/video/file/clip.mp4?t=1", "videos")]);
+        let shared = found.iter().map(|item| (item.0.clone(), format!("https://tos.example/{}", item.3))).collect();
+        replace_local_media(&mut body["mutations"], &shared);
+        let scenes = &body["mutations"][0]["body"]["scenes"];
+        assert_eq!(scenes[0]["videoUrl"], "https://tos.example/clip.mp4");
+        assert_eq!(scenes[0]["description"], "/videos/clip.mp4 is not a whole value");
+        assert_eq!(scenes[1]["videoUrl"], "https://tos.example/clip.mp4");
+        assert_eq!(scenes[2]["audio"], "https://tos.example/line.mp3");
+        assert_eq!(scenes[2]["missing"], "/api/image/file/gone.png");
+        assert_eq!(scenes[3]["shared"], "https://cdn.example/clip.mp4");
+    }
+
+    #[tokio::test]
+    async fn collaboration_media_without_shared_storage_is_counted_and_left_unchanged() {
+        let test = ManagementProject::new("owner");
+        fs::create_dir_all(test.0.public_dir.join("generated-images")).unwrap();
+        fs::write(test.0.public_dir.join("generated-images").join("frame.png"), b"image").unwrap();
+        let mut body = json!({"compactReceipt":true,"mutations":[{"body":{"firstFrame":"/api/image/file/frame.png"}}]});
+        let original = body.clone();
+        assert_eq!(share_collaboration_media(&test.0, &mut body).await.unwrap(), 1);
+        assert_eq!(body, original);
     }
 
     #[test]

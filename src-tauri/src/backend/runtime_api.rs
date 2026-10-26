@@ -906,7 +906,7 @@ async fn upload_media_bytes_to_tos_async(
     .await
 }
 
-async fn upload_media_file_to_tos_async(
+pub(super) async fn upload_media_file_to_tos_async(
     category: &'static str,
     filename: String,
     file_path: PathBuf,

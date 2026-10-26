@@ -7,6 +7,7 @@ import {
   collaborationObject,
   collaborationResourceType,
   COLLABORATION_PROTOCOL_VERSION,
+  type CollaborationBody,
   type CollaborationChange,
   type CollaborationMutation,
   type CollaborationResource,
@@ -60,7 +61,12 @@ export function ensureProjectCollaborationSchema(db: Database) {
   `)
   const columns = db.query('PRAGMA table_info(project_collaboration_changes)').all() as Array<{ name: string }>
   if (!columns.some(column => column.name === 'patch_json')) db.exec('ALTER TABLE project_collaboration_changes ADD COLUMN patch_json TEXT')
+  const operationColumns = db.query('PRAGMA table_info(project_collaboration_operations)').all() as Array<{ name: string }>
+  if (!operationColumns.some(column => column.name === 'created_at')) db.exec('ALTER TABLE project_collaboration_operations ADD COLUMN created_at INTEGER')
 }
+
+/** Receipts older than this are pruned. A later replay is still fenced by expectedRevision. */
+export const COLLABORATION_OPERATION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 export function nextCollaborationTimestamp(nowMs: number, ...previous: Array<string | null | undefined>) {
   return new Date(Math.max(nowMs, ...previous.map(value => (Date.parse(value || '') || 0) + 1))).toISOString()
@@ -241,9 +247,54 @@ export function operateCollaborationLease(db: Database, input: {
   }).immediate()
 }
 
+type ReceiptResource = Omit<CollaborationResource, 'body'> & { body?: CollaborationBody | null }
+
+/** Replays rebuild bodies from current rows; receipts themselves only store headers. */
+function hydrateReceipt(db: Database, projectId: string, stored: { cursor: number, resources: ReceiptResource[] }, compact: boolean) {
+  if (compact || stored.resources.every(item => Object.hasOwn(item, 'body'))) return stored as { cursor: number, resources: CollaborationResource[] }
+  const getResource = db.query('SELECT * FROM project_collaboration_resources WHERE project_id = ? AND resource_type = ? AND resource_id = ?')
+  return { cursor: stored.cursor, resources: stored.resources.map(item => {
+    if (item.deleted) return { ...item, body: null }
+    const row = getResource.get(projectId, item.type, item.id) as ResourceRow | null
+    if (!row || row.revision !== item.revision || row.deleted) {
+      throw createError({ statusCode: 409, message: `操作已提交，但对象 ${item.id} 之后又被修改，请重新读取项目核对`, data: { type: item.type, id: item.id, revision: row?.revision ?? 0, deleted: !!row?.deleted } })
+    }
+    return resourceFromRow(row)
+  }) }
+}
+
+function sceneIds(body: CollaborationBody) {
+  if (!Array.isArray(body.scenes)) throw new Error('每集分镜必须是数组')
+  return body.scenes.map(scene => collaborationId(collaborationObject(scene, '每集分镜').id, '分镜 ID'))
+}
+
+/**
+ * Edits that keep an existing episode's scene set and order index, or an existing
+ * character's identity, cannot affect other resources. They skip whole-project validation.
+ */
+function localUpdateIsSafe(current: CollaborationResource | undefined, next: CollaborationResource) {
+  if (!current?.body || current.deleted || !next.body || next.deleted) return false
+  if (next.type === 'character') return next.body.id === next.id && current.body.id === next.id
+  if (next.type !== 'episode') return false
+  try {
+    const plan = collaborationObject(next.body.plan, '集数目录项')
+    const before = collaborationObject(current.body.plan, '集数目录项')
+    if (plan.id !== next.id || plan.index !== before.index) return false
+    if (next.body.writing != null) {
+      const writing = collaborationObject(next.body.writing, '每集正文')
+      if (writing.id !== next.id || writing.index !== plan.index) return false
+    }
+    const ids = sceneIds(next.body)
+    if (new Set(ids).size !== ids.length) return false
+    if ((next.body.scenes as CollaborationBody[]).some(scene => scene.episodeId !== next.id)) return false
+    const previous = new Set(sceneIds(current.body))
+    return ids.length === previous.size && ids.every(id => previous.has(id))
+  } catch { return false }
+}
+
 export function writeCollaboration(db: Database, input: {
   projectId: string, userId: string, deviceId: string, sessionId: string,
-  operationId: string, mutations: CollaborationMutation[], nowMs?: number
+  operationId: string, mutations: CollaborationMutation[], nowMs?: number, compactReceipt?: boolean
 }) {
   return db.transaction(() => {
     requireCollaboration(db, input.projectId)
@@ -268,20 +319,21 @@ export function writeCollaboration(db: Database, input: {
       .get(input.projectId, input.userId, input.operationId) as { fingerprint: string, result_json: string } | null
     if (previous) {
       if (previous.fingerprint !== fingerprint) throw createError({ statusCode: 409, message: '操作 ID 已用于其他内容，请勿重复使用' })
-      return JSON.parse(previous.result_json) as { cursor: number, resources: CollaborationResource[] }
+      return hydrateReceipt(db, input.projectId, JSON.parse(previous.result_json), input.compactReceipt === true)
     }
     const now = input.nowMs ?? Date.now()
-    const resources = collaborationResources(db, input.projectId)
+    const getResource = db.query('SELECT * FROM project_collaboration_resources WHERE project_id = ? AND resource_type = ? AND resource_id = ?')
+    const getLease = db.query('SELECT * FROM project_collaboration_leases WHERE project_id = ? AND resource_type = ? AND resource_id = ?')
     const changed: CollaborationResource[] = []
+    const currents = new Map<string, CollaborationResource | undefined>()
     const patches = new Map<string, string>()
     for (const mutation of mutations) {
-      const lease = db.query('SELECT * FROM project_collaboration_leases WHERE project_id = ? AND resource_type = ? AND resource_id = ?')
-        .get(input.projectId, mutation.type, mutation.id) as LeaseRow | null
+      const lease = getLease.get(input.projectId, mutation.type, mutation.id) as LeaseRow | null
       if (!lease || lease.user_id !== input.userId || lease.device_id !== input.deviceId || lease.session_id !== input.sessionId || lease.token !== mutation.leaseToken || lease.expires_at <= now) {
         throw createError({ statusCode: 423, message: `对象 ${mutation.id} 的编辑权已失效`, data: { type: mutation.type, id: mutation.id } })
       }
-      const index = resources.findIndex(item => item.type === mutation.type && item.id === mutation.id)
-      const current = resources[index]
+      const row = getResource.get(input.projectId, mutation.type, mutation.id) as ResourceRow | null
+      const current = row ? resourceFromRow(row) : undefined
       if (current?.deleted || (current?.revision ?? 0) !== mutation.expectedRevision) {
         throw createError({ statusCode: 409, message: `对象 ${mutation.id} 已变化或删除，请核对该对象`, data: { type: mutation.type, id: mutation.id, revision: current?.revision ?? 0, deleted: current?.deleted ?? false } })
       }
@@ -304,41 +356,65 @@ export function writeCollaboration(db: Database, input: {
         } catch (cause) { return invalid(cause) }
       }
       const resource: CollaborationResource = { type: mutation.type, id: mutation.id, revision: mutation.expectedRevision + 1, body: mutation.body!, deleted: mutation.body === null }
+      const key = JSON.stringify([resource.type, resource.id])
       if (current?.body && resource.body) {
         const patch = diffCollaborationBody(current.body, resource.body, true)
         const encoded = JSON.stringify(patch)
-        if (patch.length && patch.length <= 10000 && encoded.length < JSON.stringify(resource.body).length) patches.set(JSON.stringify([resource.type, resource.id]), encoded)
+        if (patch.length && patch.length <= 10000 && encoded.length < JSON.stringify(resource.body).length) patches.set(key, encoded)
       }
-      if (index < 0) resources.push(resource)
-      else resources[index] = resource
+      currents.set(key, current)
       changed.push(resource)
     }
-    try { validateCollaborationResources(resources) }
-    catch (cause) { return invalid(cause) }
-    const snapshot = composeProjectSnapshot(resources)
-    const metadata = collaborationObject(snapshot.project, '项目设置')
-    for (const key of ['name', 'description', 'scriptParseMode', 'styleId', 'aspectRatio', 'status']) {
-      if (metadata[key] != null && typeof metadata[key] !== 'string') return invalid(new Error(`项目字段 ${key} 必须是文本`))
+    // Structural or settings edits rebuild and validate the whole project; ordinary
+    // episode/character edits only validate the edited object.
+    const local = changed.every(item => localUpdateIsSafe(currents.get(JSON.stringify([item.type, item.id])), item))
+    let summary: { metadata: CollaborationBody, sceneCount: number, characterCount: number } | undefined
+    if (!local) {
+      const resources = collaborationResources(db, input.projectId)
+      for (const item of changed) {
+        const index = resources.findIndex(value => value.type === item.type && value.id === item.id)
+        if (index < 0) resources.push(item)
+        else resources[index] = item
+      }
+      try { validateCollaborationResources(resources) }
+      catch (cause) { return invalid(cause) }
+      const snapshot = composeProjectSnapshot(resources)
+      const metadata = collaborationObject(snapshot.project, '项目设置')
+      for (const key of ['name', 'description', 'scriptParseMode', 'styleId', 'aspectRatio', 'status']) {
+        if (metadata[key] != null && typeof metadata[key] !== 'string') return invalid(new Error(`项目字段 ${key} 必须是文本`))
+      }
+      summary = { metadata, sceneCount: (snapshot.scenes as unknown[]).length, characterCount: (snapshot.characters as unknown[]).length }
     }
     const projectVersion = (db.query('SELECT updated_at FROM user_projects WHERE id = ?').get(input.projectId) as { updated_at: string }).updated_at
     const timestamp = nextCollaborationTimestamp(now, projectVersion)
     const upsert = db.query(`INSERT INTO project_collaboration_resources (project_id, resource_type, resource_id, revision, body_json, deleted)
       VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, resource_type, resource_id) DO UPDATE SET
       revision = excluded.revision, body_json = excluded.body_json, deleted = excluded.deleted`)
+    const insertChange = db.query(`INSERT INTO project_collaboration_changes (project_id, resource_type, resource_id, revision, body_json, deleted, user_id, operation_id, created_at, patch_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     for (const item of changed) {
       const body = item.body == null ? null : JSON.stringify(item.body)
+      const patch = patches.get(JSON.stringify([item.type, item.id])) ?? null
       upsert.run(input.projectId, item.type, item.id, item.revision, body, Number(item.deleted))
-      db.query(`INSERT INTO project_collaboration_changes (project_id, resource_type, resource_id, revision, body_json, deleted, user_id, operation_id, created_at, patch_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.projectId, item.type, item.id, item.revision, body, Number(item.deleted), input.userId, input.operationId, timestamp, patches.get(JSON.stringify([item.type, item.id])) ?? null)
+      // A patch row does not repeat the full body; readers take it from the current resource.
+      insertChange.run(input.projectId, item.type, item.id, item.revision, patch ? null : body, Number(item.deleted), input.userId, input.operationId, timestamp, patch)
     }
-    db.query(`UPDATE user_projects SET local_updated_at = ?, updated_at = ?, last_synced_at = ?,
-      name = ?, description = ?, script_parse_mode = ?, style_id = ?, aspect_ratio = ?, status = ?, summary_json = ? WHERE id = ?`)
-      .run(timestamp, timestamp, timestamp, metadata.name as string || '未命名项目', metadata.description as string || '',
-        metadata.scriptParseMode as string || '', metadata.styleId as string || '', metadata.aspectRatio as string || '',
-        metadata.status as string || 'draft', JSON.stringify({ sceneCount: (snapshot.scenes as unknown[]).length, characterCount: (snapshot.characters as unknown[]).length }), input.projectId)
+    if (summary) {
+      const { metadata } = summary
+      db.query(`UPDATE user_projects SET local_updated_at = ?, updated_at = ?, last_synced_at = ?,
+        name = ?, description = ?, script_parse_mode = ?, style_id = ?, aspect_ratio = ?, status = ?, summary_json = ? WHERE id = ?`)
+        .run(timestamp, timestamp, timestamp, metadata.name as string || '未命名项目', metadata.description as string || '',
+          metadata.scriptParseMode as string || '', metadata.styleId as string || '', metadata.aspectRatio as string || '',
+          metadata.status as string || 'draft', JSON.stringify({ sceneCount: summary.sceneCount, characterCount: summary.characterCount }), input.projectId)
+    } else {
+      db.query('UPDATE user_projects SET local_updated_at = ?, updated_at = ?, last_synced_at = ? WHERE id = ?').run(timestamp, timestamp, timestamp, input.projectId)
+    }
     const result = { cursor: cursor(db, input.projectId), resources: changed }
-    db.query('INSERT INTO project_collaboration_operations (project_id, user_id, operation_id, fingerprint, result_json) VALUES (?, ?, ?, ?, ?)')
-      .run(input.projectId, input.userId, input.operationId, fingerprint, JSON.stringify(result))
+    const receipt = { cursor: result.cursor, resources: changed.map(({ type, id, revision, deleted }) => ({ type, id, revision, deleted })) }
+    db.query('DELETE FROM project_collaboration_operations WHERE project_id = ? AND created_at IS NOT NULL AND created_at < ?')
+      .run(input.projectId, now - COLLABORATION_OPERATION_RETENTION_MS)
+    db.query('INSERT INTO project_collaboration_operations (project_id, user_id, operation_id, fingerprint, result_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(input.projectId, input.userId, input.operationId, fingerprint, JSON.stringify(receipt), now)
     return result
   }).immediate()
 }
@@ -353,10 +429,18 @@ export function collaborationChanges(db: Database, projectId: string, after: num
       CASE WHEN ? = 1 AND patch_json IS NOT NULL THEN NULL ELSE body_json END AS body_json
       FROM project_collaboration_changes WHERE project_id = ? AND sequence > ? ORDER BY sequence LIMIT ?`)
       .all(Number(fieldPatches), projectId, after, Math.min(500, Math.max(1, limit))) as Array<ResourceRow & { sequence: number, user_id: string, operation_id: string, created_at: string, patch_json: string | null }>
-    const wireChanges = rows.map(row => {
+    const getResource = db.query('SELECT revision, body_json, deleted FROM project_collaboration_resources WHERE project_id = ? AND resource_type = ? AND resource_id = ?')
+    const wireChanges = rows.flatMap(row => {
       const metadata = { type: row.resource_type, id: row.resource_id, revision: row.revision, deleted: !!row.deleted, sequence: row.sequence, userId: row.user_id, operationId: row.operation_id, createdAt: row.created_at }
-      if (fieldPatches && row.patch_json) return { ...metadata, baseRevision: row.revision - 1, patch: JSON.parse(row.patch_json) as CollaborationPatch[] }
-      return { ...metadata, body: row.body_json == null ? null : JSON.parse(row.body_json) } as CollaborationChange
+      if (fieldPatches && row.patch_json) return [{ ...metadata, baseRevision: row.revision - 1, patch: JSON.parse(row.patch_json) as CollaborationPatch[] }]
+      if (row.body_json == null && !row.deleted) {
+        // Patch rows do not keep a full body. Only the latest revision can be rebuilt;
+        // an older one is superseded by a later change in this feed and is skipped.
+        const current = getResource.get(projectId, row.resource_type, row.resource_id) as Pick<ResourceRow, 'revision' | 'body_json' | 'deleted'> | null
+        if (!current || current.deleted || current.revision !== row.revision || current.body_json == null) return []
+        return [{ ...metadata, body: JSON.parse(current.body_json) } as CollaborationChange]
+      }
+      return [{ ...metadata, body: row.body_json == null ? null : JSON.parse(row.body_json) } as CollaborationChange]
     })
     const nextCursor = rows.at(-1)?.sequence ?? after
     return { changes: wireChanges, cursor: nextCursor, hasMore: nextCursor < latestCursor }

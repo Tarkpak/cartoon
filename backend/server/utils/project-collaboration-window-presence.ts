@@ -1,8 +1,8 @@
 import type { Database } from 'bun:sqlite'
 import { createError } from 'h3'
-import { collaborationId, collaborationResourceType, type CollaborationWindowPresence, type CollaborationResource } from '../../../shared/types/project-collaboration'
+import { COLLABORATION_PRESENCE_TTL_MS, collaborationId, collaborationResourceType, type CollaborationWindowPresence, type CollaborationResource } from '../../../shared/types/project-collaboration'
 
-export const COLLABORATION_PRESENCE_TTL_MS = 35_000
+export { COLLABORATION_PRESENCE_TTL_MS }
 
 /** Presence describes activity; only a resource lease grants exclusive write access. */
 export function updateCollaborationWindowPresence(db: Database, input: {
@@ -25,6 +25,8 @@ export function updateCollaborationWindowPresence(db: Database, input: {
   if (input.leaving) {
     db.query('DELETE FROM project_collaboration_window_presence WHERE project_id = ? AND user_id = ? AND device_id = ? AND session_id = ?').run(input.projectId, input.userId, deviceId, sessionId)
     db.query('DELETE FROM project_collaboration_presence WHERE project_id = ? AND user_id = ? AND device_id = ? AND session_id = ?').run(input.projectId, input.userId, deviceId, sessionId)
+    // A closed window cannot release leases itself; leaving ends that window's edit operations.
+    db.query('DELETE FROM project_collaboration_leases WHERE project_id = ? AND user_id = ? AND device_id = ? AND session_id = ?').run(input.projectId, input.userId, deviceId, sessionId)
   } else {
     db.query(`INSERT INTO project_collaboration_window_presence (project_id, user_id, device_id, session_id, editing_json, last_seen_at)
       VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id, device_id, session_id) DO UPDATE SET editing_json = excluded.editing_json, last_seen_at = excluded.last_seen_at`)

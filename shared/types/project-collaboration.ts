@@ -1,4 +1,6 @@
 export const COLLABORATION_PROTOCOL_VERSION = 1
+/** Online status expires after this long without a poll (polls run every 10 seconds). */
+export const COLLABORATION_PRESENCE_TTL_MS = 35_000
 export const COLLABORATION_RESOURCE_TYPES = ['settings', 'directory', 'episode', 'character'] as const
 export type CollaborationResourceType = typeof COLLABORATION_RESOURCE_TYPES[number]
 export type CollaborationBody = Record<string, unknown>

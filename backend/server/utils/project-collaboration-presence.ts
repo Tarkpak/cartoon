@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { collaborationId, collaborationResourceType, type CollaborationPresence } from '../../../shared/types/project-collaboration'
+import { COLLABORATION_PRESENCE_TTL_MS, collaborationId, collaborationResourceType, type CollaborationPresence } from '../../../shared/types/project-collaboration'
 
 /** Presence describes activity; it never acquires editing leases. Caller checks project access. */
 export function updateCollaborationPresence(db: Database, projectId: string, userId: string, deviceId: string, sessionId: string, input: unknown, editable: boolean, now = Date.now()): CollaborationPresence[] {
@@ -15,7 +15,7 @@ export function updateCollaborationPresence(db: Database, projectId: string, use
   db.query(`INSERT INTO project_collaboration_presence (project_id, user_id, device_id, session_id, scopes_json, expires_at)
     VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id, device_id, session_id)
     DO UPDATE SET scopes_json = excluded.scopes_json, expires_at = excluded.expires_at`)
-    .run(projectId, userId, deviceId, sessionId, JSON.stringify(scopes), now + 45_000)
+    .run(projectId, userId, deviceId, sessionId, JSON.stringify(scopes), now + COLLABORATION_PRESENCE_TTL_MS)
   const rows = db.query(`SELECT p.user_id, p.device_id, p.session_id, p.scopes_json, u.display_name, u.account
     FROM project_collaboration_presence p JOIN users u ON u.id = p.user_id
     JOIN user_projects project ON project.id = p.project_id

@@ -25,6 +25,7 @@ let store: Map<string, string>
 let currentUser = ref<{ id: string } | null>({ id: 'owner' })
 let changes: typeof server
 let readError: unknown
+let unsharedMedia = 0
 let combinedSupported = false
 let compactSupported = false
 let patchV2Supported = false
@@ -35,7 +36,7 @@ const sessions: ReturnType<typeof useWorkbenchCollaborationSession>[] = []
 beforeEach(() => {
   vi.useFakeTimers()
   setDraftRuntime('test-runtime'); access = undefined
-  currentUser = ref<{ id: string } | null>({ id: 'owner' }); changes = []; readError = undefined; editable = true
+  currentUser = ref<{ id: string } | null>({ id: 'owner' }); changes = []; readError = undefined; editable = true; unsharedMedia = 0
   combinedSupported = false
   compactSupported = false
   patchV2Supported = false
@@ -65,7 +66,7 @@ beforeEach(() => {
       for (const resource of changed) { const index = server.findIndex(item => item.type === resource.type && item.id === resource.id); if (index < 0) server.push(resource); else server[index] = resource }
       receipts.set(body.operationId, { resources: changed })
       if (loseReply) { loseReply = false; throw new Error('response lost') }
-      return { data: represent({ resources: changed }) }
+      return { data: { ...represent({ resources: changed }), ...(unsharedMedia ? { unsharedMediaCount: unsharedMedia } : {}) } }
     }
     throw new Error(`Unexpected request: ${path}`)
   }))
@@ -466,6 +467,7 @@ describe('collaboration in the original workbench', () => {
     current.scenes[0]!.description = '本机修改'
     const remote = structuredClone(server.find(item => item.id === 'a')!)
     remote.revision++
+    ;(remote.body!.scenes as Array<Record<string, unknown>>)[0]!.description = '云端修改'
     changes = [remote]
     await session.poll()
     expect(session.editSession.value.scopeConflict).toBe(true)
@@ -689,12 +691,73 @@ describe('collaboration in the original workbench', () => {
     await session.openEditSession('p')
     const remote = structuredClone(server.find(item => item.id === 'a')!)
     remote.revision++
+    ;(remote.body!.scenes as Array<Record<string, unknown>>)[0]!.description = '云端 A 修改'
     changes = [remote]
     await session.poll()
     expect(apply).not.toHaveBeenCalled()
     expect(session.editSession.value.scopeConflict).toBe(true)
     expect(session.projectEditable.value).toBe(true)
     expect([...store.values()].some(value => value.includes('本机 A 草稿'))).toBe(true)
+  })
+  it('announces leaving and releases idle leases when the window closes', async () => {
+    const before = view(), after = view()
+    after.scenes[0]!.description = '关窗前草稿'
+    const window = new EventTarget()
+    vi.stubGlobal('window', window)
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before, after }), apply: vi.fn() })
+    sessions.push(session)
+    await session.openEditSession('p')
+    blocked = 'none'
+    await prepareWorkbenchRequest('/api/asset-workflow/scene/description-refinement', { projectId: 'p', sceneId: 's1' })
+    const fetch = vi.mocked($fetch)
+    fetch.mockClear()
+    window.dispatchEvent(new Event('pagehide'))
+    const bodies = fetch.mock.calls.map(([, options]) => (options as { body: Record<string, unknown>, keepalive?: boolean }))
+    expect(bodies.every(item => item.keepalive)).toBe(true)
+    expect(bodies.map(item => item.body)).toEqual(expect.arrayContaining([{ action: 'presence', leaving: true }, { action: 'lease', leaseAction: 'release', type: 'episode', id: 'a' }]))
+    expect([...store.values()].some(value => value.includes('关窗前草稿'))).toBe(true)
+    await session.releaseEditSession()
+    fetch.mockClear()
+    window.dispatchEvent(new Event('pagehide'))
+    expect(fetch).not.toHaveBeenCalled()
+  })
+  it('adopts character voice candidates even after other members changed project settings', async () => {
+    server.push({ type: 'character', id: 'c', revision: 1, body: { id: 'c', name: '角色' }, deleted: false })
+    server.find(item => item.type === 'settings')!.revision = 2
+    const session = createSession()
+    await session.openEditSession('p')
+    const result = (resourceType: 'character' | 'settings', resourceId: string) => ({ id: 'r', kind: 'asset-voice' as const, status: 'completed' as const, createdAt: '2026-10-26', url: 'https://shared.example/v.mp3',
+      collaboration: { projectId: 'p', actorId: 'owner', assetKind: resourceType === 'character' ? 'character' as const : 'prop' as const, assetId: resourceId, resourceType, resourceId, revision: 1, settingsRevision: 1 } })
+    expect(session.canAdoptAsset(result('character', 'c'))).toBe(true)
+    // Prop candidates live in settings, so a settings change still makes them stale.
+    expect(session.canAdoptAsset({ ...result('settings', 'settings'), collaboration: { ...result('settings', 'settings').collaboration, revision: 2 } })).toBe(false)
+  })
+  it('warns after saving media that only exists on this machine', async () => {
+    unsharedMedia = 2
+    const session = createSession()
+    await session.openEditSession('p')
+    const after = view()
+    after.scenes[0]!.description = '带本机视频'
+    await session.saveSnapshot(view(), after)
+    expect(session.editSession.value.syncStatus).toBe('synced')
+    expect(session.editSession.value.reason).toContain('2 个图片、视频或音频只在本机')
+  })
+  it('merges remote edits to other fields of a dirty object automatically', async () => {
+    const before = view(), after = view()
+    after.scenes[0]!.description = '本机 A 草稿'
+    const apply = vi.fn()
+    const session = useWorkbenchCollaborationSession(async () => true, { draft: () => ({ before, after }), apply })
+    sessions.push(session)
+    await session.openEditSession('p')
+    const remote = structuredClone(server.find(item => item.id === 'a')!)
+    remote.revision++
+    ;(remote.body!.scenes as Array<Record<string, unknown>>)[0]!.title = '云端标题'
+    changes = [remote]
+    await session.poll()
+    expect(session.editSession.value.scopeConflict).toBeFalsy()
+    expect(session.editSession.value.lastRemoteUpdate).toBe('已自动合并其他成员的更新')
+    const [, current] = apply.mock.calls[0]! as [unknown, { scenes: Array<Record<string, unknown>> }]
+    expect(current.scenes[0]).toMatchObject({ description: '本机 A 草稿', title: '云端标题' })
   })
   it('fences permission removal and account switching without losing the draft', async () => {
     const before = view(), after = view()

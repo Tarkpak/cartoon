@@ -55,15 +55,18 @@ describe('per resource collaboration', () => {
     expect(removed.map(item => item.userId)).toEqual(['owner'])
   })
 
-  it('removes both presence records on leave while preserving other windows', () => {
+  it('removes presence records and leases on leave while preserving other windows', () => {
     const { db } = setup()
     const identity = { ownerUserId: 'owner', localProjectId: 'p1', deviceId: 'd', sessionId: 'a' }
     for (const sessionId of ['a', 'other']) {
       handleProjectCollaboration(db, auth('alice'), { ...identity, sessionId, action: 'changes', after: 0, activeScopes: [{ type: 'episode', id: 'e1' }] })
       handleProjectCollaboration(db, auth('alice'), { ...identity, sessionId, action: 'presence' })
     }
+    for (const [sessionId, id] of [['a', 'e1'], ['other', 'e2']]) {
+      operateCollaborationLease(db, { projectId: 'cloud-p1', userId: 'alice', deviceId: 'd', sessionId, type: 'episode', id, action: 'acquire', canTakeover: false })
+    }
     handleProjectCollaboration(db, auth('alice'), { ...identity, action: 'presence', leaving: true })
-    for (const table of ['project_collaboration_presence', 'project_collaboration_window_presence']) {
+    for (const table of ['project_collaboration_presence', 'project_collaboration_window_presence', 'project_collaboration_leases']) {
       expect(db.query(`SELECT session_id FROM ${table} WHERE user_id = ?`).all('alice')).toEqual([{ session_id: 'other' }])
     }
   })
@@ -111,6 +114,12 @@ describe('per resource collaboration', () => {
     const body = structuredClone(resource.body!)
     ;(body.scenes as Array<Record<string, unknown>>)[0]!.description = label
     return { type: 'episode', id, expectedRevision: resource.revision, leaseToken: token, body }
+  }
+  function edit(db: Database, previous: CollaborationMutation, label: string): CollaborationMutation {
+    const resource = collaborationResources(db, 'cloud-p1').find(item => item.type === previous.type && item.id === previous.id)!
+    const body = structuredClone(resource.body!)
+    ;(body.scenes as Array<Record<string, unknown>>)[0]!.description = label
+    return { ...previous, expectedRevision: resource.revision, body }
   }
   function auth(userId: string): AuthContext {
     return { user: { id: userId, account: userId, display_name: userId, role: 'user', status: 'active' }, sessionId: 'auth-session', deviceId: 'device' }
@@ -209,6 +218,41 @@ describe('per resource collaboration', () => {
     expect(collaborationResources(db, 'cloud-p1').find(item => item.id === 'e1')).toEqual(result.resources[0])
   })
 
+  it('stores compact receipts, rebuilds replay bodies and prunes old receipts', () => {
+    const { db } = setup()
+    const request = { ...actor(), operationId: 'compact', mutations: [mutation(db, 'e1')] }
+    const result = writeCollaboration(db, request)
+    const stored = JSON.parse((db.query('SELECT result_json FROM project_collaboration_operations WHERE operation_id = ?').get('compact') as { result_json: string }).result_json)
+    expect(stored.resources).toEqual([{ type: 'episode', id: 'e1', revision: 2, deleted: false }])
+    expect(writeCollaboration(db, request)).toEqual(result)
+    // Another edit moves the resource on: compact replays still confirm, full replays cannot rebuild the old body.
+    const later = edit(db, request.mutations[0]!, 'later')
+    writeCollaboration(db, { ...actor(), operationId: 'later', mutations: [later] })
+    expect(writeCollaboration(db, { ...request, compactReceipt: true }).resources[0]).toMatchObject({ type: 'episode', id: 'e1', revision: 2 })
+    expect(() => writeCollaboration(db, request)).toThrow('之后又被修改')
+    const old = Date.now() - 31 * 24 * 60 * 60 * 1000
+    db.query("UPDATE project_collaboration_operations SET created_at = ? WHERE operation_id = 'compact'").run(old)
+    writeCollaboration(db, { ...actor(), operationId: 'prune', mutations: [mutation(db, 'e2', 'alice', 'prune')] })
+    expect(db.query("SELECT operation_id FROM project_collaboration_operations ORDER BY operation_id").all()).toEqual([{ operation_id: 'later' }, { operation_id: 'prune' }])
+    // A pruned operation replayed later is still fenced by its base revision.
+    expect(() => writeCollaboration(db, request)).toThrow('已变化')
+  })
+
+  it('validates the whole project only for edits that can affect other resources', () => {
+    const { db } = setup()
+    const local = mutation(db, 'e1')
+    writeCollaboration(db, { ...actor(), operationId: 'local', mutations: [local] })
+    expect(db.query("SELECT summary_json FROM user_projects WHERE id = 'cloud-p1'").get()).toEqual({ summary_json: null })
+    // Adding a scene that already exists in another episode needs the cross-episode check.
+    const duplicate = edit(db, local, 'dup')
+    ;(duplicate.body!.scenes as unknown[]).push({ id: 's2', episodeId: 'e1' })
+    expect(() => writeCollaboration(db, { ...actor(), operationId: 'duplicate', mutations: [duplicate] })).toThrow('重复')
+    const added = edit(db, local, 'added')
+    ;(added.body!.scenes as unknown[]).push({ id: 's3', episodeId: 'e1' })
+    writeCollaboration(db, { ...actor(), operationId: 'added', mutations: [added] })
+    expect(JSON.parse((db.query("SELECT summary_json FROM user_projects WHERE id = 'cloud-p1'").get() as { summary_json: string }).summary_json)).toEqual({ sceneCount: 3, characterCount: 1 })
+  })
+
   it('delivers element patches to opted-in clients and full resources to legacy clients', () => {
     const { db } = setup()
     // Simulate the pre-upgrade schema and verify the additive migration is repeatable.
@@ -228,10 +272,15 @@ describe('per resource collaboration', () => {
     const next = collaborationChanges(db, 'cloud-p1', delta.cursor, 1, true)
     expect(next.changes[0]).toMatchObject({ baseRevision: 2, revision: 3 })
     expect(next.hasMore).toBe(false)
+    // Patch rows do not store full bodies; legacy readers skip the superseded
+    // revision and receive the latest one from the current resource.
+    expect(db.query('SELECT COUNT(*) AS count FROM project_collaboration_changes WHERE body_json IS NOT NULL AND patch_json IS NOT NULL').get()).toEqual({ count: 0 })
+    expect(first.resources[0]!.revision).toBe(2)
     const legacy = collaborationChanges(db, 'cloud-p1', 0)
-    expect(legacy.changes[0]).toMatchObject(first.resources[0]!)
-    expect(legacy.changes[1]).toMatchObject(second.resources[0]!)
+    expect(legacy.changes).toHaveLength(1)
+    expect(legacy.changes[0]).toMatchObject(second.resources[0]!)
     expect(legacy.changes[0]).not.toHaveProperty('patch')
+    expect(legacy.cursor).toBe(next.cursor)
     let body = original.body!
     for (const page of [delta, next]) body = applyCollaborationPatch(body, (page.changes[0] as unknown as { patch: CollaborationPatch[] }).patch)
     expect(body).toEqual(second.resources[0]!.body)
