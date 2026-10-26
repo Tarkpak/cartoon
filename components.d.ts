@@ -43,6 +43,7 @@ declare module 'vue' {
     CardHeader: typeof import('./app/components/ui/card/CardHeader.vue')['default']
     CardTitle: typeof import('./app/components/ui/card/CardTitle.vue')['default']
     Checkbox: typeof import('./app/components/ui/checkbox/Checkbox.vue')['default']
+    ConfirmBody: typeof import('./app/components/ui/confirm/ConfirmBody.vue')['default']
     ConfirmHost: typeof import('./app/components/ui/confirm/ConfirmHost.vue')['default']
     DesktopFfmpegInstallDialog: typeof import('./app/components/desktop/DesktopFfmpegInstallDialog.vue')['default']
     DesktopUpdatePromptDialog: typeof import('./app/components/desktop/DesktopUpdatePromptDialog.vue')['default']

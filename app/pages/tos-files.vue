@@ -14,6 +14,7 @@ import {
   Users,
   Video
 } from 'lucide-vue-next'
+import { onKeyStroke } from '@vueuse/core'
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
@@ -92,6 +93,9 @@ const imagePreviewOpen = ref(false)
 const imagePreviewSrc = ref('')
 const imagePreviewAlt = ref('图片预览')
 const videoPreviewFile = ref<TosFileEntry | null>(null)
+onKeyStroke('Escape', () => {
+  if (videoPreviewFile.value) videoPreviewFile.value = null
+})
 const downloadingFileKey = ref<string | null>(null)
 const searchQuery = ref('')
 const { toast } = useToast()
@@ -962,9 +966,15 @@ onMounted(() => {
       :alt="imagePreviewAlt"
     />
     <Teleport to="body">
+      <Transition
+        enter-active-class="transition-opacity duration-200 ease-out motion-reduce:transition-none"
+        leave-active-class="transition-opacity duration-150 ease-in motion-reduce:transition-none"
+        enter-from-class="opacity-0"
+        leave-to-class="opacity-0"
+      >
       <div
         v-if="videoPreviewFile"
-        class="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-6"
+        class="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm"
         role="dialog"
         aria-modal="true"
         :aria-label="fileNameFromKey(videoPreviewFile.key)"
@@ -975,9 +985,10 @@ onMounted(() => {
             <p class="truncate text-sm font-medium">{{ fileNameFromKey(videoPreviewFile.key) }}</p>
             <Button variant="secondary" size="sm" @click="videoPreviewFile = null">关闭</Button>
           </div>
-          <video :src="videoPreviewFile.url" class="max-h-[80vh] w-full bg-black object-contain" controls autoplay playsinline />
+          <video :src="videoPreviewFile.url" class="max-h-[80vh] w-full rounded-lg bg-black object-contain" controls autoplay playsinline />
         </div>
       </div>
+      </Transition>
     </Teleport>
   </AppPage>
 </template>

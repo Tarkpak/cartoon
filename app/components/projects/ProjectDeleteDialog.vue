@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Loader2 } from 'lucide-vue-next'
+import ConfirmBody from '@/components/ui/confirm/ConfirmBody.vue'
 import type { Project } from '~/lib/projects-page'
 
 defineProps<{
@@ -19,15 +20,22 @@ defineEmits<{
     :open="open"
     @update:open="$emit('update:open', $event)"
   >
-    <DialogContent class="sm:max-w-[400px]">
-      <DialogHeader>
-        <DialogTitle>确认删除</DialogTitle>
-        <DialogDescription>
-          <template v-if="projectToDelete?.collaboration">确定要删除项目「{{ projectToDelete.title }}」吗？删除后，所有成员将无法继续访问此项目。云端保留迁移备份，当前页面不提供恢复操作。</template>
-          <template v-else>确定要删除项目「{{ projectToDelete?.title }}」吗？此操作不可撤销，所有相关数据将被永久删除。</template>
-        </DialogDescription>
-      </DialogHeader>
-      <DialogFooter>
+    <DialogContent
+      class="max-w-sm gap-5 p-5"
+      hide-close
+    >
+      <ConfirmBody
+        title="删除项目"
+        variant="destructive"
+      >
+        <template v-if="projectToDelete?.collaboration">
+          确定删除「{{ projectToDelete.title }}」吗？删除后所有成员都无法再访问这个项目。云端会保留迁移备份，但这里无法恢复。
+        </template>
+        <template v-else>
+          确定删除「{{ projectToDelete?.title }}」吗？项目里的场景、素材和视频会被永久删除，无法恢复。
+        </template>
+      </ConfirmBody>
+      <DialogFooter class="pt-0">
         <Button
           variant="outline"
           @click="$emit('update:open', false)"
@@ -43,7 +51,7 @@ defineEmits<{
             v-if="deleting"
             class="mr-2 h-4 w-4 animate-spin"
           />
-          确认删除
+          删除项目
         </Button>
       </DialogFooter>
     </DialogContent>

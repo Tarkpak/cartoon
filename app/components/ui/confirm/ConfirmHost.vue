@@ -2,11 +2,9 @@
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
+  DialogFooter
 } from '@/components/ui/dialog'
+import ConfirmBody from './ConfirmBody.vue'
 import { Button } from '@/components/ui/button'
 
 const { confirmState, accept, cancel, handleOpenChange } = useConfirm()
@@ -17,12 +15,17 @@ const { confirmState, accept, cancel, handleOpenChange } = useConfirm()
     :open="confirmState.open"
     @update:open="handleOpenChange"
   >
-    <DialogContent class="z-[70] max-w-md" overlay-class="z-[60]">
-      <DialogHeader>
-        <DialogTitle>{{ confirmState.title }}</DialogTitle>
-        <DialogDescription>{{ confirmState.description }}</DialogDescription>
-      </DialogHeader>
-      <DialogFooter class="gap-2 sm:gap-2">
+    <DialogContent
+      class="z-[70] max-w-sm gap-5 p-5"
+      overlay-class="z-[60]"
+      hide-close
+    >
+      <ConfirmBody
+        :title="confirmState.title"
+        :description="confirmState.description"
+        :variant="confirmState.variant"
+      />
+      <DialogFooter class="pt-0">
         <Button
           variant="outline"
           @click="cancel"

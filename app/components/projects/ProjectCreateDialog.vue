@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Star } from 'lucide-vue-next'
+import { Check, Loader2, Star } from 'lucide-vue-next'
 import type { StyleCategoryInfo, StylePreset } from '#shared/types/styles'
 import type { ProjectAspectRatio, ProjectDraft } from '~/lib/projects-page'
 import type { ScriptParseMode } from '#shared/types/script'
@@ -133,7 +133,11 @@ function applyDefaultStyle() {
     :open="open"
     @update:open="$emit('update:open', $event)"
   >
-    <DialogContent class="flex h-[min(90vh,920px)] max-w-[800px] flex-col overflow-hidden sm:max-w-[800px]">
+    <!-- Step 1 sizes to its form; only the style grid needs the tall fixed height. -->
+    <DialogContent
+      class="flex max-w-[800px] flex-col overflow-hidden sm:max-w-[800px]"
+      :class="createStep === 'style' ? 'h-[min(90vh,920px)]' : ''"
+    >
       <DialogHeader>
         <DialogTitle>{{ dialogTitle }}</DialogTitle>
         <DialogDescription>
@@ -141,65 +145,110 @@ function applyDefaultStyle() {
         </DialogDescription>
       </DialogHeader>
 
+      <ol
+        v-if="!isWritingWorkspace && !hidesStylePicker"
+        class="flex items-center gap-2 text-xs"
+        aria-label="创建步骤"
+      >
+        <li
+          v-for="(step, index) in [{ key: 'basic', label: '基本信息' }, { key: 'style', label: '选择画风' }]"
+          :key="step.key"
+          class="flex items-center gap-2"
+          :aria-current="createStep === step.key ? 'step' : undefined"
+        >
+          <span
+            v-if="index > 0"
+            class="h-px w-6 bg-border"
+            aria-hidden="true"
+          />
+          <span
+            class="flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold"
+            :class="createStep === step.key
+              ? 'bg-primary text-primary-foreground'
+              : step.key === 'basic' ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'"
+          >
+            <Check
+              v-if="step.key === 'basic' && createStep === 'style'"
+              class="h-3 w-3"
+            />
+            <template v-else>{{ index + 1 }}</template>
+          </span>
+          <span :class="createStep === step.key ? 'font-medium text-foreground' : 'text-muted-foreground'">{{ step.label }}</span>
+        </li>
+      </ol>
+
       <div
         v-if="createStep === 'basic'"
-        class="min-h-0 flex-1 space-y-4 overflow-y-auto py-4 pr-1"
+        class="min-h-0 flex-1 space-y-5 overflow-y-auto py-1 pr-1"
       >
         <div class="grid gap-2">
-          <label class="text-sm font-medium">项目名称 <span class="text-destructive">*</span></label>
+          <label
+            for="project-create-title"
+            class="text-sm font-medium"
+          >项目名称 <span class="text-destructive">*</span></label>
           <Input
+            id="project-create-title"
             v-model="titleModel"
             :placeholder="titlePlaceholder"
           />
         </div>
         <div class="grid gap-2">
-          <label class="text-sm font-medium">项目描述（可选）</label>
+          <label
+            for="project-create-description"
+            class="text-sm font-medium"
+          >项目描述 <span class="font-normal text-muted-foreground">（可选）</span></label>
           <Textarea
+            id="project-create-description"
             v-model="descriptionModel"
-            placeholder="项目简介（可选）"
+            class="resize-none"
+            placeholder="一两句话说明这个项目"
             rows="2"
           />
         </div>
         <div v-if="!isWritingWorkspace" class="grid gap-2">
           <label class="text-sm font-medium">解析模式 <span class="text-destructive">*</span></label>
-          <div class="grid grid-cols-2 gap-2">
-            <Button
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
               v-for="option in scriptParseModeOptions"
               :key="option.value"
               type="button"
-              variant="ghost"
-              class="h-auto rounded-xl bg-muted/20 p-3 text-left transition whitespace-normal"
-              :class="newProject.scriptParseMode === option.value ? 'border-primary bg-primary/10' : 'border-input hover:bg-muted/35'"
+              class="relative flex flex-col items-start gap-1 rounded-xl p-3 pr-8 text-left transition-[background-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              :class="newProject.scriptParseMode === option.value
+                ? 'bg-primary/[0.07] ring-2 ring-inset ring-primary'
+                : 'bg-muted/30 ring-1 ring-inset ring-border/60 hover:bg-muted/50'"
+              :aria-pressed="newProject.scriptParseMode === option.value"
               @click="setScriptParseMode(option.value)"
             >
-              <div class="text-sm font-medium">
-                {{ option.label }}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {{ option.description }}
-              </div>
-            </Button>
+              <span class="text-sm font-medium">{{ option.label }}</span>
+              <span class="text-xs leading-5 text-muted-foreground">{{ option.description }}</span>
+              <Check
+                v-if="newProject.scriptParseMode === option.value"
+                class="absolute right-3 top-3 h-4 w-4 text-primary"
+              />
+            </button>
           </div>
         </div>
         <div v-if="!isWritingWorkspace" class="grid gap-2">
           <label class="text-sm font-medium">成片比例 <span class="text-destructive">*</span></label>
-          <div class="grid grid-cols-3 gap-2">
-            <Button
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <button
               v-for="option in aspectRatioOptions"
               :key="option.value"
               type="button"
-              variant="ghost"
-              class="h-auto rounded-xl bg-muted/20 p-3 text-center transition whitespace-normal"
-              :class="newProject.aspectRatio === option.value ? 'border-primary bg-primary/10' : 'border-input hover:bg-muted/35'"
+              class="relative flex flex-col items-start gap-1 rounded-xl p-3 pr-8 text-left transition-[background-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              :class="newProject.aspectRatio === option.value
+                ? 'bg-primary/[0.07] ring-2 ring-inset ring-primary'
+                : 'bg-muted/30 ring-1 ring-inset ring-border/60 hover:bg-muted/50'"
+              :aria-pressed="newProject.aspectRatio === option.value"
               @click="setAspectRatio(option.value)"
             >
-              <div class="text-sm font-medium">
-                {{ option.label }}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {{ option.description }}
-              </div>
-            </Button>
+              <span class="text-sm font-medium">{{ option.label }}</span>
+              <span class="text-xs leading-5 text-muted-foreground">{{ option.description }}</span>
+              <Check
+                v-if="newProject.aspectRatio === option.value"
+                class="absolute right-3 top-3 h-4 w-4 text-primary"
+              />
+            </button>
           </div>
         </div>
         <template v-if="isWritingWorkspace">
@@ -250,12 +299,12 @@ function applyDefaultStyle() {
       >
         <div
           v-if="defaultStyleLabel"
-          class="flex shrink-0 items-center gap-3 rounded-xl border-0 bg-amber-500/10 px-3 py-2"
+          class="flex shrink-0 items-center gap-3 rounded-xl bg-warning/10 px-3 py-2"
         >
-          <Star class="h-4 w-4 shrink-0 fill-amber-500 text-amber-500" />
+          <Star class="h-4 w-4 shrink-0 fill-warning text-warning" />
           <div class="min-w-0 flex-1">
             <div class="flex min-w-0 items-baseline gap-2">
-              <span class="shrink-0 text-xs font-medium text-amber-700">系统默认</span>
+              <span class="shrink-0 text-xs font-medium text-warning">系统默认</span>
               <span class="truncate text-sm font-semibold text-foreground">{{ defaultStyleLabel }}</span>
             </div>
             <p

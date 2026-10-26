@@ -20,7 +20,7 @@ const forwardedProps = useForwardPropsEmits(delegatedProps, emits)
     <DrawerContent
       v-bind="forwardedProps"
       :class="cn(
-        'fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-2xl border-0 bg-popover shadow-[0_-18px_50px_hsl(var(--foreground)/0.12)]',
+        'fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-2xl border-0 bg-popover shadow-[0_-18px_50px_rgb(0_0_0/0.18)]',
         props.class
       )"
     >
