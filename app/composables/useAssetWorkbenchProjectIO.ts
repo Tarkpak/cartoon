@@ -498,8 +498,8 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       return false
     }
     saving.value = true
-    saveError.value = null
-    saveWarning.value = null
+    // Messages are replaced when the save finishes, not cleared up front:
+    // clearing first makes a persistent warning blink on every autosave.
 
     try {
       if (finalVideo.value) {
@@ -555,6 +555,7 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       const saveBody = buildProjectSaveBody()
       const nextSnapshot = buildProjectSaveSnapshot(id, saveBody)
       if (nextSnapshot === lastSavedProjectSnapshot) {
+        saveError.value = null
         return true
       }
 
@@ -565,6 +566,8 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
           lastSavedProjectSnapshot = nextSnapshot
           collaboration.stashDraft?.(lastSavedWorkbenchBody, JSON.parse(JSON.stringify(buildProjectSaveBody())))
         }
+        saveError.value = null
+        saveWarning.value = null
         return true
       }
 
@@ -579,8 +582,9 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         throw new Error('保存项目失败')
       }
       const cloudSyncWarning = resolveCloudSyncWarning(saveResponse.cloudSync)
+      saveError.value = null
+      saveWarning.value = cloudSyncWarning || null
       if (cloudSyncWarning) {
-        saveWarning.value = cloudSyncWarning
         console.warn('[useAssetWorkbenchProjectIO] 云端项目同步未完成:', saveResponse.cloudSync)
       }
       if ((activeProjectId.value || options.projectId.value) === id) {

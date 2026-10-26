@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Check, CloudOff, Loader2, LockKeyhole, Users } from 'lucide-vue-next'
+import { Check, CloudOff, CloudUpload, Loader2, LockKeyhole, Users } from 'lucide-vue-next'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { ProjectEditSessionState } from '~/composables/useProjectEditSession'
 import { summarizeProjectPresence, type ProjectParticipant } from '~/lib/project-presence'
 
@@ -18,10 +19,22 @@ const memberSummary = computed(() => members.value.map(member => `${member.displ
     <span v-if="session.collaboration && (!compact || needsAttention)" class="inline-flex shrink-0 items-center gap-1.5">
       <Users class="h-3.5 w-3.5" :stroke-width="1.5" />协作模式
     </span>
-    <span v-if="!needsAttention" class="inline-flex items-center gap-1.5" :title="syncLabel">
+    <!-- Compact header: a fixed-size icon, so saving never shifts the layout. -->
+    <Tooltip v-if="!needsAttention && compact">
+      <TooltipTrigger as-child>
+        <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md" tabindex="0">
+          <Loader2 v-if="session.syncStatus === 'saving' || session.syncStatus === 'connecting' || !session.syncStatus" class="h-3.5 w-3.5 animate-spin" :stroke-width="1.5" />
+          <CloudUpload v-else-if="session.syncStatus === 'editing'" class="h-3.5 w-3.5" :stroke-width="1.5" />
+          <Check v-else class="h-3.5 w-3.5 text-success" :stroke-width="1.5" />
+          <span class="sr-only">{{ syncLabel }}</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{{ syncLabel }}</TooltipContent>
+    </Tooltip>
+    <span v-else-if="!needsAttention" class="inline-flex items-center gap-1.5">
       <Loader2 v-if="session.syncStatus === 'saving'" class="h-3.5 w-3.5 animate-spin" :stroke-width="1.5" />
-      <Check v-else-if="session.syncStatus === 'synced'" class="h-3.5 w-3.5 text-emerald-500" :stroke-width="1.5" />
-      <span :class="compact && session.syncStatus === 'synced' ? 'sr-only' : ''">{{ syncLabel }}</span>
+      <Check v-else-if="session.syncStatus === 'synced'" class="h-3.5 w-3.5 text-success" :stroke-width="1.5" />
+      <span>{{ syncLabel }}</span>
     </span>
     <template v-else>
       <CloudOff v-if="session.syncStatus === 'offline'" class="h-3.5 w-3.5 shrink-0" :stroke-width="1.5" />
@@ -31,7 +44,7 @@ const memberSummary = computed(() => members.value.map(member => `${member.displ
     <span v-if="!compact && !needsAttention && session.lastRemoteUpdate" class="text-muted-foreground/80">{{ session.lastRemoteUpdate }}</span>
     <div v-if="session.collaboration" class="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-x-3 gap-y-1.5" :title="memberSummary">
       <span v-if="session.presenceAvailable && session.onlineCount" class="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap tabular-nums">
-        <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />{{ session.onlineCount }} 人在线
+        <span class="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />{{ session.onlineCount }} 人在线
       </span>
       <span v-else-if="session.presenceAvailable === false" class="shrink-0">成员状态暂不可用</span>
       <span v-for="member in (compact && !needsAttention ? [] : members.slice(0, 2))" :key="member.userId" class="inline-flex min-w-0 max-w-[min(20rem,70vw)] items-center gap-1.5 rounded bg-background/60 px-2 py-1" :class="member.locked ? 'text-foreground' : ''" :title="`${member.displayName} · ${member.activity}`">
