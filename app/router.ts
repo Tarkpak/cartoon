@@ -1,7 +1,8 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import AssetWorkbenchPage from './pages/asset-workbench.vue'
 import ArkAssetsPage from './pages/ark-assets.vue'
-import HomePage from './pages/index.vue'
+import WelcomePage from './pages/welcome.vue'
+import { resolveHomeRoute } from './lib/onboarding'
 import ImportVideoDetailPage from './pages/import/video-detail.vue'
 import ImportVideoPage from './pages/import/video.vue'
 import LoginPage from './pages/login.vue'
@@ -24,8 +25,13 @@ const routes: RouteRecordRaw[] = [
     meta: { layout: 'default', hideSidebar: true }
   },
   {
+    // First launch shows the guide; afterwards the app opens on the project list.
     path: '/',
-    component: HomePage,
+    redirect: () => resolveHomeRoute()
+  },
+  {
+    path: '/welcome',
+    component: WelcomePage,
     meta: { layout: 'default' }
   },
   {
