@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ScriptParseMode } from '#shared/types/script'
 import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
-import { Loader2, Sparkles } from 'lucide-vue-next'
+import { ArrowRight, Loader2, Sparkles } from 'lucide-vue-next'
 import { generatedEpisodePlans } from '~/lib/asset-workbench-progress'
 
 const novelText = defineModel<string>('novelText', { required: true })
@@ -99,7 +99,15 @@ const parseProgressChunkText = computed(() => {
 
 const emit = defineEmits<{
   (e: 'prepare-episodes'): void
+  (e: 'go-to-videos'): void
 }>()
+
+const planActionDisabledReason = computed(() => {
+  if (props.parsing) return ''
+  if (props.readOnly) return '当前为只读模式，不能重新生成'
+  if (!novelText.value.trim()) return '请先粘贴或拖入剧本原文'
+  return ''
+})
 
 const { toast } = useToast()
 
@@ -216,7 +224,9 @@ async function handleDrop(event: DragEvent) {
     <div class="shrink-0 flex flex-wrap items-center gap-3">
       <Button
         :disabled="readOnly || parsing || !novelText.trim()"
+        :variant="hasEpisodePlan ? 'outline' : 'default'"
         class="gap-2"
+        :title="planActionDisabledReason || undefined"
         @click="emit('prepare-episodes')"
       >
         <Loader2
@@ -229,6 +239,12 @@ async function handleDrop(event: DragEvent) {
         />
         {{ parsing ? (isOriginExplainer ? '正在生成镜头规划入口…' : '正在生成分集目录…') : planActionLabel }}
       </Button>
+      <span
+        v-if="planActionDisabledReason"
+        class="text-xs text-muted-foreground"
+      >
+        {{ planActionDisabledReason }}
+      </span>
       <div
         v-if="scenesCount > 0 || charactersCount > 0"
         class="flex items-center gap-2 text-xs text-muted-foreground"
@@ -236,14 +252,14 @@ async function handleDrop(event: DragEvent) {
       >
         <span class="inline-flex items-center gap-1">
           <span
-            class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"
+            class="inline-block h-1.5 w-1.5 rounded-full bg-success"
             aria-hidden="true"
           />
           {{ scenesCount }} 个场景
         </span>
         <span class="inline-flex items-center gap-1">
           <span
-            class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500"
+            class="inline-block h-1.5 w-1.5 rounded-full bg-primary"
             aria-hidden="true"
           />
           {{ charactersCount }} 个角色
@@ -253,9 +269,17 @@ async function handleDrop(event: DragEvent) {
 
     <div
       v-if="hasEpisodePlan"
-      class="shrink-0 rounded-xl bg-muted/20 p-3 text-xs text-muted-foreground"
+      class="shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/20 p-3 text-xs text-muted-foreground"
     >
-      {{ planReadyMessage }}
+      <span class="min-w-0 flex-1">{{ planReadyMessage }}</span>
+      <Button
+        size="sm"
+        class="h-8 shrink-0 gap-1.5"
+        @click="emit('go-to-videos')"
+      >
+        去分镜视频
+        <ArrowRight class="h-4 w-4" />
+      </Button>
     </div>
 
     <div
@@ -299,7 +323,7 @@ async function handleDrop(event: DragEvent) {
     </div>
 
     <p
-      v-if="hint"
+      v-if="hint && !hasEpisodePlan"
       class="shrink-0 text-xs text-muted-foreground/80"
     >
       {{ hint }}

@@ -14,7 +14,7 @@ const props = defineProps<{
   projectStyleId: string
   scriptParseMode: ScriptParseMode
   projectAspectRatio: string
-  stages: Array<{ key: AutoStageKey, label: string, status: AutoStageStatus }>
+  stages: Array<{ key: AutoStageKey, label: string, status: AutoStageStatus, progress?: string, progressTitle?: string, hasError?: boolean }>
   activeStage: AutoStageKey
   autoRunError?: string | null
   saveError?: string | null

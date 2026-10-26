@@ -29,6 +29,8 @@ function getSelectedModel(workflow: WorkflowConfig) {
   return workflow.compatibleModels.find(model => model.model === workflow.selectedModel)
 }
 
+const unavailableCount = computed(() => props.workflows.filter(workflow => !hasCompatibleModels(workflow)).length)
+
 function getWorkflowStatusLabel(workflow: WorkflowConfig) {
   if (!workflow.selectedModel) return '未配置模型'
   return workflow.isOverridden ? '局部覆盖' : '继承全局'
@@ -36,11 +38,11 @@ function getWorkflowStatusLabel(workflow: WorkflowConfig) {
 
 function getWorkflowStatusClass(workflow: WorkflowConfig) {
   if (!workflow.selectedModel) {
-    return 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
+    return 'bg-warning/15 text-warning'
   }
   return workflow.isOverridden
-    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300'
+    ? 'bg-primary/10 text-primary'
+    : 'bg-muted text-muted-foreground'
 }
 
 function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
@@ -50,6 +52,21 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
 
 <template>
   <div class="space-y-4">
+    <div
+      v-if="unavailableCount > 0"
+      class="flex items-start gap-2.5 rounded-xl bg-warning/10 p-4 text-sm"
+      role="status"
+    >
+      <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
+      <div class="space-y-0.5">
+        <p class="font-medium text-foreground">
+          {{ unavailableCount === props.workflows.length ? '当前账号还没有可用的模型' : `有 ${unavailableCount} 个流程没有可用的模型` }}
+        </p>
+        <p class="text-muted-foreground">
+          这些流程暂时无法运行。模型供应商由管理员统一配置，请联系管理员开通。
+        </p>
+      </div>
+    </div>
     <div
       v-for="workflow in props.workflows"
       :key="workflow.id"
@@ -70,7 +87,8 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
             <span
               v-for="cap in workflow.requiredCapabilities"
               :key="cap"
-              class="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700 dark:bg-red-900 dark:text-red-300"
+              class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+              title="该流程需要的模型能力"
             >
               {{ props.getCapabilityLabel(cap) }}
             </span>
@@ -89,11 +107,11 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
 
         <CheckCircle2
           v-if="workflow.selectedModel && hasCompatibleModels(workflow)"
-          class="h-4 w-4 flex-shrink-0 text-green-500"
+          class="h-4 w-4 flex-shrink-0 text-success"
         />
         <AlertCircle
           v-else
-          class="h-4 w-4 flex-shrink-0 text-amber-500"
+          class="h-4 w-4 flex-shrink-0 text-warning"
         />
       </div>
 
@@ -128,10 +146,10 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
 
         <div
           v-if="!workflow.selectedModel"
-          class="mt-2 flex items-center gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+          class="mt-2 flex items-center gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning"
         >
           <AlertCircle class="h-4 w-4 flex-shrink-0" />
-          <span>未选择模型，运行该流程会提示先在设置中选择模型</span>
+          <span>还没选择模型，请在上方下拉框中选择</span>
         </div>
 
         <div
@@ -153,13 +171,12 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
         </p>
       </div>
 
-      <div
+      <p
         v-else
-        class="flex items-center gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+        class="text-sm text-muted-foreground"
       >
-        <AlertCircle class="h-4 w-4 flex-shrink-0" />
-        <span>没有满足能力要求的模型</span>
-      </div>
+        暂无可用模型
+      </p>
     </div>
   </div>
 </template>

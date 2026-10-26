@@ -9,10 +9,14 @@ pub(super) async fn api_project_collaboration_prepare(
     let (actor, owner, base) = {
         let conn = db_connection(&state)?;
         let actor = ensure_project_access(&conn, &id)?;
-        let (owner, base): (String, Option<String>) = conn.query_row(
+        let (owner, base): (Option<String>, Option<String>) = conn.query_row(
             "SELECT owner_user_id, cloud_base_updated_at FROM projects WHERE id = ?1",
             params![id], |row| Ok((row.get(0)?, row.get(1)?)),
         ).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        // Legacy local projects stay ownerless until a non-admin account claims them.
+        let owner = owner.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()).ok_or_else(|| {
+            ApiError::new(StatusCode::CONFLICT, "这是尚未归属账号的旧版本地项目，管理员账号无法为它开启协作，当前只能查看。请用项目创建者的账号登录并打开一次。")
+        })?;
         (actor, owner, base)
     };
     match api_project_collaboration(Path(id.clone()), State(state.clone()), Json(json!({"action":"read"}))).await {

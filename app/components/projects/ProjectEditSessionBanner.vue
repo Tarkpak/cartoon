@@ -8,12 +8,13 @@ const props = defineProps<{ session: ProjectEditSessionState, busy: boolean, par
 defineEmits<{ (event: 'retry'): void, (event: 'takeover'): void, (event: 'download-backup'): void }>()
 const needsAttention = computed(() => !props.session.editable || props.session.scopeConflict || props.session.syncStatus === 'offline')
 const syncLabel = computed(() => ({ connecting: '正在连接', synced: '已同步', editing: '有未保存修改', saving: '正在保存', offline: '连接中断，修改保留在本机' })[props.session.syncStatus || 'connecting'])
+const attentionMessage = computed(() => props.session.reason || (props.session.holderName ? `${props.session.holderName} 正在编辑，当前为只读模式。` : props.session.collaboration ? syncLabel.value : '当前为只读模式。'))
 const members = computed(() => summarizeProjectPresence(props.session.collaborators, props.participants))
 const memberSummary = computed(() => members.value.map(member => `${member.displayName} · ${member.activity}`).join('\n'))
 </script>
 
 <template>
-  <div v-if="session.collaboration || needsAttention" class="flex shrink-0 flex-wrap items-center text-xs text-muted-foreground" :class="compact && !needsAttention ? 'gap-x-2 gap-y-1' : 'gap-x-3 gap-y-2 rounded-md bg-muted/45 px-3 py-2'" role="status" aria-live="polite">
+  <div v-if="session.collaboration || needsAttention" class="flex items-center text-xs text-muted-foreground" :class="[compact && !needsAttention ? 'gap-x-2 gap-y-1' : 'gap-x-3 gap-y-2 rounded-md bg-muted/45 px-3 py-2', compact ? 'min-w-0 flex-nowrap' : 'shrink-0 flex-wrap']" role="status" aria-live="polite">
     <span v-if="session.collaboration && (!compact || needsAttention)" class="inline-flex shrink-0 items-center gap-1.5">
       <Users class="h-3.5 w-3.5" :stroke-width="1.5" />协作模式
     </span>
@@ -25,7 +26,7 @@ const memberSummary = computed(() => members.value.map(member => `${member.displ
     <template v-else>
       <CloudOff v-if="session.syncStatus === 'offline'" class="h-3.5 w-3.5 shrink-0" :stroke-width="1.5" />
       <LockKeyhole v-else class="h-3.5 w-3.5 shrink-0" :stroke-width="1.5" />
-      <span class="min-w-0 flex-1">{{ session.reason || (session.holderName ? `${session.holderName} 正在编辑，当前为只读模式。` : session.collaboration ? syncLabel : '当前为只读模式。') }}</span>
+      <span class="min-w-0 flex-1" :class="compact ? 'truncate' : ''" :title="compact ? attentionMessage : undefined">{{ attentionMessage }}</span>
     </template>
     <span v-if="!compact && !needsAttention && session.lastRemoteUpdate" class="text-muted-foreground/80">{{ session.lastRemoteUpdate }}</span>
     <div v-if="session.collaboration" class="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-x-3 gap-y-1.5" :title="memberSummary">
@@ -39,10 +40,10 @@ const memberSummary = computed(() => members.value.map(member => `${member.displ
       </span>
       <span v-if="members.length > 2 && (!compact || needsAttention)" class="shrink-0 whitespace-nowrap" :title="memberSummary">另 {{ members.length - 2 }} 人</span>
     </div>
-    <Button v-if="needsAttention && (session.backupId || session.scopeConflict)" size="sm" variant="outline" @click="$emit('download-backup')">下载未同步修改</Button>
-    <Button v-if="needsAttention && (session.editable || session.syncStatus !== 'synced')" size="sm" variant="outline" :disabled="busy" @click="$emit('retry')">
+    <Button v-if="needsAttention && (session.backupId || session.scopeConflict)" size="sm" variant="outline" class="shrink-0" @click="$emit('download-backup')">下载未同步修改</Button>
+    <Button v-if="needsAttention && (session.editable || session.syncStatus !== 'synced')" size="sm" variant="outline" class="shrink-0" :disabled="busy" @click="$emit('retry')">
       <Loader2 v-if="busy" class="mr-1 h-3 w-3 animate-spin" />{{ session.pendingSave ? '确认上次提交' : session.scopeConflict && session.collaboration && session.editable ? '对比并合并' : session.scopeConflict ? '读取最新内容' : session.collaboration ? '重试协作连接' : '重新取得编辑权' }}
     </Button>
-    <Button v-if="session.canTakeover && session.holderName" size="sm" variant="outline" :disabled="busy" @click="$emit('takeover')">接管编辑权</Button>
+    <Button v-if="session.canTakeover && session.holderName" size="sm" variant="outline" class="shrink-0" :disabled="busy" @click="$emit('takeover')">接管编辑权</Button>
   </div>
 </template>

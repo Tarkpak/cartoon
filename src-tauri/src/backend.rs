@@ -6093,7 +6093,7 @@ async fn api_project_list(
               "status": row.get::<_, Option<String>>(7)?,
               "totalScenes": row.get::<_, i64>(15)?,
               "completedScenes": row.get::<_, i64>(16)?,
-              "totalDuration": row.get::<_, i64>(17)?,
+              "totalDuration": row.get::<_, f64>(17)?,
               "createdAt": row.get::<_, String>(8)?,
               "updatedAt": row.get::<_, String>(9)?,
               "collaboration": row.get::<_, bool>(20)?,

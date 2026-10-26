@@ -1949,7 +1949,7 @@ const autoStages = computed(() => {
     && queueSummary.value.done === queueSummary.value.total
   const workflowPreset = resolveVideoWorkflowPreset(scriptParseMode.value)
 
-  return buildAutoStages({
+  const stages = buildAutoStages({
     hasScenes: scenes.value.length > 0,
     assetsReady: assetsReady.value,
     videosDone,
@@ -1958,7 +1958,25 @@ const autoStages = computed(() => {
     autoRunCurrentStage: autoRunCurrentStage.value,
     parseLabel: workflowPreset.id === 'origin_explainer' ? '镜头规划' : undefined
   })
+  return stages.map(stage => ({ ...stage, ...resolveStageProgress(stage.key) }))
 })
+
+function resolveStageProgress(key: AutoStageKey): { progress?: string, progressTitle?: string, hasError?: boolean } {
+  if (key === 'assets' && characters.value.length > 0) {
+    const ready = characterReadyCount.value
+    const total = characters.value.length
+    return { progress: `${ready}/${total}`, progressTitle: `角色图已就绪 ${ready} / ${total}` }
+  }
+  if (key === 'videos' && queueSummary.value.total > 0) {
+    const { done, total, error } = queueSummary.value
+    return {
+      progress: `${done}/${total}`,
+      progressTitle: `分镜视频已完成 ${done} / ${total}${error ? `，${error} 个失败` : ''}`,
+      hasError: error > 0
+    }
+  }
+  return {}
+}
 
 const stageHints = AUTO_STAGE_HINTS
 const parseStageHint = computed(() => {
@@ -3803,7 +3821,7 @@ function reportWorkbenchActivity() {
           @takeover="confirmProjectTakeover"
           @download-backup="downloadEditBackup()"
         />
-        <Button v-if="projectId && projectAccessCan(projectAccess, 'manage_members')" variant="outline" size="sm" class="h-8 gap-1.5 px-2.5 text-xs" @click="projectMembersOpen = true">
+        <Button v-if="projectId && projectAccessCan(projectAccess, 'manage_members')" variant="outline" size="sm" class="h-8 shrink-0 gap-1.5 px-2.5 text-xs" @click="projectMembersOpen = true">
           <Users class="h-4 w-4" />项目成员
         </Button>
       </template>
@@ -3831,6 +3849,7 @@ function reportWorkbenchActivity() {
       :characters-count="characters.length"
       :hint="parseStageHint"
       @prepare-episodes="handlePrepareEpisodePlan"
+      @go-to-videos="selectAutoStage('videos')"
     />
 
     <AssetWorkbenchStagePanel

@@ -149,7 +149,7 @@ const statusColors = {
         <div
           v-if="index < steps.length - 1"
           class="w-8 h-0.5"
-          :class="step.status === 'completed' ? 'bg-green-500' : 'bg-muted'"
+          :class="step.status === 'completed' ? 'bg-success' : 'bg-muted'"
         />
       </template>
     </div>

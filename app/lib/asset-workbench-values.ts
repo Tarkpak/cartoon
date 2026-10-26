@@ -39,10 +39,23 @@ export function getDisplayErrorMessage(error: unknown, fallback: string): string
     message?: string
   }
 
-  return payload?.data?.message
+  const message = payload?.data?.message
     || payload?.statusMessage
     || payload?.message
-    || fallback
+  if (!message) return fallback
+  if (isInternalErrorMessage(message)) {
+    // Keep the raw text in the console for debugging; users get the fallback.
+    console.warn('[ui-error]', message)
+    return fallback
+  }
+  return message
+}
+
+// Database, runtime and transport errors that mean nothing to users.
+const INTERNAL_ERROR_PATTERN = /Invalid column type|no such (?:column|table)|SQLITE_|rusqlite|panicked at|called `(?:Option|Result)::unwrap|\[(?:GET|POST|PUT|PATCH|DELETE)\] "\//i
+
+export function isInternalErrorMessage(message: string): boolean {
+  return INTERNAL_ERROR_PATTERN.test(message)
 }
 
 export function normalizeCharacterName(name?: string): string {

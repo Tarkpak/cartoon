@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch } from 'vue'
+import { ImageOff } from 'lucide-vue-next'
 import { toImageSrc } from '~/lib/media'
 
 defineOptions({
@@ -35,6 +36,7 @@ const forwardedClass = computed(() => attrs.class)
 const rootElement = ref<HTMLElement | null>(null)
 const shouldLoad = ref(false)
 const hasError = ref(false)
+const loaded = ref(false)
 let observer: IntersectionObserver | null = null
 
 const resolvedSrc = computed(() => {
@@ -79,6 +81,7 @@ async function observeImage() {
 }
 
 function handleLoad(event: Event) {
+  loaded.value = true
   emit('load', event)
 }
 
@@ -91,6 +94,7 @@ watch(
   () => props.image,
   () => {
     hasError.value = false
+    loaded.value = false
     if (!props.image) {
       shouldLoad.value = false
       disconnectObserver()
@@ -116,13 +120,25 @@ onBeforeUnmount(() => {
     v-bind="forwardedAttrs"
     :src="resolvedSrc"
     :alt="alt"
-    :class="forwardedClass"
+    :class="[forwardedClass, loaded ? '' : [placeholderClass, 'motion-safe:animate-pulse']]"
     loading="lazy"
     decoding="async"
     :fetchpriority="fetchPriority"
     @load="handleLoad"
     @error="handleError"
   >
+  <div
+    v-else-if="hasError"
+    ref="rootElement"
+    v-bind="forwardedAttrs"
+    role="img"
+    :aria-label="alt ? `${alt}（图片无法加载）` : '图片无法加载'"
+    title="图片无法加载"
+    :class="[forwardedClass, placeholderClass]"
+    class="flex items-center justify-center text-muted-foreground/70"
+  >
+    <ImageOff class="h-4 w-4 max-h-[60%] max-w-[60%] shrink-0" :stroke-width="1.5" />
+  </div>
   <div
     v-else
     ref="rootElement"

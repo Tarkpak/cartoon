@@ -6,6 +6,9 @@ defineProps<{
     key: string
     label: string
     status: 'pending' | 'running' | 'done'
+    progress?: string
+    progressTitle?: string
+    hasError?: boolean
   }>
   activeStage: string
   autoRunError?: string | null
@@ -20,60 +23,68 @@ const emit = defineEmits<{
 
 <template>
   <div class="space-y-2">
-    <div class="flex items-center gap-0">
+    <nav class="flex items-center" aria-label="工作台阶段">
       <template
         v-for="(stage, idx) in stages"
         :key="stage.key"
       >
-        <!-- Connector line -->
         <div
           v-if="idx > 0"
-          class="mx-1 h-px w-3 shrink-0 transition-colors duration-300"
-          :class="stage.status === 'done' ? 'bg-emerald-500/40' : 'bg-border'"
+          class="mx-1 h-px w-4 shrink-0 transition-colors duration-300"
+          :class="stages[idx - 1].status === 'done' ? 'bg-emerald-500/50' : 'bg-border'"
+          aria-hidden="true"
         />
-        <!-- Step button -->
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          class="group relative h-8 gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors duration-150"
-          :class="[
-            activeStage === stage.key
-              ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/15'
+          class="group inline-flex h-8 items-center gap-1.5 rounded-full py-1 pl-1 pr-3 text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background active:scale-[0.98]"
+          :class="activeStage === stage.key
+            ? 'bg-primary font-semibold text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90'
+            : stage.status === 'running'
+              ? 'font-medium text-primary hover:bg-primary/10'
               : stage.status === 'done'
-                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20'
-                : stage.status === 'running'
-                  ? 'bg-primary/10 text-primary hover:bg-primary/15'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
-          ]"
+                ? 'font-medium text-foreground hover:bg-muted'
+                : 'font-medium text-muted-foreground hover:bg-muted hover:text-foreground'"
+          :aria-current="activeStage === stage.key ? 'step' : undefined"
+          :title="stage.progressTitle"
           @click="emit('select-stage', stage.key)"
         >
-          <!-- Step indicator -->
           <span
-            class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors"
-            :class="[
-              activeStage === stage.key
-                ? 'bg-primary-foreground/20 text-primary-foreground'
-                : stage.status === 'done'
-                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
-                  : stage.status === 'running'
-                    ? 'bg-primary/20 text-primary'
-                    : 'bg-muted-foreground/10 text-muted-foreground'
-            ]"
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+            :class="activeStage === stage.key
+              ? 'bg-primary-foreground/20 text-primary-foreground'
+              : stage.status === 'done'
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                : stage.status === 'running'
+                  ? 'bg-primary/15 text-primary'
+                  : 'bg-muted text-muted-foreground'"
           >
-            <Check
-              v-if="stage.status === 'done'"
-              class="h-3 w-3"
-            />
             <Loader2
-              v-else-if="stage.status === 'running'"
-              class="h-3 w-3 animate-spin"
+              v-if="stage.status === 'running'"
+              class="h-3.5 w-3.5 animate-spin"
+            />
+            <Check
+              v-else-if="stage.status === 'done'"
+              class="h-3.5 w-3.5"
+              :stroke-width="2.5"
             />
             <span v-else>{{ idx + 1 }}</span>
           </span>
           <span class="whitespace-nowrap">{{ stage.label }}</span>
-        </Button>
+          <span
+            v-if="stage.progress"
+            class="inline-flex items-center gap-1 whitespace-nowrap font-normal tabular-nums"
+            :class="activeStage === stage.key ? 'text-primary-foreground/80' : 'text-muted-foreground'"
+          >
+            {{ stage.progress }}
+            <span
+              v-if="stage.hasError"
+              class="h-1.5 w-1.5 rounded-full bg-destructive"
+              aria-label="有失败项"
+            />
+          </span>
+        </button>
       </template>
-    </div>
+    </nav>
     <p
       v-if="autoRunError"
       class="rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive"

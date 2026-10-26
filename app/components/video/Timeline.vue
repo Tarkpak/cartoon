@@ -104,9 +104,9 @@ function zoomOut() {
 // 状态颜色
 function getStatusColor(status: TimelineScene['status']): string {
   switch (status) {
-    case 'completed': return 'bg-green-500'
-    case 'processing': return 'bg-blue-500'
-    case 'failed': return 'bg-red-500'
+    case 'completed': return 'bg-primary/80'
+    case 'processing': return 'bg-primary/40'
+    case 'failed': return 'bg-destructive/80'
     default: return 'bg-muted-foreground'
   }
 }
