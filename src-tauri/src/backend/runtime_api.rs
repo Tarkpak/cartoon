@@ -20308,73 +20308,6 @@ async fn verified_collaboration_scene(state: &BackendState, project_id: &str, in
     Ok((scene, settings.clone(), metadata))
 }
 
-pub(super) async fn api_collaboration_scene_image(Path(project_id): Path<String>, State(state): State<BackendState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
-    if !super::project_uses_collaboration(&state, &project_id)? { return Err(ApiError::new(StatusCode::CONFLICT, "项目尚未启用按集协作")); }
-    let scene_id = body.get("sceneId").and_then(trimmed_json_string).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少分镜标识"))?;
-    let (scene, settings, metadata) = verified_collaboration_scene(&state, &project_id, &body["collaborationInput"], &scene_id).await?;
-    let ratio = settings.pointer("/body/project/aspectRatio").and_then(Value::as_str).unwrap_or("16:9");
-    let size = match ratio { "9:16" => "864x1536", "1:1" => "1024x1024", _ => "1536x864" };
-    let prompt = format!("生成本分镜的首帧画面，严格遵守描述与项目设定。不要字幕、水印。\n项目设定：{}\n分镜：{}", settings["body"]["project"], scene);
-    let context = model_log_context_from_workflow_body(&json!({"projectId":project_id}), Some(scene_id.clone()), None);
-    let (url, provider, model) = CURRENT_MODEL_LOG_CONTEXT.scope(context, run_workflow_image_model(&state, "frame_generation", &prompt, size, &format!("collab_{}", Uuid::new_v4().simple()), &[])).await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
-    let result = json!({"id":Uuid::new_v4().to_string(),"kind":"image","status":"completed","progress":100,"createdAt":super::now_iso(),"collaboration":metadata,"url":url,"usage":{"modelProvider":provider,"modelId":model}});
-    super::save_collaboration_media_result(&state, &project_id, result["collaboration"]["actorId"].as_str().unwrap_or(""), &result)?;
-    Ok(Json(json!({"success":true,"data":result})))
-}
-
-fn collaboration_shared_asset(verified: &Value, kind: &str, asset_id: &str) -> Result<Value, ApiError> {
-    let resource = &verified["resource"];
-    let asset = if kind == "character" {
-        if resource["type"] != "character" || resource["id"] != asset_id { None } else { Some(&resource["body"]) }
-    } else if kind == "prop" && resource["type"] == "settings" {
-        let matches: Vec<&Value> = resource.pointer("/body/script/assetWorkflow/props").and_then(Value::as_array)
-            .map(|items| items.iter().filter(|item| item["id"].as_str() == Some(asset_id)).collect()).unwrap_or_default();
-        if matches.len() == 1 { Some(matches[0]) } else { None }
-    } else { None };
-    asset.filter(|item| item.is_object()).cloned().ok_or_else(|| ApiError::new(StatusCode::CONFLICT, "公共资产不存在或标识重复，请刷新后重试"))
-}
-
-pub(super) async fn api_collaboration_asset_image(Path(project_id): Path<String>, State(state): State<BackendState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
-    if !super::project_uses_collaboration(&state, &project_id)? { return Err(ApiError::new(StatusCode::CONFLICT, "项目尚未启用按集协作")); }
-    let kind = body["kind"].as_str().filter(|kind| ["character", "prop"].contains(kind)).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "公共资产类型无效"))?;
-    let asset_id = body["assetId"].as_str().filter(|id| !id.trim().is_empty()).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少公共资产标识"))?;
-    let input = &body["collaborationInput"];
-    let actor = super::current_project_owner_context(&db_connection(&state)?)?.user_id;
-    let resource_type = if kind == "character" { "character" } else { "settings" };
-    let resource_id = if kind == "character" { asset_id } else { "settings" };
-    let Json(verified) = super::api_project_collaboration(Path(project_id.clone()), State(state.clone()), Json(json!({
-        "action":"generationCheck", "type":resource_type, "id":resource_id,
-        "expectedRevision":input["revision"], "settingsRevision":input["settingsRevision"]
-    }))).await?;
-    let verified = &verified["data"];
-    let asset = collaboration_shared_asset(verified, kind, asset_id)?;
-    let prompt = format!("生成公共资产设定图，严格遵守资产描述与项目设定，不要字幕、水印。资产类型：{}\n资产：{}\n项目：{}", kind, asset, verified["settings"]["body"]["project"]);
-    let context = model_log_context_from_workflow_body(&json!({"projectId":project_id}), None, Some(asset_id.to_string()));
-    let (url, provider, model) = CURRENT_MODEL_LOG_CONTEXT.scope(context, run_workflow_image_model(&state, "character_portrait", &prompt, "1024x1024", &format!("collab_asset_{}", Uuid::new_v4().simple()), &[])).await
-        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
-    let result = json!({"id":Uuid::new_v4().to_string(),"kind":"asset-image","status":"completed","progress":100,"createdAt":super::now_iso(),"url":url,
-        "collaboration":{"projectId":project_id,"actorId":actor,"assetKind":kind,"assetId":asset_id,"resourceType":resource_type,"resourceId":resource_id,"revision":verified["resource"]["revision"],"settingsRevision":verified["settings"]["revision"]},
-        "usage":{"modelProvider":provider,"modelId":model}});
-    super::save_collaboration_media_result(&state, &project_id, &actor, &result)?;
-    Ok(Json(json!({"success":true,"data":result})))
-}
-
-pub(super) async fn api_collaboration_voice_retry(Path((project_id, task_id)): Path<(String, String)>, State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
-    let config = collaboration_voice_task(&state, &task_id)?.ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "协作语音任务不存在"))?;
-    let metadata = &config["collaboration"];
-    if metadata["projectId"].as_str() != Some(project_id.as_str()) { return Err(ApiError::new(StatusCode::NOT_FOUND, "协作语音任务不存在")); }
-    let _ = super::api_project_collaboration(Path(project_id), State(state.clone()), Json(json!({"action":"generationCheck","type":"episode","id":metadata["episodeId"],"expectedRevision":metadata["revision"],"settingsRevision":metadata["settingsRevision"]}))).await?;
-    let conn = db_connection(&state)?;
-    let cutoff = (Utc::now() - chrono::Duration::minutes(15)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let changed = conn.execute("UPDATE video_tasks SET config=json_remove(config, '$.collaborationVoiceExtraction') WHERE id=?1 AND status='completed' AND json_type(config, '$.collaborationVoiceContext')='object' AND (json_extract(config,'$.collaborationVoiceExtraction.status')='failed' OR (json_extract(config,'$.collaborationVoiceExtraction.status')='running' AND json_extract(config,'$.collaborationVoiceExtraction.startedAt') < ?2))", params![task_id, cutoff])
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    if changed != 1 { return Err(ApiError::new(StatusCode::CONFLICT, "语音任务正在运行或已完成；中断任务可在十五分钟后重试")); }
-    let url: String = conn.query_row("SELECT video_data FROM video_tasks WHERE id=?1", params![task_id], |row| row.get(0)).map_err(|error| ApiError::new(StatusCode::CONFLICT, error.to_string()))?;
-    trigger_character_voice_asset_extraction(&state, metadata["sceneId"].as_str().unwrap_or(""), &task_id, &url);
-    Ok(Json(json!({"success":true})))
-}
-
 fn collaboration_video_metadata(state: &BackendState, task_id: &str) -> Result<Option<Value>, ApiError> {
     let raw: Option<String> = db_connection(state)?.query_row("SELECT config FROM video_tasks WHERE id = ?1", params![task_id], |row| row.get(0)).optional()
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -20444,16 +20377,6 @@ mod collaboration_generation_tests {
         assert_eq!(request["content"].as_array().unwrap().len(), 1);
     }
 
-    #[test]
-    fn collaboration_shared_assets_require_unique_canonical_targets() {
-        let character = json!({"resource":{"type":"character","id":"c","body":{"id":"c","name":"cloud"}}});
-        assert_eq!(collaboration_shared_asset(&character, "character", "c").unwrap()["name"], "cloud");
-        assert!(collaboration_shared_asset(&character, "character", "other").is_err());
-        let mut props = json!({"resource":{"type":"settings","body":{"script":{"assetWorkflow":{"props":[{"id":"p","name":"cloud prop"}]}}}}});
-        assert_eq!(collaboration_shared_asset(&props, "prop", "p").unwrap()["name"], "cloud prop");
-        props["resource"]["body"]["script"]["assetWorkflow"]["props"].as_array_mut().unwrap().push(json!({"id":"p"}));
-        assert!(collaboration_shared_asset(&props, "prop", "p").is_err());
-    }
     #[test]
     fn collaboration_voice_references_use_captured_public_assets() {
         let mut config = json!({"collaborationVoiceContext":{"scene":{"id":"s","description":"小明：你好，朋友。"},"settings":{"body":{"script":{}}},"characters":[{"id":"c","body":{"name":"小明","voiceAsset":{"audioUrl":"https://shared.example/voice.mp3","locked":true}}}]}});
@@ -20631,9 +20554,6 @@ pub(super) async fn api_script_write(
       "data": data, "collaboration": collaboration,
       "usage": { "modelProvider": provider, "modelId": model_id }
     });
-    if !collaboration.is_null() {
-        super::save_collaboration_draft_result(&state, &project_id, &actor_id, &response)?;
-    }
     Ok(Json(response))
 }
 

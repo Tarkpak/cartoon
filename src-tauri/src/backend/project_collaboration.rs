@@ -623,24 +623,12 @@ pub(super) async fn api_project_collaboration(
     Ok(Json(response))
 }
 
-fn draft_results_key(project_id: &str, actor_id: &str) -> String {
-    format!("project_collaboration_draft_results:{}", json!([actor_id, project_id]))
-}
-
-pub(super) fn save_collaboration_draft_result(state: &BackendState, project_id: &str, actor_id: &str, response: &Value) -> Result<(), ApiError> {
-    save_collaboration_result(state, project_id, actor_id, response, "draft")
-}
-
 pub(super) fn save_collaboration_media_result(state: &BackendState, project_id: &str, actor_id: &str, response: &Value) -> Result<(), ApiError> {
-    save_collaboration_result(state, project_id, actor_id, response, "media")
-}
-
-fn save_collaboration_result(state: &BackendState, project_id: &str, actor_id: &str, response: &Value, kind: &str) -> Result<(), ApiError> {
     let mut conn = db_connection(state)?;
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     ensure_collaboration_account(&tx, actor_id)?;
-    let key = if kind == "draft" { draft_results_key(project_id, actor_id) } else { format!("project_collaboration_media_results:{}", json!([actor_id, project_id])) };
+    let key = media_results_key(project_id, actor_id);
     let mut results = get_config_json(&tx, &key)?.and_then(|value| value.as_array().cloned()).unwrap_or_default();
     results.push(response.clone());
     if results.len() > 20 { results.drain(..results.len() - 20); }
@@ -648,14 +636,8 @@ fn save_collaboration_result(state: &BackendState, project_id: &str, actor_id: &
     tx.commit().map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
-pub(super) async fn api_project_collaboration_draft_results(Path(id): Path<String>, State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
-    let actor = current_project_owner_context(&db_connection(&state)?)?.user_id;
-    // Reauthorize online before returning cached results, including membership revocation/deletion.
-    let _ = api_project_collaboration(Path(id.clone()), State(state.clone()), Json(json!({"action":"read"}))).await?;
-    let conn = db_connection(&state)?;
-    ensure_collaboration_account(&conn, &actor)?;
-    let results = get_config_json(&conn, &draft_results_key(&id, &actor))?.unwrap_or_else(|| json!([]));
-    Ok(Json(json!({"success": true, "data": results})))
+fn media_results_key(project_id: &str, actor_id: &str) -> String {
+    format!("project_collaboration_media_results:{}", json!([actor_id, project_id]))
 }
 
 pub(super) async fn api_project_collaboration_media_results(Path(id): Path<String>, State(state): State<BackendState>) -> Result<Json<Value>, ApiError> {
@@ -663,7 +645,7 @@ pub(super) async fn api_project_collaboration_media_results(Path(id): Path<Strin
     let _ = api_project_collaboration(Path(id.clone()), State(state.clone()), Json(json!({"action":"read"}))).await?;
     let conn = db_connection(&state)?;
     ensure_collaboration_account(&conn, &actor)?;
-    let key = format!("project_collaboration_media_results:{}", json!([actor, id]));
+    let key = media_results_key(&id, &actor);
     let mut results = get_config_json(&conn, &key)?.and_then(|value| value.as_array().cloned()).unwrap_or_default();
     let mut stmt = conn.prepare("SELECT id, status, progress, error, video_data, config, created_at FROM video_tasks WHERE json_extract(config, '$.collaboration.projectId') = ?1 AND json_extract(config, '$.collaboration.actorId') = ?2 ORDER BY created_at DESC LIMIT 30")
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -827,19 +809,19 @@ mod tests {
     }
 
     #[test]
-    fn collaboration_draft_results_are_durable_bounded_and_actor_scoped() {
+    fn collaboration_media_results_are_durable_bounded_and_actor_scoped() {
         let test = ManagementProject::new("owner");
         for index in 0..22 {
-            save_collaboration_draft_result(&test.0, "p1", "owner", &json!({"id":index,"data":{"draft":"保留结果"}})).unwrap();
+            save_collaboration_media_result(&test.0, "p1", "owner", &json!({"id":index,"kind":"image"})).unwrap();
         }
         let conn = db_connection(&test.0).unwrap();
-        let saved = get_config_json(&conn, &draft_results_key("p1", "owner")).unwrap().unwrap();
+        let saved = get_config_json(&conn, &media_results_key("p1", "owner")).unwrap().unwrap();
         assert_eq!(saved.as_array().unwrap().len(), 20);
         assert_eq!(saved[0]["id"], 2);
-        assert!(get_config_json(&conn, &draft_results_key("p1", "other")).unwrap().is_none());
-        assert!(get_config_json(&conn, &draft_results_key("other", "owner")).unwrap().is_none());
+        assert!(get_config_json(&conn, &media_results_key("p1", "other")).unwrap().is_none());
+        assert!(get_config_json(&conn, &media_results_key("other", "owner")).unwrap().is_none());
         set_config_json(&conn, CLOUD_ADMIN_SESSION_KEY, &json!({"token":"test", "user":{"id":"other","role":"user"}})).unwrap();
-        assert!(save_collaboration_draft_result(&test.0, "p1", "owner", &json!({"id":"wrong"})).is_err());
+        assert!(save_collaboration_media_result(&test.0, "p1", "owner", &json!({"id":"wrong"})).is_err());
     }
 
     #[tokio::test]

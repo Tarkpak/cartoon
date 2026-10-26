@@ -108,11 +108,9 @@ Rust 发送前在本地持久化操作，重试保留原操作 ID、内容和租
 
 单集正文通过 `/api/script/write` 的协作分支生成，只允许 `episode_draft`。开始生成时，Rust 使用当前窗口的资源 token 调用云端 `generationCheck`，同时检查 generate/edit 权限、集 revision、设置 revision 和集租约。模型上下文由已核对的云端设置与本集大纲／正文构造，不读取旧本机快照，也不信任浏览器传入的整份上下文。
 
-结果先保存在本机 SQLite 配置中，按项目与账号隔离，最多保留最近 20 次；`GET /api/project/{id}/collaboration/draft-results` 在线复核查看权限后返回结果。结果持久化完成后才响应生成请求，因此响应丢失时可刷新结果恢复。请求不自动重试，避免重复模型费用；进程在模型完成前退出不视为已完成任务。生成不会修改云端资源，窗口可继续编辑；采用前再次检查云端输入版本、编辑权和本地草稿，仅写入该集 writing.draft／continuityNotes，再由用户确认保存。输入已变化时保留结果供导出／手动合并。
+生成结果直接随响应返回，不在本机另行保存。请求不自动重试，避免重复模型费用；进程在模型完成前退出不视为已完成任务。生成不会修改云端资源，窗口可继续编辑；采用前再次检查云端输入版本、编辑权和本地草稿，仅写入该集 writing.draft／continuityNotes，再由用户确认保存。输入已变化时保留结果供导出／手动合并。
 
-分镜首帧通过 `POST /api/project/{id}/collaboration/scene-image` 生成，使用版本核对后的云端分镜及项目设定和当前首帧流程模型。结果按账号／项目保存在本机，最多 20 次，通过 `GET /api/project/{id}/collaboration/media-results` 读取。
-
-视频沿用 `/api/video/generate` 的协作分支。配置由已核对的云端描述、首帧、时长及项目画幅构造，使用当前视频流程模型；任务 config 持久化 `collaboration`，包括 actorId、projectId、episodeId、sceneId 和输入版本。任务创建不获取旧整项目租约；完成后仅写 `video_tasks` 的结果和状态，禁止写旧分镜、旧生成视频关联表或排入旧整项目同步。自动语音提取只生成候选，不直接回写公共资源。媒体结果接口返回当前账号在本项目最近 30 个视频任务，状态刷新复核账号及云端查看权限，租约失效不丢弃已生成的媒体。
+视频沿用 `/api/video/generate` 的协作分支。配置由已核对的云端描述、首帧、时长及项目画幅构造，使用当前视频流程模型；任务 config 持久化 `collaboration`，包括 actorId、projectId、episodeId、sceneId 和输入版本。任务创建不获取旧整项目租约；完成后仅写 `video_tasks` 的结果和状态，禁止写旧分镜、旧生成视频关联表或排入旧整项目同步。自动语音提取只生成候选，不直接回写公共资源。媒体结果接口 `GET /api/project/{id}/collaboration/media-results` 返回当前账号在本项目最近 30 个视频任务，状态刷新复核账号及云端查看权限，租约失效不丢弃已生成的媒体。
 
 媒体采用先复核云端输入版本和集租约，再复核当前草稿及目标分镜是否仍在该集；只修改目标 firstFrame/referenceStatus 或 videoUrl/videoStatus。替换视频时保留旧视频历史并清除旧视频的 lastFrame，避免后续连续帧引用过期画面。采用仅加入单集草稿，由用户检查后按资源版本提交。生成过程不自动写云端，结果过期、分镜被删除／跨集移动时可继续预览／导出。采用共享资源要求 HTTP(S) 共享地址；本机 `/api/image/file`、`/api/video/file` 等路径只允许本机预览，需配置共享存储后再生成与采用。
 
@@ -140,7 +138,7 @@ Rust 发送前在本地持久化操作，重试保留原操作 ID、内容和租
 
 独立协作编辑页及其专用媒体组件、旧页面会话封装已删除。`/projects/:id/collaboration` 历史链接重定向到原资产工作台，继续使用原有布局和操作流程。
 
-原工作台通过 `useWorkbenchCollaborationSession` 和 `workbench-collaboration.ts` 接入资源协议，使用 `project-collaboration-client.ts` 等共享底层逻辑：
+原工作台通过 `useWorkbenchCollaborationSession` 和 `workbench-collaboration.ts` 接入资源协议：
 
 - 打开项目时通过 prepare 接口核对协作模式并迁移符合条件的历史项目；迁移失败保留原数据并提示重试。
 - 按集数、角色、目录和设置拆分保存，只提交实际变更的资源，保留隐藏媒体字段与历史记录。
@@ -162,15 +160,13 @@ Rust 发送前在本地持久化操作，重试保留原操作 ID、内容和租
 
 ### 客户端回归
 
-`bun x vitest run app/lib/project-collaboration-client.test.ts app/lib/project-collaboration-editor.test.ts app/composables/useWorkbenchCollaborationSession.test.ts app/lib/project-workbench-route.test.ts` 覆盖资源客户端、原工作台会话和历史路由行为。
+`bun x vitest run app/lib/workbench-collaboration.test.ts app/composables/useWorkbenchCollaborationSession.test.ts app/lib/project-workbench-route.test.ts` 覆盖资源拆分、原工作台会话和历史路由行为。
 
 `bun scripts/check-workbench-collaboration-browser.mjs` 在已运行的前端上检查原工作台布局、四步流程、历史协作链接重定向、协作写入与旧整项目请求停用；全部 API 都被拦截，不修改真实数据。需要 Playwright 和 Firefox，支持 `PLAYWRIGHT_MODULE` 与 `COLLABORATION_QA_URL`。截图保存到系统临时目录。`workbench-collaboration.test.ts` 和 `useWorkbenchCollaborationSession.test.ts` 覆盖不同集并发、同集版本冲突、占用对象不冻结项目、隐藏字段保留、稳定操作 ID 回执恢复和原生成入口的版本参数。
 
-公共资产图片接口 `/api/project/{id}/collaboration/asset-image` 从云端核对后的角色或设置读取生成描述；角色使用独立角色租约，道具使用 settings 租约，不借用集数租约。道具必须具有唯一标识。结果按账号／项目持久化，不自动写回。采用时再次核对资源与设置版本，只修改目标角色 baseImage 或目标道具 referenceImage；本地专属媒体地址拒绝采用。公共资产与分镜共享结果列表，但各自筛选结果类型。
-
 ### 自动语音候选
 
-协作视频 config 中持久化经云端验证的分镜、公共角色资源版本和设置版本。后续视频生成只从这些公共音色构造音频参考，不读旧本地人物表。视频完成后，自动提取对白与旁白音频，按账号／项目保存 `asset-voice` 候选；不会获取公共资源租约或自动覆盖音色。公共角色／项目设置页可试听并采用，采用需对应资源租约和原输入版本，保留图片和其他字段，已有锁定音色拒绝替换，首次采用自动锁定。视频任务保留提取状态，失败或中断超过十五分钟可手动重试；重试复核来源集版本和租约。候选以来源任务／目标生成稳定 ID，重复处理不会重复插入同一候选。音频上传到共享存储后才能采用。
+协作视频 config 中持久化经云端验证的分镜、公共角色资源版本和设置版本。后续视频生成只从这些公共音色构造音频参考，不读旧本地人物表。视频完成后，自动提取对白与旁白音频，按账号／项目保存 `asset-voice` 候选；不会获取公共资源租约或自动覆盖音色。公共角色／项目设置页可试听并采用，采用需对应资源租约和原输入版本，保留图片和其他字段，已有锁定音色拒绝替换，首次采用自动锁定。视频任务保留提取状态。候选以来源任务／目标生成稳定 ID，重复处理不会重复插入同一候选。音频上传到共享存储后才能采用。
 
 ### 离线自动续传
 
@@ -180,6 +176,6 @@ Rust 发送前在本地持久化操作，重试保留原操作 ID、内容和租
 
 项目列表向所有者／管理员显示“按集协作”。先检查本地同步状态、活动生成任务和云端资源结构，再展示集／分镜／人物数量；预检不写协作数据。用户核对并确认后，启用请求必须携带已展示的版本与 SHA-256 快照摘要。确认时重新校验并保留本地备份、云端原始快照；版本或摘要变化则拒绝迁移。响应丢失后重新预检可识别已完成迁移。
 
-运行 `bun backend/scripts/check-project-collaboration-http.ts` 可复现隔离演练。脚本启动真实 H3 HTTP 接口，使用正式认证逻辑、真实磁盘 SQLite 和两个独立客户端，验证所有者迁移、旧整项目同步拒写、不同集并发保存、同集互斥、增量刷新、媒体保留、回执丢失后接管与原操作重放、服务断开／重启后的离线续传以及原始备份保留。脚本仅使用新建临时目录，结束后清理，不读取或迁移已有项目。此验收未包含生产服务器、两台真实设备或真实 ASR／视频供应商调用。
+本机 outbox 以账号／项目／操作 ID 为稳定键，兼容旧窗口键；重连可更换租约凭据，但不允许改变原内容和基础版本。
 
-加上 `--local` 可执行完整本地桥接验收：先运行 `cargo build --manifest-path src-tauri/Cargo.toml --bin playlet-backend`，再运行 `bun backend/scripts/check-project-collaboration-http.ts --local`。脚本启动所有者、成员 A、成员 B 三个独立 Rust 后端，各自具有独立数据库、设备身份和公共目录，连接临时云端 HTTP 服务。验证真实本地迁移备份、跨本地后端并发编辑、增量刷新、同集互斥、本地进程重启／窗口变化后的原回执确认，以及未提交操作在获取新租约后的续传。本机 outbox 以账号／项目／操作 ID 为稳定键，兼容旧窗口键；重连可更换租约凭据，但不允许改变原内容和基础版本。服务演练子进程仅在临时目录运行，使用显式环境变量，不加载工作区 .env 或真实账号凭据。
+原多账号 HTTP 演练脚本（`backend/scripts/check-project-collaboration-http.ts`）及其测试客户端已随未使用的协作页底层代码一并删除；目前没有自动化的真实 HTTP 多账号验收，跨账号行为由单元测试覆盖。
