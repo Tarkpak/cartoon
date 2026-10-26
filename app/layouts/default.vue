@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, UserCheck, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Images, Library, MicVocal, PenLine } from 'lucide-vue-next'
+import { Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Images, Library, MicVocal, PenLine } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import { createClickRipple } from '@/lib/ripple'
 
@@ -27,6 +27,11 @@ let creditRefreshTimer: ReturnType<typeof setInterval> | null = null
 const currentUserCreditBalance = computed(() => {
   const balance = Number(currentUser.value?.creditBalance ?? 0)
   return Number.isFinite(balance) ? balance : 0
+})
+
+const currentUserInitial = computed(() => {
+  const name = (currentUser.value?.displayName || currentUser.value?.account || '').trim()
+  return name ? Array.from(name)[0]!.toUpperCase() : '我'
 })
 
 const currentUserTitle = computed(() => {
@@ -458,102 +463,51 @@ function handleThemeToggle(event: MouseEvent) {
         </div>
       </nav>
 
+      <!-- Account: one compact row (stacked icons when the sidebar is collapsed). -->
       <div
-        class="shrink-0 pb-4"
-        :class="visualSidebarCollapsed ? 'px-2' : 'px-4'"
+        class="shrink-0 border-t border-border/60 py-3"
+        :class="visualSidebarCollapsed ? 'flex flex-col items-center gap-1 px-2' : 'flex items-center gap-2 px-4'"
       >
-        <div
-          class="theme-surface rounded-xl border-0 bg-muted/30"
-          :class="visualSidebarCollapsed ? 'grid gap-1 p-1' : 'p-2'"
-        >
-          <template v-if="authenticated && !visualSidebarCollapsed">
-            <div class="flex min-w-0 items-center gap-2 px-1 pb-2">
-              <div class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary/10">
-                <UserCheck class="h-4 w-4 text-primary" />
-              </div>
-              <div class="flex min-w-0 flex-1 flex-col leading-tight">
-                <span class="truncate text-xs font-medium text-foreground">
-                  {{ currentUser?.displayName || currentUser?.account || '已登录' }}
-                </span>
-                <span class="mt-0.5 truncate text-[11px] text-muted-foreground">
-                  积分 {{ currentUserCreditBalance.toLocaleString('zh-CN') }}
-                </span>
-              </div>
-            </div>
-            <div class="flex items-center justify-between px-0.5 pt-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                class="theme-content relative h-8 w-8 text-muted-foreground hover:text-foreground"
-                :title="isDark ? '浅色模式' : '深色模式'"
-                :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
-                @click="handleThemeToggle"
-              >
-                <Sun class="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-                <Moon class="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                class="theme-content h-8 w-8 text-muted-foreground hover:text-foreground"
-                title="退出后台"
-                aria-label="退出后台"
-                @click="handleCloudLogout"
-              >
-                <LogOut class="h-4 w-4" />
-              </Button>
-            </div>
-          </template>
-
-          <template v-else-if="authenticated">
-            <div
-              class="theme-content grid h-8 w-8 place-items-center text-muted-foreground"
-              :title="currentUserTitle"
-              :aria-label="currentUserTitle"
-            >
-              <UserCheck class="h-4 w-4 text-primary" />
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              class="theme-content relative h-8 w-8 text-muted-foreground hover:text-foreground"
-              :title="isDark ? '浅色模式' : '深色模式'"
-              :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
-              @click="handleThemeToggle"
-            >
-              <Sun class="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-              <Moon class="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              class="theme-content h-8 w-8 text-muted-foreground hover:text-foreground"
-              title="退出后台"
-              aria-label="退出后台"
-              @click="handleCloudLogout"
-            >
-              <LogOut class="h-4 w-4" />
-            </Button>
-          </template>
-
-          <Button
-            v-else
-            type="button"
-            variant="ghost"
-            size="icon"
-            class="theme-content relative h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-            :title="isDark ? '浅色模式' : '深色模式'"
-            :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
-            @click="handleThemeToggle"
+        <template v-if="authenticated">
+          <div
+            class="flex min-w-0 items-center gap-2"
+            :class="visualSidebarCollapsed ? '' : 'flex-1'"
+            :title="currentUserTitle"
           >
-            <Sun class="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-            <Moon class="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          </Button>
-        </div>
+            <span
+              class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
+              aria-hidden="true"
+            >
+              {{ currentUserInitial }}
+            </span>
+            <div
+              v-if="!visualSidebarCollapsed"
+              class="flex min-w-0 flex-col leading-tight"
+            >
+              <span class="truncate text-xs font-medium text-foreground">
+                {{ currentUser?.displayName || currentUser?.account || '已登录' }}
+              </span>
+              <span class="truncate text-[11px] tabular-nums text-muted-foreground">
+                积分 {{ currentUserCreditBalance.toLocaleString('zh-CN') }}
+              </span>
+            </div>
+            <span class="sr-only">{{ currentUserTitle }}</span>
+          </div>
+        </template>
+        <IconActionButton
+          :label="isDark ? '切换到浅色模式' : '切换到深色模式'"
+          @click="handleThemeToggle"
+        >
+          <Sun class="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+          <Moon class="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+        </IconActionButton>
+        <IconActionButton
+          v-if="authenticated"
+          label="退出登录"
+          @click="handleCloudLogout"
+        >
+          <LogOut class="h-4 w-4" />
+        </IconActionButton>
       </div>
     </aside>
 
