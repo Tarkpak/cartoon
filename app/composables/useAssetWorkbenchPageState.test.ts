@@ -50,6 +50,7 @@ describe('useAssetWorkbenchPageState', () => {
     expect(pageState.assetPreparationSummary.value).toEqual({
       total: 3, ready: 1, title: '环境已就绪 0 / 1，道具已就绪 1 / 1，其他素材已就绪 0 / 1'
     })
+    expect(pageState.assetsReady.value).toBe(false)
     propAssets.value = []
     expect(pageState.assetPreparationSummary.value.total).toBe(1)
     expect(pageState.assetPreparationSummary.value.ready).toBe(0)

@@ -1841,6 +1841,7 @@ const {
   projectStyleId,
   selectedSceneId,
   scenes,
+  hasEpisodePlan: computed(() => episodePlan.value.some(episode => !episode.id.startsWith('legacy-unassigned'))),
   queueSummary,
   assetsReady,
   finalVideo,

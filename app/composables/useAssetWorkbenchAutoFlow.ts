@@ -17,6 +17,7 @@ interface UseAssetWorkbenchAutoFlowOptions {
   projectStyleId: Ref<string>
   selectedSceneId: Ref<string>
   scenes: Ref<SceneData[]>
+  hasEpisodePlan?: ComputedRef<boolean>
   queueSummary: ComputedRef<QueueSummary>
   assetsReady: ComputedRef<boolean>
   finalVideo: Ref<FinalVideoAsset | null>
@@ -172,6 +173,9 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
         queueSummary: options.queueSummary.value
       }))
       options.selectedSceneId.value = options.scenes.value[0]?.id || ''
+    } else if (options.hasEpisodePlan?.value) {
+      selectAutoStage('assets')
+      options.selectedSceneId.value = ''
     } else {
       selectAutoStage('parse')
       options.selectedSceneId.value = ''

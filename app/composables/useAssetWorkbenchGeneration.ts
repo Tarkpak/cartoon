@@ -498,10 +498,10 @@ export function useAssetWorkbenchGeneration(
       startedAt: Date.now(),
       kind: 'directory',
       step: 'episode-plan',
-      message: '正在生成分集目录',
+      message: '正在生成分集目录与统一资产设定',
       progress: 5
     }
-    appendProgressLog('正在生成分集目录', 'progress')
+    appendProgressLog('正在生成分集目录与统一资产设定', 'progress')
 
     try {
       const episodes = await prepareAssetWorkbenchEpisodePlan(

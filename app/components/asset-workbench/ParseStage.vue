@@ -62,13 +62,13 @@ const textDropHint = computed(() => {
 })
 const planActionLabel = computed(() => {
   if (isOriginExplainer.value) return hasEpisodePlan.value ? '重新生成镜头规划入口' : '生成镜头规划入口'
-  return hasEpisodePlan.value ? '重新生成分集目录' : '生成分集目录'
+  return hasEpisodePlan.value ? '重新生成目录与资产设定' : '生成目录与资产设定'
 })
 const planReadyMessage = computed(() => {
   if (isOriginExplainer.value) {
     return `已生成镜头规划入口。请到“分镜视频”步骤按主题拆解并生成 ${workflowPreset.value.name} 多镜头场景。`
   }
-  return `已生成分集目录（共 ${plannedEpisodes.value.length} 集）。精品剧模式会根据剧情节奏与情绪起伏自然拆分，请到“分镜视频”步骤管理分集边界并按集解析。`
+  return `分集目录共 ${plannedEpisodes.value.length} 集。先在“资产准备”检查统一设定并准备素材，再到“分镜视频”按集生成分镜。`
 })
 
 const emit = defineEmits<{

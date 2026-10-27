@@ -7105,6 +7105,37 @@ fn normalize_episode_character_baselines(episodes: &mut [Value], body: &Value) {
     }
 }
 
+#[cfg(test)]
+mod project_character_baseline_tests {
+    use super::*;
+
+    #[test]
+    fn existing_visual_settings_override_new_model_descriptions_across_episodes() {
+        let body = json!({"characterBaselines":[{"name":"甲", "description":"用户指定蓝色工装", "gender":"男"}]});
+        let mut episodes = vec![
+            json!({"episodeAssets":{"characters":[{"name":"甲","description":"红衣"},{"name":"乙","description":"短发灰衣"}]}}),
+            json!({"episodeAssets":{"characters":[{"name":"甲","description":"长袍"},{"name":"乙","description":"长发白衣"}]}}),
+        ];
+        normalize_episode_character_baselines(&mut episodes, &body);
+        for episode in &episodes {
+            assert_eq!(episode["episodeAssets"]["characters"][0]["description"], "用户指定蓝色工装");
+            assert_eq!(episode["episodeAssets"]["characters"][1]["description"], "短发灰衣");
+        }
+        let mut parsed = vec![json!({"name":"甲","description":"不同的外观"}), json!({"name":"新角色","description":"新外观"})];
+        preserve_project_character_baselines(&mut parsed, &body);
+        assert_eq!(parsed[0]["description"], "用户指定蓝色工装");
+        assert_eq!(parsed[1]["description"], "新外观");
+    }
+
+    #[test]
+    fn older_clients_without_baselines_keep_their_parse_results() {
+        let mut characters = vec![json!({"name":"甲","description":"首次设计"})];
+        preserve_project_character_baselines(&mut characters, &json!({}));
+        assert_eq!(characters[0]["description"], "首次设计");
+        assert!(project_character_baseline_brief(&json!({"characterBaselines":[]})).is_empty());
+    }
+}
+
 async fn build_model_episode_plan(
     state: &BackendState,
     text: &str,

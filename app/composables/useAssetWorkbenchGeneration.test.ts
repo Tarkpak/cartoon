@@ -135,6 +135,20 @@ describe('useAssetWorkbenchGeneration', () => {
     })
   })
 
+  it('plans assets using the project style and preserves existing visual settings and images', async () => {
+    const { generation, characters } = createGeneration()
+    characters.value = [{ id: 'char_plan_existing', name: '主人公', appearance: '用户指定的蓝色工装', baseImage: 'saved.png', role: '主角', generating: false, generatingViews: false }]
+    prepareEpisodePlanMock.mockResolvedValue([{ ...createEpisode(1), episodeAssets: {
+      characters: [{ name: '主人公', description: '模型改成了红色长袍', role: '主角', gender: '男' }],
+      props: [], environments: []
+    } }])
+    expect(await generation.prepareEpisodePlan()).toBe(true)
+    expect(prepareAssetWorkbenchEpisodePlan).toHaveBeenCalledWith('测试剧本正文', DEFAULT_SCRIPT_PARSE_MODE, expect.objectContaining({
+      style: '动漫风格', characterBaselines: [expect.objectContaining({ name: '主人公', description: '用户指定的蓝色工装' })]
+    }))
+    expect(characters.value[0]).toMatchObject({ appearance: '用户指定的蓝色工装', baseImage: 'saved.png' })
+  })
+
   it('skips completion notice when no episode is generated', async () => {
     prepareEpisodePlanMock.mockResolvedValue([])
     const { generation, onModelTaskCompleted, parseProgress } = createGeneration()

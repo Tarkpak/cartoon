@@ -266,9 +266,7 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
   })
 
   const assetsReady = computed(() => {
-    const charactersReady = options.characters.value.every(character => !!character.baseImage)
-    const propsReady = options.propAssets.value.every(prop => prop.category === 'other' || !!prop.referenceImage?.trim())
-    return charactersReady && propsReady
+    return assetPreparationSummary.value.ready === assetPreparationSummary.value.total
   })
 
   const characterReadyCount = computed(() => {
@@ -307,8 +305,7 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
   })
 
   const assetsAllReady = computed(() => {
-    const missingPropCount = options.propAssets.value.filter(prop => prop.category !== 'other' && !prop.referenceImage?.trim()).length
-    return characterMissingCount.value === 0 && characterGeneratingCount.value === 0 && missingPropCount === 0
+    return assetsReady.value && characterGeneratingCount.value === 0
   })
 
   const assetsPrimaryActionLabel = computed(() => {

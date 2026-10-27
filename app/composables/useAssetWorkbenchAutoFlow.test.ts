@@ -17,19 +17,19 @@ function createScene(id: string): SceneData {
 }
 
 describe('useAssetWorkbenchAutoFlow', () => {
-  it('reloads the project when a kept-alive workbench is opened with a new project id', async () => {
+  it.each([true, false])('opens asset preparation for an existing plan with scenes=%s and reloads on project changes', async (hasScenes) => {
     const route = reactive({
       path: '/asset-workbench',
       query: { project: 'aaa', stage: undefined as string | undefined }
     })
     const scenes = ref<SceneData[]>([])
     const loadProject = vi.fn(async (id: string) => {
-      scenes.value = [createScene(`scene_${id}`)]
+      scenes.value = hasScenes ? [createScene(`scene_${id}`)] : []
     })
     const router = { push: vi.fn(async () => undefined) }
     const persistAutomaticAssetPlan = vi.fn(async () => undefined)
 
-    useAssetWorkbenchAutoFlow({
+    const { activeAutoStage } = useAssetWorkbenchAutoFlow({
       route: route as never,
       router: router as never,
       projectId: computed(() => route.query.project),
@@ -38,6 +38,7 @@ describe('useAssetWorkbenchAutoFlow', () => {
       projectStyleId: ref('style_1'),
       selectedSceneId: ref(''),
       scenes,
+      hasEpisodePlan: computed(() => true),
       queueSummary: computed(() => ({ total: 0, pending: 0, running: 0, done: 0, failed: 0, error: 0 })),
       assetsReady: computed(() => false),
       finalVideo: ref(null),
@@ -70,7 +71,8 @@ describe('useAssetWorkbenchAutoFlow', () => {
     await nextTick()
     await Promise.resolve()
     expect(loadProject).toHaveBeenCalledWith('project_new')
-    expect(scenes.value[0]?.id).toBe('scene_project_new')
+    expect(scenes.value[0]?.id).toBe(hasScenes ? 'scene_project_new' : undefined)
+    expect(activeAutoStage.value).toBe('assets')
     expect(persistAutomaticAssetPlan).not.toHaveBeenCalled()
   })
 })
