@@ -202,6 +202,7 @@ export async function parseAssetWorkbenchScript(options: {
   targetEpisodeId: string
   scriptParseMode?: ScriptParseMode
   style?: string
+  characterBaselines?: Array<{ name: string, description: string, role?: string, gender?: string }>
   episodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType' | 'episodeAssets'>>
   onProgress?: (event: ParseScriptProgressEvent) => void
   signal?: AbortSignal
@@ -212,6 +213,7 @@ export async function parseAssetWorkbenchScript(options: {
     targetEpisodeId: options.targetEpisodeId,
     scriptParseMode: options.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
     style: options.style || undefined,
+    characterBaselines: options.characterBaselines,
     episodePlan: options.episodePlan
   }
 
@@ -350,6 +352,8 @@ export async function prepareAssetWorkbenchEpisodePlan(
   options: {
     projectId?: string
     signal?: AbortSignal
+    style?: string
+    characterBaselines?: Array<{ name: string, description: string, role?: string, gender?: string }>
   } = {}
 ): Promise<ScriptEpisodePlanItem[]> {
   const response = await $fetch<EpisodePlanResponse>('/api/script/episode-plan', {
@@ -358,6 +362,8 @@ export async function prepareAssetWorkbenchEpisodePlan(
     body: {
       text,
       projectId: options.projectId || undefined,
+      style: options.style,
+      characterBaselines: options.characterBaselines,
       scriptParseMode
     }
   })

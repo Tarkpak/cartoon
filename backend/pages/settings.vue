@@ -31,6 +31,28 @@
 
           <n-card :bordered="false" class="settings-card">
             <div class="settings-section-heading">
+              <span class="settings-section-title">媒体解析凭据</span>
+            </div>
+            <n-text depth="3" class="settings-help">在对应平台网页登录后，从开发者工具的网络请求中复制完整 Cookie。Cookie 为可选配置，未配置时直接尝试解析。各平台独立保存，下次解析生效；登录失效时需更新。视频号使用腾讯元宝凭据。</n-text>
+            <n-form label-placement="top">
+              <n-form-item v-for="platform in mediaPlatforms" :key="platform.key" :label="platform.label">
+                <n-space vertical style="width: 100%">
+                  <n-space align="center">
+                    <n-tag size="small" :type="platform.configured ? 'success' : 'default'">{{ platform.configured ? '已配置' : '未配置' }}</n-tag>
+                    <n-text depth="3">{{ platform.site }}</n-text>
+                  </n-space>
+                  <n-input v-model:value="platform.cookie" type="password" show-password-on="click" autocomplete="off" placeholder="输入新 Cookie，已保存的凭据不会回显" :disabled="platform.saving" />
+                  <n-space justify="end">
+                    <n-button :disabled="!platform.configured || mediaCredentialsPending || platform.saving" @click="saveMediaCookie(platform, true)">清除凭据</n-button>
+                    <n-button type="primary" :loading="platform.saving" :disabled="!platform.cookie.trim() || mediaCredentialsPending" @click="saveMediaCookie(platform, false)">保存</n-button>
+                  </n-space>
+                </n-space>
+              </n-form-item>
+            </n-form>
+          </n-card>
+
+          <n-card :bordered="false" class="settings-card">
+            <div class="settings-section-heading">
               <span class="settings-section-title">积分计费规则</span>
               <n-button size="small" type="primary" @click="showCreditRuleCreate = true">新增规则</n-button>
             </div>
@@ -177,6 +199,7 @@
 
 <script setup lang="ts">
 import { useMessage } from 'naive-ui'
+import { mediaParserPlatforms } from '../utils/media-parser-platforms'
 import { modelOperationLabel, providerLabel } from '@playlet-shared/utils/display-labels'
 
 interface AppSettingsForm {
@@ -208,6 +231,39 @@ interface CreditRule {
   model_id: string
   credits: number
   enabled: boolean
+}
+
+const mediaPlatforms = ref(mediaParserPlatforms.map(platform => ({
+  ...platform, configured: false, cookie: '', saving: false
+})))
+type MediaCookieForm = typeof mediaPlatforms.value[number]
+const mediaCredentialsPending = ref(true)
+async function loadMediaCookie() {
+  try {
+    const result = await $fetch('/api/admin/media-parser')
+    for (const platform of mediaPlatforms.value) {
+      platform.configured = result.data.platforms.find(item => item.key === platform.key)?.configured ?? false
+    }
+  } catch {
+    message.error('读取解析凭据状态失败')
+  } finally {
+    mediaCredentialsPending.value = false
+  }
+}
+async function saveMediaCookie(platform: MediaCookieForm, clear: boolean) {
+  platform.saving = true
+  try {
+    const result = await $fetch('/api/admin/media-parser', {
+      method: 'PUT', body: { platform: platform.key, cookie: clear ? '' : platform.cookie }
+    })
+    platform.configured = result.data.configured
+    platform.cookie = ''
+    message.success(`${platform.label}凭据已${clear ? '清除' : '保存'}`)
+  } catch {
+    message.error('保存解析凭据失败')
+  } finally {
+    platform.saving = false
+  }
 }
 
 const message = useMessage()
@@ -456,6 +512,7 @@ async function saveStorageConfig() {
 
 
 onMounted(() => {
+  void loadMediaCookie()
   void load()
   void loadStorageConfig()
   void loadCreditRules()

@@ -98,6 +98,25 @@ describe('useAssetWorkbenchGeneration', () => {
     generateCharacterMock.mockReset()
   })
 
+  it.each([
+    ['具体外观', '深蓝工装，短发', undefined, '深蓝工装，短发'],
+    ['已有角色图', '成年男性，原文未明确', 'saved.png', '成年男性，原文未明确'],
+    ['旧目录占位', '成年男性，原文未明确', undefined, '三十岁男性，短黑发、方脸，深蓝工装、灰色圆领衫、深色长裤、劳保鞋']
+  ])('preserves %s while allowing legacy placeholders to be completed', async (_label, appearance, baseImage, expected) => {
+    const { generation, characters, episodePlan } = createGeneration()
+    episodePlan.value = [createEpisode(1)]
+    characters.value = [{ id: 'char_plan_1', name: '主人公', appearance: appearance!, baseImage, role: '主角', generating: false, generatingViews: false }]
+    parseScriptMock.mockResolvedValue({ success: true, data: {
+      scenes: [{ id: 's1', description: '分镜', duration: 8, characters: [{ name: '主人公' }] }],
+      characters: [{ name: '主人公', description: '三十岁男性，短黑发、方脸，深蓝工装、灰色圆领衫、深色长裤、劳保鞋' }]
+    } })
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_001' })).toBe(true)
+    expect(characters.value[0]!.appearance).toBe(expected)
+    expect(characters.value[0]!.baseImage).toBe(baseImage)
+    const baselines = parseScriptMock.mock.calls.at(-1)![0].characterBaselines as unknown[]
+    expect(baselines).toHaveLength(baseImage || appearance === '深蓝工装，短发' ? 1 : 0)
+  })
+
   it('notifies completion after generating episode plan', async () => {
     prepareEpisodePlanMock.mockResolvedValue([
       createEpisode(1),

@@ -255,6 +255,17 @@ export function useAssetWorkbenchGeneration(
     }))
   }
 
+  function isIncompletePlanCharacter(character: CharacterData): boolean {
+    return character.id.startsWith('char_plan_') && !character.baseImage
+      && /原文未明确|原文未提及|保持与剧本设定一致/u.test(character.appearance || '')
+  }
+
+  function characterBaselines() {
+    return options.characters.value
+      .filter(character => character.appearance?.trim() && !isIncompletePlanCharacter(character))
+      .map(character => ({ name: character.name, description: character.appearance, role: character.role, gender: character.gender }))
+  }
+
   function mergeCharactersFromPartialParse(parsedCharacters: CharacterData[]): CharacterData[] {
     const merged: CharacterData[] = options.characters.value.map(character => ({
       ...character,
@@ -288,9 +299,9 @@ export function useAssetWorkbenchGeneration(
       if (existing) {
         const incomingAppearance = incoming.appearance?.trim() || ''
         const existingAppearance = existing.appearance?.trim() || ''
-        const canUpgradePlanAppearance = existing.id.startsWith('char_plan_')
-          && !!incomingAppearance
-          && incomingAppearance.length >= existingAppearance.length
+        // Compatibility for old directories containing placeholders only.
+        // Concrete settings and generated images must never change on parsing.
+        const canUpgradePlanAppearance = isIncompletePlanCharacter(existing) && !!incomingAppearance
 
         if ((!existingAppearance && incomingAppearance) || canUpgradePlanAppearance) {
           existing.appearance = incomingAppearance
@@ -382,7 +393,7 @@ export function useAssetWorkbenchGeneration(
         const role = normalizeCharacterRoleText(item.role) || '配角'
         const gender = normalizeCharacterGenderText(item.gender)
         if (existing) {
-          if (!existing.appearance && description) {
+          if ((!existing.appearance || isIncompletePlanCharacter(existing)) && description) {
             existing.appearance = description
             changed = true
           }
@@ -498,7 +509,9 @@ export function useAssetWorkbenchGeneration(
         options.scriptParseMode.value,
         {
           projectId: options.projectId?.value,
-          signal: operation.signal
+          signal: operation.signal,
+          style: options.currentStylePrompt.value,
+          characterBaselines: characterBaselines()
         }
       )
       if (!isCurrentParseOperation(operation)) return false
@@ -590,6 +603,7 @@ export function useAssetWorkbenchGeneration(
         targetEpisodeId: parsePayload.targetEpisodeId,
         scriptParseMode: input?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
         style: input?.style || options.currentStylePrompt.value || undefined,
+        characterBaselines: characterBaselines(),
         episodePlan: parsePayload.requestEpisodePlan,
         onProgress: (event) => {
           if (isCurrentParseOperation(operation)) {
@@ -627,12 +641,14 @@ export function useAssetWorkbenchGeneration(
       const parsedCharacters = buildParsedCharacters(response.data.characters, parsedScenes)
 
       options.scenes.value = mergeScenesForEpisode(parsePayload.targetEpisodeId, parsedScenes)
+      const previousCharacterCount = options.characters.value.length
       options.characters.value = mergeCharactersFromPartialParse(parsedCharacters)
+      const newCharacterCount = options.characters.value.length - previousCharacterCount
 
       await saveProjectOrThrow(`${parsePayload.targetEpisodeTitle || '当前分集'}解析完成`, operation.projectId)
       if (!isCurrentParseOperation(operation)) return false
       options.parseProgress.value.step = 'completed'
-      options.parseProgress.value.message = `已完成 ${parsePayload.targetEpisodeTitle || '当前分集'} 解析`
+      options.parseProgress.value.message = `已完成 ${parsePayload.targetEpisodeTitle || '当前分集'} 解析${newCharacterCount ? `，新增 ${newCharacterCount} 个角色，请到资产准备检查` : ''}`
       options.parseProgress.value.progress = 100
       appendProgressLog(options.parseProgress.value.message, 'progress')
       await notifyModelTaskCompleted({

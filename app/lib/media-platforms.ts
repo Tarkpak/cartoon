@@ -45,7 +45,7 @@ export function credentialHint(platform: MediaPlatform): string {
     case 'missing':
       return `通常需要在 .env 配置 ${credential!.env} 后才能解析`
     case 'optional':
-      return `可在 .env 配置 ${credential!.env} 提高成功率`
+      return `可在云后台「系统设置 → 媒体解析凭据」或本机 .env 配置 ${credential!.env} 提高成功率`
     default:
       return '无需登录凭据'
   }

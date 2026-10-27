@@ -26,7 +26,7 @@ export interface WorkbenchTaskSource {
   }>
   queueItems: QueueItem[]
   characters: Array<{ id: string, name: string, generating: boolean, generatingViews?: boolean }>
-  environments: Array<{ id: string, name: string, referenceStatus: 'pending' | 'generating' | 'done' | 'error', referenceError?: string }>
+  environments: Array<{ id: string, name: string, referenceStatus: 'pending' | 'generating' | 'done' | 'error', referenceError?: string, sceneIds?: string[] }>
 }
 
 /**
@@ -58,10 +58,14 @@ export function buildWorkbenchTasks(source: WorkbenchTaskSource): WorkbenchTask[
     }
   }
 
+  const environmentRunningSceneIds = new Set<string>()
+  const environmentErrorSceneIds = new Set<string>()
   for (const environment of source.environments) {
     if (environment.referenceStatus === 'generating') {
+      for (const id of environment.sceneIds || []) environmentRunningSceneIds.add(id)
       tasks.push({ id: `environment:${environment.id}`, status: 'running', title: `环境 ${environment.name}`, detail: '正在生成环境图', stage: 'assets' })
     } else if (environment.referenceStatus === 'error') {
+      for (const id of environment.sceneIds || []) environmentErrorSceneIds.add(id)
       tasks.push({ id: `environment:${environment.id}`, status: 'error', title: `环境 ${environment.name}`, detail: environment.referenceError || '环境图生成失败', stage: 'assets' })
     }
   }
@@ -75,13 +79,13 @@ export function buildWorkbenchTasks(source: WorkbenchTaskSource): WorkbenchTask[
 
     if (scene.videoStatus === 'generating') {
       tasks.push({ ...base, status: 'running', detail: '正在生成分镜视频' })
-    } else if (scene.referenceStatus === 'generating') {
+    } else if (scene.referenceStatus === 'generating' && !environmentRunningSceneIds.has(scene.id)) {
       tasks.push({ ...base, status: 'running', detail: '正在生成环境图' })
     } else if (runningQueueSceneIds.has(scene.id)) {
       tasks.push({ ...base, status: 'running', detail: '准备中' })
     } else if (scene.videoStatus === 'error') {
       tasks.push({ ...base, status: 'error', detail: scene.videoError || queueErrors.get(scene.id) || '分镜视频生成失败', retryable: true })
-    } else if (scene.referenceStatus === 'error' && scene.videoStatus !== 'done') {
+    } else if (scene.referenceStatus === 'error' && scene.videoStatus !== 'done' && !environmentErrorSceneIds.has(scene.id)) {
       tasks.push({ ...base, status: 'error', detail: scene.referenceError || '环境图生成失败' })
     }
   })

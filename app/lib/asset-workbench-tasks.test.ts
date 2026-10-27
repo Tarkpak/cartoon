@@ -6,6 +6,26 @@ function source(overrides: Partial<WorkbenchTaskSource> = {}): WorkbenchTaskSour
 }
 
 describe('buildWorkbenchTasks', () => {
+  it.each(['generating', 'error'] as const)('lists a shared environment task once when its scenes are %s', (referenceStatus) => {
+    const tasks = buildWorkbenchTasks(source({
+      environments: [{ id: 'e1', name: '老街', referenceStatus, sceneIds: ['s1', 's2'] }],
+      scenes: [
+        { id: 's1', title: 'A', referenceStatus, videoStatus: 'pending' },
+        { id: 's2', title: 'B', referenceStatus, videoStatus: 'pending' },
+        { id: 's3', title: 'C', referenceStatus, videoStatus: 'pending' }
+      ]
+    }))
+    expect(tasks.map(task => task.id)).toEqual(['environment:e1', 'scene:s3'])
+  })
+
+  it('keeps independent video work while its environment is generating', () => {
+    const tasks = buildWorkbenchTasks(source({
+      environments: [{ id: 'e1', name: '老街', referenceStatus: 'generating', sceneIds: ['s1'] }],
+      scenes: [{ id: 's1', title: 'A', referenceStatus: 'generating', videoStatus: 'generating' }]
+    }))
+    expect(tasks.map(task => task.detail)).toEqual(['正在生成环境图', '正在生成分镜视频'])
+  })
+
   it('returns nothing when the project is idle', () => {
     expect(buildWorkbenchTasks(source({
       scenes: [{ id: 's1', title: '老街', referenceStatus: 'done', videoStatus: 'done' }],

@@ -100,7 +100,7 @@ function credentialIconClass(platform: MediaPlatform) {
       <p class="flex items-start gap-1.5 text-xs leading-5 text-muted-foreground">
         <KeyRound class="mt-0.5 h-3 w-3 shrink-0" />
         <span>
-          带钥匙标记的平台可在项目 .env 配置登录 Cookie（如 {{ credentialPlatforms.map(p => p.credential!.env).join('、') }}），重启后生效；悬停可查看说明。
+          Cookie 均为可选，可在云后台「系统设置 → 媒体解析凭据」保存，下次解析生效；未配置时直接解析。此处状态仅反映本机配置，也可在项目 .env 配置 Cookie（如 {{ credentialPlatforms.map(p => p.credential!.env).join('、') }}），重启后生效；悬停可查看说明。
         </span>
       </p>
     </div>

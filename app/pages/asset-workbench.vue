@@ -470,6 +470,7 @@ const {
   queueSummary,
   assetsReady,
   characterReadyCount,
+  assetPreparationSummary,
   characterGeneratingCount,
   characterMissingCount,
   resolveDisplayAssetTypeLabel,
@@ -1956,6 +1957,7 @@ const autoStages = computed(() => {
 
   const stages = buildAutoStages({
     hasScenes: scenes.value.length > 0,
+    hasEpisodePlan: episodePlan.value.some(episode => !episode.id.startsWith('legacy-unassigned')),
     assetsReady: assetsReady.value,
     videosDone,
     finalDone: !!finalVideo.value?.videoUrl,
@@ -1992,10 +1994,9 @@ function retryFailedSceneTasks() {
 }
 
 function resolveStageProgress(key: AutoStageKey): { progress?: string, progressTitle?: string, hasError?: boolean } {
-  if (key === 'assets' && characters.value.length > 0) {
-    const ready = characterReadyCount.value
-    const total = characters.value.length
-    return { progress: `${ready}/${total}`, progressTitle: `角色图已就绪 ${ready} / ${total}` }
+  if (key === 'assets' && assetPreparationSummary.value.total > 0) {
+    const { ready, total, title } = assetPreparationSummary.value
+    return { progress: `${ready}/${total}`, progressTitle: title }
   }
   if (key === 'videos' && queueSummary.value.total > 0) {
     const { done, total, error } = queueSummary.value
@@ -3888,8 +3889,11 @@ function reportWorkbenchActivity() {
       @go-to-videos="selectAutoStage('videos')"
     />
 
+    <!-- Keep the cache mounted across every stage. Leaving assets/videos must
+         deactivate the cached child (including its toolbar Teleport), rather
+         than destroy the cache while that child is still active. -->
     <AssetWorkbenchStagePanel
-      v-else-if="activeAutoStage === 'assets' || activeAutoStage === 'videos'"
+      v-show="activeAutoStage === 'assets' || activeAutoStage === 'videos'"
       content-class="flex-1 min-h-0 overflow-hidden flex flex-col gap-2"
     >
       <KeepAlive>
@@ -3963,7 +3967,7 @@ function reportWorkbenchActivity() {
         />
 
         <AssetWorkbenchVideosStage
-          v-else
+          v-else-if="activeAutoStage === 'videos'"
           :key="`videos-stage:${projectId || 'new'}`"
           :toolbar-active="activeAutoStage === 'videos'"
           :read-only="!canEditProject"
@@ -4047,7 +4051,7 @@ function reportWorkbenchActivity() {
     </AssetWorkbenchStagePanel>
 
     <AssetWorkbenchFinalStage
-      v-else
+      v-if="activeAutoStage === 'final'"
       :read-only="!canEditProject"
       :can-export="canExportProject"
       :hint="stageHints.final"

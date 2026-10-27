@@ -8,14 +8,14 @@ struct Credential {
     platform: &'static str,
     key: &'static str,
     env: &'static str,
-    /// Upstream fails without it (vs. only improving success rate).
+    /// Optional credentials may improve parsing success.
     required: bool,
 }
 
 const CREDENTIALS: &[Credential] = &[
-    Credential { platform: "小红书", key: "xhs", env: "XHS_COOKIE", required: true },
-    Credential { platform: "视频号", key: "yuanbao", env: "YUANBAO_COOKIE", required: true },
-    Credential { platform: "拼多多", key: "pinduoduo", env: "PINDUODUO_COOKIE", required: true },
+    Credential { platform: "小红书", key: "xhs", env: "XHS_COOKIE", required: false },
+    Credential { platform: "视频号", key: "yuanbao", env: "YUANBAO_COOKIE", required: false },
+    Credential { platform: "拼多多", key: "pinduoduo", env: "PINDUODUO_COOKIE", required: false },
     Credential { platform: "抖音", key: "douyin", env: "DOUYIN_COOKIE", required: false },
     Credential { platform: "快手", key: "kuaishou", env: "KUAISHOU_COOKIE", required: false },
     Credential { platform: "微博", key: "weibo", env: "WEIBO_COOKIE", required: false },
@@ -90,6 +90,7 @@ mod tests {
         assert_eq!(names, registered);
         assert_eq!(catalog()["total"], 50);
         assert!(CREDENTIALS.iter().all(|c| names.contains(&c.platform)));
+        assert!(CREDENTIALS.iter().all(|c| !c.required));
     }
 
     #[test]

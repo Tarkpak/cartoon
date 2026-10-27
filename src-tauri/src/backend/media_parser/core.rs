@@ -687,8 +687,24 @@ pub fn ua_pc_at(index: isize) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Platform cookies (environment only; desktop users configure `.env`)
+// Platform cookies (request-scoped cloud credentials, then local `.env`)
 // ---------------------------------------------------------------------------
+
+thread_local! {
+    static REQUEST_PLATFORM_COOKIES: std::cell::RefCell<std::collections::HashMap<String, String>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+pub fn with_platform_cookies<T>(cookies: std::collections::HashMap<String, String>, run: impl FnOnce() -> T) -> T {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            REQUEST_PLATFORM_COOKIES.with(|value| value.borrow_mut().clear());
+        }
+    }
+    REQUEST_PLATFORM_COOKIES.with(|value| *value.borrow_mut() = cookies);
+    let _reset = Reset;
+    run()
+}
 
 fn cookie_aliases(platform: &str) -> &'static [&'static str] {
     match platform {
@@ -722,6 +738,15 @@ pub fn env(key: &str) -> String {
 /// `get_platform_cookie(platform, env_var)`.
 pub fn platform_cookie(platform: &str, env_var: Option<&str>) -> String {
     let normalized = platform.to_lowercase().replace('-', "_");
+    let key = match normalized.as_str() {
+        "wechat_channels" => "yuanbao",
+        "xiaohongshu" => "xhs",
+        other => other,
+    };
+    let cookie = REQUEST_PLATFORM_COOKIES.with(|value| value.borrow().get(key).cloned());
+    if let Some(cookie) = cookie.filter(|value| !value.trim().is_empty()) {
+        return clean_cookie_quotes(&cookie);
+    }
     let primary = env_var
         .map(str::to_string)
         .unwrap_or_else(|| format!("{}_COOKIE", normalized.to_uppercase()));
@@ -1670,4 +1695,31 @@ pub fn rich_text_lines(html: &str, blocks: &[&str], skip: &[&str]) -> Vec<String
         .map(|line| re!(r"[\t\x0c\x0b ]+").replace_all(line, " ").trim().to_string())
         .filter(|line| !line.is_empty())
         .collect()
+}
+
+#[cfg(test)]
+mod cloud_cookie_tests {
+    use super::*;
+
+    #[test]
+    fn cloud_cookie_is_scoped_to_the_parse_thread() {
+        with_platform_cookies(std::collections::HashMap::from([("yuanbao".into(), "session=cloud-value".into()), ("xhs".into(), "session=xhs-value".into())]), || {
+            assert_eq!(platform_cookie("yuanbao", None), "session=cloud-value");
+            assert_eq!(platform_cookie("wechat_channels", None), "session=cloud-value");
+            assert_eq!(platform_cookie("xiaohongshu", None), "session=xhs-value");
+            std::thread::spawn(|| {
+                REQUEST_PLATFORM_COOKIES.with(|value| assert!(value.borrow().is_empty()));
+            }).join().unwrap();
+        });
+        REQUEST_PLATFORM_COOKIES.with(|value| assert!(value.borrow().is_empty()));
+    }
+
+    #[test]
+    fn cloud_cookie_is_cleared_after_parser_panic() {
+        let result = std::panic::catch_unwind(|| {
+            with_platform_cookies(std::collections::HashMap::from([("yuanbao".into(), "session=temporary".into())]), || panic!("parser failed"));
+        });
+        assert!(result.is_err());
+        REQUEST_PLATFORM_COOKIES.with(|value| assert!(value.borrow().is_empty()));
+    }
 }

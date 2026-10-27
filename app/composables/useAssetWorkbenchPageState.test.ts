@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SceneData } from '~/lib/asset-workbench-models'
 import { resolveSceneDescriptionWithoutAssetMentions } from '~/lib/asset-workbench-mention-tokens'
 import { useAssetWorkbenchPageState } from './useAssetWorkbenchPageState'
+import type { PropAsset } from './useAssetWorkflowMeta'
 
 function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' | 'description'>): SceneData {
   return {
@@ -32,6 +33,28 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
 }
 
 describe('useAssetWorkbenchPageState', () => {
+  it('counts all asset categories and uses audio readiness for voice materials', () => {
+    const propAssets = ref<PropAsset[]>([
+      { id: 'p', name: '道具', description: '', category: 'prop', referenceImage: 'prop.png' },
+      { id: 'v', name: '旁白', description: '', category: 'other', mediaType: 'voice', referenceImage: 'cover.png' }
+    ])
+    const pageState = useAssetWorkbenchPageState({
+      scenes: ref([createScene({ id: 's', title: '场景', description: '', setting: { location: '医院', timeOfDay: 'night' } })]),
+      characters: ref([]), episodePlan: ref([]), propAssets,
+      environmentAssetHistories: ref({}), environmentPanoramaStates: ref({}), sceneConfigs: ref({}),
+      selectedSceneId: ref(''), selectedStyleId: ref(''), projectStyleId: ref(''),
+      supportsExplicitVoiceAudioReference: ref(false), queueItems: ref([]),
+      resolveStyleById: () => null, resolveSceneDescriptionWithoutAssetMentions,
+      uniqueSorted: values => Array.from(new Set(values.filter(Boolean)))
+    })
+    expect(pageState.assetPreparationSummary.value).toEqual({
+      total: 3, ready: 1, title: '环境已就绪 0 / 1，道具已就绪 1 / 1，其他素材已就绪 0 / 1'
+    })
+    propAssets.value = []
+    expect(pageState.assetPreparationSummary.value.total).toBe(1)
+    expect(pageState.assetPreparationSummary.value.ready).toBe(0)
+  })
+
   it('resolves scene reference image from environment asset history when scene frames are empty', () => {
     const scene = createScene({
       id: 'scene_1',

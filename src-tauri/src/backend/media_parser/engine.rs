@@ -186,9 +186,6 @@ pub fn execute(text: &str, ctx: Arc<Ctx>) -> Value {
             return fail(400, "NO_MEDIA_IN_CONTENT", "该分享内容仅包含文本对话，未包含图片或视频资源");
         }
         return match platform {
-            "小红书" => fail(400, "XIAOHONGSHU_COOKIE_REQUIRED", "解析失败：该链接需要小红书登录 Cookie 校验，请在配置中提供有效 Cookie 后重试"),
-            "拼多多" => fail(400, "PINDUODUO_COOKIE_REQUIRED", "解析失败：该链接需要拼多多登录 Cookie 校验，请在配置中提供有效 Cookie 后重试"),
-            "视频号" | "微信视频号" => fail(400, "WECHAT_CHANNELS_COOKIE_REQUIRED", "解析失败：该链接需要配置腾讯元宝 YUANBAO_COOKIE 凭证后重试"),
             "快手" if flags.is_some_and(|f| f.cookie_required) => fail(400, "KUAISHOU_COOKIE_REQUIRED", "解析失败：该链接触发快手安全校验，请在配置中提供有效快手 Cookie 后重试"),
             _ => fail(400, "MEDIA_NOT_FOUND", "提取媒体内容失败，请检查链接或稍后重试"),
         };

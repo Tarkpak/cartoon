@@ -348,11 +348,14 @@ async fn parse_inner(
     };
     progress("planning", "正在制定全局视觉与角色方案".into(), 0, 0);
     let planning_started = std::time::Instant::now();
-    let plan = model
+    let mut plan = model
         .generate(&planning_prompt)
         .await
         .map_err(|e| format!("全局规划失败：{e}"))?;
     let planning_ms = planning_started.elapsed().as_millis() as u64;
+    if let Some(characters) = plan.get_mut("characters").and_then(Value::as_array_mut) {
+        preserve_project_character_baselines(characters, body);
+    }
     validate_plan(&plan)?;
     progress(
         "batch_generating",

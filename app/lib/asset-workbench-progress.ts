@@ -36,6 +36,7 @@ export function resolveAutoStageStatus(options: {
 
 export function buildAutoStages(options: {
   hasScenes: boolean
+  hasEpisodePlan?: boolean
   assetsReady: boolean
   videosDone: boolean
   finalDone: boolean
@@ -49,7 +50,7 @@ export function buildAutoStages(options: {
       label: options.parseLabel || '剧本解析',
       status: resolveAutoStageStatus({
         key: 'parse',
-        done: options.hasScenes,
+        done: options.hasEpisodePlan || options.hasScenes,
         autoRunning: options.autoRunning,
         autoRunCurrentStage: options.autoRunCurrentStage
       })
@@ -59,7 +60,7 @@ export function buildAutoStages(options: {
       label: '资产准备',
       status: resolveAutoStageStatus({
         key: 'assets',
-        done: options.hasScenes && options.assetsReady,
+        done: !!(options.hasEpisodePlan || options.hasScenes) && options.assetsReady,
         autoRunning: options.autoRunning,
         autoRunCurrentStage: options.autoRunCurrentStage
       })

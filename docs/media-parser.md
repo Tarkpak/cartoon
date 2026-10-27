@@ -18,6 +18,12 @@
 
 ## 平台凭据
 
+发布版可在云后台「系统设置 → 媒体解析凭据」分别保存视频号/腾讯元宝、小红书、拼多多、抖音、快手、微博、豆包、即梦 AI 的 Cookie。登录相应平台网站，在浏览器开发者工具的网络请求中复制完整 Cookie（视频号使用 `yuanbao.tencent.com` 的 Cookie）。每个平台独立保存或清除。
+
+Cookie 均为可选：后台有配置就使用，未配置则直接尝试公开解析；云端凭据读取失败也不会阻断解析。平台确实返回登录或安全校验时，仍可能解析失败。云端非空 Cookie 优先于本机环境变量；清除云端凭据后恢复本机配置，没有本机配置时不携带 Cookie。
+
+后台加密保存，仅向已登录客户端通过加密接口提供；管理员页面只返回配置状态，不回显原值。新版客户端每次解析前读取，保存或清除后下次解析生效，无需重启。需同时更新云后台和客户端；之前保存的元宝 Cookie 自动沿用。平台列表的凭据状态仅反映本机环境变量。
+
 如平台要求登录，可在本项目 `.env` 设置 `XHS_COOKIE`、`DOUYIN_COOKIE`、`KUAISHOU_COOKIE`、`WEIBO_COOKIE`、`PINDUODUO_COOKIE`、`DOUBAO_COOKIE`、`JIMENG_COOKIE`、视频号/腾讯元宝的 `YUANBAO_COOKIE` 等变量（别名与上游一致，如 `XIAOHONGSHU_COOKIE`、`DY_COOKIE`、`KS_COOKIE`、`PDD_COOKIE`、`WECHAT_CHANNELS_COOKIE`），再重启后端。抖音还支持 `DOUYIN_UIFID`，以及 `DOUYIN_API_MAX_ATTEMPTS`、`DOUYIN_RETRY_BASE_DELAY`、`DOUYIN_RETRY_MAX_DELAY`、`DOUYIN_ENABLE_MOBILE_FEED` 调优项。凭据不写入前端或源码。
 
 ## 开发与发行

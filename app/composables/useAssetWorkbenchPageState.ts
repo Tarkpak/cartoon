@@ -275,6 +275,26 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
     return options.characters.value.filter(char => !!char.baseImage).length
   })
 
+  const assetPreparationSummary = computed(() => {
+    const groups = [
+      { label: '角色', total: options.characters.value.length, ready: characterReadyCount.value },
+      { label: '环境', total: environmentAssetCards.value.length, ready: environmentAssetCards.value.filter(asset => asset.referenceStatus === 'done').length },
+      ...(['prop', 'other'] as const).map(category => {
+        const assets = options.propAssets.value.filter(asset => asset.category === category)
+        return {
+          label: category === 'prop' ? '道具' : '其他素材',
+          total: assets.length,
+          ready: assets.filter(asset => asset.mediaType === 'voice' ? !!asset.voiceAsset?.audioUrl?.trim() : !!asset.referenceImage?.trim()).length
+        }
+      })
+    ]
+    return {
+      total: groups.reduce((sum, group) => sum + group.total, 0),
+      ready: groups.reduce((sum, group) => sum + group.ready, 0),
+      title: groups.filter(group => group.total > 0).map(group => `${group.label}已就绪 ${group.ready} / ${group.total}`).join('，')
+    }
+  })
+
   const characterGeneratingCount = computed(() => {
     return options.characters.value.filter(char => !!char.generating).length
   })
@@ -479,6 +499,7 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
     queueSummary,
     assetsReady,
     characterReadyCount,
+    assetPreparationSummary,
     characterGeneratingCount,
     characterMissingCount,
     assetsAllReady,

@@ -38,7 +38,7 @@ impl Drop for CancelOnDrop {
     }
 }
 
-pub(super) async fn parse(_state: &BackendState, input: &str) -> Result<ParsedMedia, ApiError> {
+pub(super) async fn parse(state: &BackendState, input: &str) -> Result<ParsedMedia, ApiError> {
     let source_url = input.trim().to_string();
     if source_url.is_empty() {
         return Err(ApiError::new(
@@ -50,6 +50,34 @@ pub(super) async fn parse(_state: &BackendState, input: &str) -> Result<ParsedMe
     if let Some(payload) = TEST_RESPONSE.lock().unwrap().clone() {
         return decode_response(true, &payload, source_url);
     }
+    let cloud_auth = {
+        let conn = db_connection(state)?;
+        cloud_base_url(&conn).zip(cloud_token(&conn))
+    };
+    let cloud_cookies = if let Some((base_url, token)) = cloud_auth.filter(|_| {
+        matches!(catalog::detect(&source_url)["platform"]["name"].as_str(), Some("视频号" | "腾讯元宝" | "小红书" | "拼多多" | "抖音" | "快手" | "微博" | "豆包" | "即梦AI"))
+    }) {
+        let response = cloud_request_secure_json(
+            &base_url, reqwest::Method::GET,
+            "/api/client/media-parser-credentials", Some(&token), None,
+        ).await;
+        match response {
+            Ok(payload) => {
+                let data = &payload["data"];
+                let mut cookies: std::collections::HashMap<String, String> = data["cookies"]
+                    .as_object().map(|values| values.iter().filter_map(|(key, value)| {
+                        value.as_str().map(|value| (key.clone(), value.to_string()))
+                    }).collect()).unwrap_or_default();
+                // The first cloud release returned only this field.
+                if let Some(cookie) = data["yuanbaoCookie"].as_str() {
+                    cookies.entry("yuanbao".into()).or_insert_with(|| cookie.into());
+                }
+                cookies
+            },
+            // Optional credentials must not prevent public parsing when cloud access fails.
+            Err(_) => Default::default(),
+        }
+    } else { Default::default() };
     static LIMIT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
     let _permit = LIMIT
         .acquire()
@@ -61,7 +89,7 @@ pub(super) async fn parse(_state: &BackendState, input: &str) -> Result<ParsedMe
     // Parsers use blocking HTTP and QuickJS; keep them off the async workers.
     let task = tokio::task::spawn_blocking(move || {
         let ctx = core::Ctx::new(Duration::from_secs(90), cancelled);
-        engine::execute(&text, ctx)
+        core::with_platform_cookies(cloud_cookies, || engine::execute(&text, ctx))
     });
     let payload = tokio::time::timeout(Duration::from_secs(100), task)
         .await

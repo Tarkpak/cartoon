@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { splitProjectSnapshot } from '../../shared/utils/project-collaboration'
+import { splitProjectSnapshot, validateCollaborationResources } from '../../shared/utils/project-collaboration'
 import { buildWorkbenchMutations, composeWorkbenchSnapshot, patchWorkbenchFields, prepareWorkbenchRequest, registerWorkbenchCollaboration } from './workbench-collaboration'
 
 const snapshot = {
@@ -12,6 +12,25 @@ const view = () => ({ name: '原项目', status: 'draft', episodePlan: structure
 let unregister: (() => void) | undefined
 afterEach(() => unregister?.())
 describe('original workbench resource adapter', () => {
+  it('replaces the hidden empty-project placeholder when saving the first episode plan', () => {
+    const resources = splitProjectSnapshot({ project: { id: 'p' }, script: null, scenes: [], characters: [] })
+    const before = { name: '新项目', episodePlan: [], scenes: [], characters: [] }
+    const after = { ...before, episodePlan: [{ id: 'first', index: 1 }, { id: 'second', index: 2 }] }
+    const changes = buildWorkbenchMutations(resources, before, after)
+    expect(changes).toContainEqual({ type: 'episode', id: 'legacy-unassigned', expectedRevision: 1, body: null })
+    const updated = new Map(resources.map(item => [`${item.type}:${item.id}`, item]))
+    for (const change of changes) updated.set(`${change.type}:${change.id}`, { ...change, revision: change.expectedRevision + 1, deleted: change.body === null })
+    expect(() => validateCollaborationResources([...updated.values()])).not.toThrow()
+    expect((composeWorkbenchSnapshot([...updated.values()]).script as Record<string, unknown>).episodePlan).toEqual(after.episodePlan)
+  })
+
+  it('does not discard unassigned scenes when a generated plan conflicts with their episode', () => {
+    const resources = splitProjectSnapshot({ project: { id: 'p' }, script: null, scenes: [{ id: 'existing' }], characters: [] })
+    const before = { episodePlan: [], scenes: [{ id: 'existing' }], characters: [] }
+    const after = { ...before, episodePlan: [{ id: 'first', index: 1 }] }
+    expect(() => buildWorkbenchMutations(resources, before, after)).toThrow('序号重复')
+    expect(resources.find(item => item.type === 'episode')!.body!.scenes).toHaveLength(1)
+  })
   it('saves only the edited episode and retains fields hidden by the original UI', () => {
     const before = view()
     const after = view()

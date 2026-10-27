@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { generatedEpisodePlans, matchesSceneListFilter, resolveSceneListStatus } from './asset-workbench-progress'
+import { buildAutoStages, generatedEpisodePlans, matchesSceneListFilter, resolveSceneListStatus } from './asset-workbench-progress'
+
+describe('workflow stage completion', () => {
+  it('completes script planning before scenes exist and waits for asset preparation', () => {
+    const stages = buildAutoStages({ hasScenes: false, hasEpisodePlan: true, assetsReady: false, videosDone: false, finalDone: false, autoRunning: false, autoRunCurrentStage: null })
+    expect(stages.map(stage => stage.status)).toEqual(['done', 'pending', 'pending', 'pending'])
+  })
+  it('does not mark an empty project complete', () => {
+    const stages = buildAutoStages({ hasScenes: false, hasEpisodePlan: false, assetsReady: true, videosDone: false, finalDone: false, autoRunning: false, autoRunCurrentStage: null })
+    expect(stages.every(stage => stage.status === 'pending')).toBe(true)
+  })
+})
 
 describe('generated episode directory state', () => {
   it('does not count migration holding episodes as a generated directory', () => {

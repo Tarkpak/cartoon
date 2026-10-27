@@ -5861,7 +5861,7 @@ fn normalize_model_script_result(model_value: Value, fallback_body: &Value) -> V
                 .cloned()
                 .unwrap_or_default()
         });
-    let characters = data
+    let mut characters = data
         .get("characters")
         .and_then(Value::as_array)
         .cloned()
@@ -5873,6 +5873,7 @@ fn normalize_model_script_result(model_value: Value, fallback_body: &Value) -> V
                 .cloned()
                 .unwrap_or_default()
         });
+    preserve_project_character_baselines(&mut characters, fallback_body);
     let title = data
         .get("title")
         .and_then(Value::as_str)
@@ -6490,7 +6491,7 @@ fn build_script_parse_prompt(
         return Ok(append_video_planning_rules(append_environment_capture_mode_rule(rendered), &video_model));
     }
 
-    let episode_context_brief = build_episode_context_brief(&episode_plan);
+    let episode_context_brief = format!("{}\n{}", build_episode_context_brief(&episode_plan), project_character_baseline_brief(body));
     let contract_variant = get_prompt_contract_variant(conn)?;
     let director_preferences = get_prompt_director_preferences(conn)?;
     let director_prompt = if director_preferences.trim().is_empty() {
@@ -7058,10 +7059,57 @@ fn merge_chunked_episode_plans(
     episodes
 }
 
+fn project_character_baseline_brief(body: &Value) -> String {
+    let Some(characters) = body.get("characterBaselines").and_then(Value::as_array) else {
+        return String::new();
+    };
+    if characters.is_empty() { return String::new(); }
+    format!("【项目已有角色视觉设定】\n{}\n上述角色的名称、稳定外观和性别必须原样复用，不得重新设计；仅补充未登记的新角色。", json!(characters))
+}
+
+fn preserve_project_character_baselines(characters: &mut [Value], body: &Value) {
+    let Some(baselines) = body.get("characterBaselines").and_then(Value::as_array) else { return; };
+    for character in characters {
+        let name = character.get("name").and_then(Value::as_str).unwrap_or("").trim();
+        if let Some(baseline) = baselines.iter().find(|item| item.get("name").and_then(Value::as_str).is_some_and(|value| value.trim() == name)) {
+            for field in ["description", "gender"] {
+                if baseline.get(field).and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty()) {
+                    character[field] = baseline[field].clone();
+                }
+            }
+        }
+    }
+}
+
+fn normalize_episode_character_baselines(episodes: &mut [Value], body: &Value) {
+    let mut baselines = std::collections::HashMap::<String, Value>::new();
+    if let Some(characters) = body.get("characterBaselines").and_then(Value::as_array) {
+        for character in characters {
+            if let Some(name) = character.get("name").and_then(Value::as_str) {
+                baselines.insert(name.trim().to_string(), character.clone());
+            }
+        }
+    }
+    for episode in episodes {
+        if let Some(characters) = episode.pointer_mut("/episodeAssets/characters").and_then(Value::as_array_mut) {
+            for character in characters {
+                let name = character.get("name").and_then(Value::as_str).unwrap_or("").trim().to_string();
+                let baseline = baselines.entry(name).or_insert_with(|| character.clone());
+                for field in ["description", "gender"] {
+                    if baseline.get(field).and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty()) {
+                        character[field] = baseline[field].clone();
+                    }
+                }
+            }
+        }
+    }
+}
+
 async fn build_model_episode_plan(
     state: &BackendState,
     text: &str,
     script_parse_mode: &str,
+    body: &Value,
 ) -> Result<(Vec<Value>, String, String, bool), String> {
     let normalized_text = normalize_script_input_text(text);
     if normalize_runtime_script_parse_mode(script_parse_mode) == "origin_explainer" {
@@ -7093,10 +7141,12 @@ async fn build_model_episode_plan(
             build_episode_plan_prompt_text(&conn, &normalized_text, script_parse_mode, None, None)
                 .map_err(|error| error.message)?
         };
+        let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}", json_string(body.get("style"), "遵循原文时代与题材"), project_character_baseline_brief(body));
         let (model_text, provider, model_id) =
             run_workflow_text_model(state, "script_parsing", &prompt).await?;
         let value = extract_json_from_text(&model_text)?;
-        let episodes = build_episode_plan_from_model_output(&normalized_text, value);
+        let mut episodes = build_episode_plan_from_model_output(&normalized_text, value);
+        normalize_episode_character_baselines(&mut episodes, body);
         return Ok((episodes, provider, model_id, false));
     }
 
@@ -7117,6 +7167,7 @@ async fn build_model_episode_plan(
             )
             .map_err(|error| error.message)?
         };
+        let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}", json_string(body.get("style"), "遵循原文时代与题材"), project_character_baseline_brief(body));
         let (model_text, provider, model_id) =
             run_workflow_text_model(state, "script_parsing", &prompt).await?;
         if provider_name.is_empty() {
@@ -7127,8 +7178,10 @@ async fn build_model_episode_plan(
         let episodes = build_episode_plan_from_model_output(&chunk.text, value);
         chunk_results.push((chunk, episodes));
     }
+    let mut episodes = merge_chunked_episode_plans(&normalized_text, chunk_results);
+    normalize_episode_character_baselines(&mut episodes, body);
     Ok((
-        merge_chunked_episode_plans(&normalized_text, chunk_results),
+        episodes,
         provider_name,
         model_name,
         true,
@@ -20631,7 +20684,7 @@ pub(super) async fn api_script_episode_plan(
     let script_parse_mode = json_string(body.get("scriptParseMode"), "premium_drama");
     CURRENT_MODEL_LOG_CONTEXT
         .scope(context, async {
-            match build_model_episode_plan(&state, text, &script_parse_mode).await {
+            match build_model_episode_plan(&state, text, &script_parse_mode, &body).await {
                 Ok((episodes, provider, model_id, segmented)) => {
                     if episodes.is_empty() {
                         return Err(ApiError::new(

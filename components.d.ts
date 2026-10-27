@@ -20,6 +20,7 @@ declare module 'vue' {
     AssetWorkbenchEnvironmentCropDialog: typeof import('./app/components/asset-workbench/EnvironmentCropDialog.vue')['default']
     AssetWorkbenchFinalStage: typeof import('./app/components/asset-workbench/FinalStage.vue')['default']
     AssetWorkbenchHeaderBar: typeof import('./app/components/asset-workbench/HeaderBar.vue')['default']
+    AssetWorkbenchParseProgress: typeof import('./app/components/asset-workbench/ParseProgress.vue')['default']
     AssetWorkbenchParseStage: typeof import('./app/components/asset-workbench/ParseStage.vue')['default']
     AssetWorkbenchPropAssetsTab: typeof import('./app/components/asset-workbench/PropAssetsTab.vue')['default']
     AssetWorkbenchRegenerateDialog: typeof import('./app/components/asset-workbench/RegenerateDialog.vue')['default']

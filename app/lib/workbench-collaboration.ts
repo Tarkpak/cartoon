@@ -73,6 +73,22 @@ export function composeWorkbenchSnapshot(resources: CollaborationResource[]): Co
 export function buildWorkbenchMutations(resources: CollaborationResource[], before: CollaborationBody, after: CollaborationBody) {
   const snapshot = composeWorkbenchSnapshot(resources)
   const patched = patchWorkbenchFields(snapshot, workbenchSaveView(before), workbenchSaveView(after)) as CollaborationBody
+  // Empty projects acquire a synthetic episode during collaboration migration.
+  // It can be absent from the UI baseline, so the array merge preserves it as
+  // a remote insertion. Replace only empty placeholders, never existing work.
+  const requestedPlans = Array.isArray(after.episodePlan) ? after.episodePlan : []
+  if (requestedPlans.some(plan => !String(record(plan).id).startsWith('legacy-unassigned'))) {
+    const requestedIds = new Set(requestedPlans.map(plan => record(plan).id))
+    const emptyPlaceholders = new Set(resources.filter(item => {
+      const body = record(item.body)
+      const plan = record(body.plan)
+      return item.type === 'episode' && !item.deleted && item.id.startsWith('legacy-unassigned')
+        && plan.title === '未分集内容' && !plan.charCount && body.writing == null
+        && Array.isArray(body.scenes) && body.scenes.length === 0 && !requestedIds.has(item.id)
+    }).map(item => item.id))
+    const script = record(patched.script)
+    if (Array.isArray(script.episodePlan)) script.episodePlan = script.episodePlan.filter(plan => !emptyPlaceholders.has(String(record(plan).id)))
+  }
   // Hydrated legacy history is normally a read default. Persist it when an edit
   // invalidates the active video so the previous result remains recoverable.
   for (const scene of (patched.scenes || []) as CollaborationBody[]) {
