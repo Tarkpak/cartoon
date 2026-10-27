@@ -204,6 +204,7 @@ export async function parseAssetWorkbenchScript(options: {
   style?: string
   episodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType' | 'episodeAssets'>>
   onProgress?: (event: ParseScriptProgressEvent) => void
+  signal?: AbortSignal
 }) {
   const requestBody = {
     text: options.text,
@@ -217,12 +218,14 @@ export async function parseAssetWorkbenchScript(options: {
   if (!options.onProgress) {
     return await $fetch<ParseScriptResponse>('/api/script/parse', {
       method: 'POST',
+      signal: options.signal,
       body: requestBody
     })
   }
 
   const response = await observedFetch('/api/script/parse-stream', {
     method: 'POST',
+    signal: options.signal,
     headers: {
       'Content-Type': 'application/json'
     },
@@ -290,6 +293,16 @@ export async function parseAssetWorkbenchScript(options: {
     }
 
     if (event.type === 'error') {
+      // The final error carries the last server phase even when its progress update was coalesced.
+      if (event.payload?.step) {
+        emitProgress({
+          source: 'progress',
+          step: String(event.payload.step),
+          message: String(event.payload.message || '剧本解析失败'),
+          chunkIndex: typeof event.payload.chunkIndex === 'number' ? event.payload.chunkIndex : undefined,
+          chunkCount: typeof event.payload.chunkCount === 'number' ? event.payload.chunkCount : undefined
+        })
+      }
       throw new Error(String(event.payload?.message || '剧本解析失败'))
     }
 
@@ -298,27 +311,34 @@ export async function parseAssetWorkbenchScript(options: {
     }
   }
 
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
+  let streamEnded = false
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) {
+        streamEnded = true
+        break
+      }
+      buffer += decoder.decode(value, { stream: true })
 
-    let lineBreakIndex = buffer.indexOf('\n')
-    while (lineBreakIndex >= 0) {
-      const line = buffer.slice(0, lineBreakIndex)
-      buffer = buffer.slice(lineBreakIndex + 1)
-      handleLine(line)
-      lineBreakIndex = buffer.indexOf('\n')
+      let lineBreakIndex = buffer.indexOf('\n')
+      while (lineBreakIndex >= 0) {
+        const line = buffer.slice(0, lineBreakIndex)
+        buffer = buffer.slice(lineBreakIndex + 1)
+        handleLine(line)
+        lineBreakIndex = buffer.indexOf('\n')
+      }
     }
-  }
 
-  buffer += decoder.decode()
-  if (buffer.trim()) {
-    handleLine(buffer)
-  }
-
-  if (!finalResult) {
-    throw new Error('解析流已结束，但未收到结果')
+    buffer += decoder.decode()
+    if (buffer.trim()) handleLine(buffer)
+    if (!finalResult) throw new Error('解析流已结束，但未收到结果')
+  } finally {
+    // Close the HTTP stream on malformed events/callback errors so backend model work is dropped.
+    if (!streamEnded) {
+      try { await reader.cancel() } catch { /* Keep the original parsing error. */ }
+    }
+    reader.releaseLock()
   }
 
   return finalResult
@@ -329,10 +349,12 @@ export async function prepareAssetWorkbenchEpisodePlan(
   scriptParseMode: ScriptParseMode = DEFAULT_SCRIPT_PARSE_MODE,
   options: {
     projectId?: string
+    signal?: AbortSignal
   } = {}
 ): Promise<ScriptEpisodePlanItem[]> {
   const response = await $fetch<EpisodePlanResponse>('/api/script/episode-plan', {
     method: 'POST',
+    signal: options.signal,
     body: {
       text,
       projectId: options.projectId || undefined,

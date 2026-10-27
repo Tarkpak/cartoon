@@ -1,4 +1,4 @@
-import { watch, type Ref } from 'vue'
+import { getCurrentScope, onScopeDispose, watch, type Ref } from 'vue'
 import {
   DEFAULT_SCRIPT_PARSE_MODE,
   type ScriptParseMode
@@ -39,6 +39,12 @@ export interface AssetWorkbenchParseProgressState {
   progress: number
   chunkIndex: number | null
   chunkCount: number | null
+  startedAt?: number | null
+  finishedAt?: number | null
+  failedStep?: string | null
+  kind?: 'episode' | 'directory'
+  targetEpisodeId?: string
+  targetEpisodeTitle?: string
   logs: AssetWorkbenchParseProgressLogItem[]
 }
 
@@ -50,6 +56,9 @@ export function createInitialAssetWorkbenchParseProgressState(): AssetWorkbenchP
     progress: 0,
     chunkIndex: null,
     chunkCount: null,
+    startedAt: null,
+    finishedAt: null,
+    failedStep: null,
     logs: []
   }
 }
@@ -80,9 +89,19 @@ export function useAssetWorkbenchGeneration(
   options: UseAssetWorkbenchGenerationOptions
 ) {
   let parseOperationSequence = 0
+  let parseController: AbortController | undefined
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      parseOperationSequence += 1
+      parseController?.abort()
+    })
+  }
 
   function beginParseOperation() {
+    parseController?.abort()
+    parseController = new AbortController()
     return {
+      signal: parseController.signal,
       sequence: ++parseOperationSequence,
       projectId: options.projectId?.value
     }
@@ -100,9 +119,10 @@ export function useAssetWorkbenchGeneration(
     watch(options.projectId, (nextProjectId, previousProjectId) => {
       if (nextProjectId === previousProjectId) return
       parseOperationSequence += 1
+      parseController?.abort()
       options.parsing.value = false
       options.parseProgress.value = createInitialAssetWorkbenchParseProgressState()
-    })
+    }, { flush: 'sync' })
   }
 
   async function notifyModelTaskCompleted(payload: {
@@ -409,6 +429,10 @@ export function useAssetWorkbenchGeneration(
   }
 
   function applyProgressEvent(event: ParseScriptProgressEvent) {
+    if (event.source === 'heartbeat') {
+      appendProgressLog(event.message, event.source)
+      return
+    }
     options.parseProgress.value.step = event.step
     options.parseProgress.value.message = event.message
     if (typeof event.progress === 'number' && Number.isFinite(event.progress)) {
@@ -417,12 +441,8 @@ export function useAssetWorkbenchGeneration(
         Math.min(100, Math.round(event.progress))
       )
     }
-    options.parseProgress.value.chunkIndex = typeof event.chunkIndex === 'number'
-      ? event.chunkIndex
-      : null
-    options.parseProgress.value.chunkCount = typeof event.chunkCount === 'number'
-      ? event.chunkCount
-      : null
+    if (typeof event.chunkIndex === 'number') options.parseProgress.value.chunkIndex = event.chunkIndex
+    if (typeof event.chunkCount === 'number') options.parseProgress.value.chunkCount = event.chunkCount
     appendProgressLog(event.message, event.source)
   }
 
@@ -464,6 +484,8 @@ export function useAssetWorkbenchGeneration(
     options.parseProgress.value = {
       ...createInitialAssetWorkbenchParseProgressState(),
       active: true,
+      startedAt: Date.now(),
+      kind: 'directory',
       step: 'episode-plan',
       message: '正在生成分集目录',
       progress: 5
@@ -475,7 +497,8 @@ export function useAssetWorkbenchGeneration(
         options.novelText.value,
         options.scriptParseMode.value,
         {
-          projectId: options.projectId?.value
+          projectId: options.projectId?.value,
+          signal: operation.signal
         }
       )
       if (!isCurrentParseOperation(operation)) return false
@@ -499,6 +522,7 @@ export function useAssetWorkbenchGeneration(
       if (!isCurrentParseOperation(operation)) return false
       console.error('[useAssetWorkbench] 生成分集目录失败:', error)
       const message = getDisplayErrorMessage(error, '分集目录生成失败')
+      options.parseProgress.value.failedStep = options.parseProgress.value.step
       options.parseProgress.value.step = 'error'
       options.parseProgress.value.message = message
       appendProgressLog(message, 'progress')
@@ -511,6 +535,7 @@ export function useAssetWorkbenchGeneration(
       if (isCurrentParseOperation(operation)) {
         options.parsing.value = false
         options.parseProgress.value.active = false
+        options.parseProgress.value.finishedAt = Date.now()
       }
     }
   }
@@ -545,6 +570,9 @@ export function useAssetWorkbenchGeneration(
     options.parseProgress.value = {
       ...createInitialAssetWorkbenchParseProgressState(),
       active: true,
+      startedAt: Date.now(),
+      kind: 'episode',
+      targetEpisodeId: input.targetEpisodeId,
       step: 'queued',
       message: parseModeText,
       progress: 1
@@ -553,8 +581,11 @@ export function useAssetWorkbenchGeneration(
 
     try {
       const parsePayload = resolveEpisodeParsePayload(input.targetEpisodeId)
+      options.parseProgress.value.targetEpisodeId = parsePayload.targetEpisodeId
+      options.parseProgress.value.targetEpisodeTitle = parsePayload.targetEpisodeTitle
       const response = await parseAssetWorkbenchScript({
         text: parsePayload.requestText,
+        signal: operation.signal,
         projectId: options.projectId?.value,
         targetEpisodeId: parsePayload.targetEpisodeId,
         scriptParseMode: input?.scriptParseMode || DEFAULT_SCRIPT_PARSE_MODE,
@@ -569,9 +600,12 @@ export function useAssetWorkbenchGeneration(
 
       if (!isCurrentParseOperation(operation)) return false
 
-      if (!response.success || !response.data?.scenes) {
+      if (!response.success || !Array.isArray(response.data?.scenes) || response.data.scenes.length === 0) {
         const message = '解析失败：模型未返回有效场景数据'
+        options.parseProgress.value.failedStep = options.parseProgress.value.step
+        options.parseProgress.value.step = 'error'
         options.parseProgress.value.message = message
+        appendProgressLog(message, 'progress')
         await notifyModelTaskFailed({
           title: '分集解析失败',
           body: message
@@ -583,6 +617,9 @@ export function useAssetWorkbenchGeneration(
         options.projectName.value = response.data.title
       }
 
+      options.parseProgress.value.step = 'merging'
+      options.parseProgress.value.message = '正在校验分镜并保存到当前分集'
+      appendProgressLog(options.parseProgress.value.message, 'progress')
       const parsedScenes = buildParsedScenes({
         scenes: response.data.scenes,
         descriptionFormat: input?.descriptionFormat
@@ -607,6 +644,7 @@ export function useAssetWorkbenchGeneration(
       if (!isCurrentParseOperation(operation)) return false
       console.error('[useAssetWorkbench] 解析剧本失败:', error)
       const message = error instanceof Error ? error.message : '解析失败'
+      options.parseProgress.value.failedStep = options.parseProgress.value.step
       options.parseProgress.value.step = 'error'
       options.parseProgress.value.message = message
       appendProgressLog(message, 'progress')
@@ -619,6 +657,7 @@ export function useAssetWorkbenchGeneration(
       if (isCurrentParseOperation(operation)) {
         options.parsing.value = false
         options.parseProgress.value.active = false
+        options.parseProgress.value.finishedAt = Date.now()
       }
     }
   }

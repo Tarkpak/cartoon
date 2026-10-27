@@ -89,4 +89,50 @@ describe('asset-workbench-api', () => {
       chunkCount: undefined
     })
   })
+  function requestOptions() {
+    return { text: 'source', targetEpisodeId: 'episode_001', episodePlan: [], onProgress: vi.fn() }
+  }
+
+  it('cancels and unlocks the response when a stream event fails', async () => {
+    const { parseAssetWorkbenchScript } = await import('./asset-workbench-api')
+    const cancel = vi.fn()
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"type":"error","payload":{"message":"第 3 批失败","step":"batch_retry","chunkIndex":2,"chunkCount":4}}\n'))
+      }, cancel
+    })
+    const response = new Response(stream)
+    observedFetchMock.mockResolvedValue(response)
+    const options = requestOptions()
+    await expect(parseAssetWorkbenchScript(options)).rejects.toThrow('第 3 批失败')
+    expect(options.onProgress).toHaveBeenCalledWith(expect.objectContaining({ step: 'batch_retry', chunkIndex: 2, chunkCount: 4 }))
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(response.body?.locked).toBe(false)
+  })
+
+  it('preserves UTF-8 across chunks and accepts a final event without a newline', async () => {
+    const { parseAssetWorkbenchScript } = await import('./asset-workbench-api')
+    const bytes = new TextEncoder().encode('{"type":"result","payload":{"success":true,"data":{"title":"甜品诞生记","scenes":[]}}}')
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        for (const byte of bytes) controller.enqueue(Uint8Array.of(byte))
+        controller.close()
+      }
+    }))
+    observedFetchMock.mockResolvedValue(response)
+    const signal = new AbortController().signal
+    const result = await parseAssetWorkbenchScript({ ...requestOptions(), signal })
+    expect(result.data?.title).toBe('甜品诞生记')
+    expect(observedFetchMock.mock.calls[0][1]?.signal).toBe(signal)
+    expect(response.body?.locked).toBe(false)
+  })
+
+  it('rejects an unfinished stream instead of returning an empty success', async () => {
+    const { parseAssetWorkbenchScript } = await import('./asset-workbench-api')
+    const response = new Response(createJsonLineStream(['{"type":"heartbeat","payload":{}}']))
+    observedFetchMock.mockResolvedValue(response)
+    await expect(parseAssetWorkbenchScript(requestOptions())).rejects.toThrow('未收到结果')
+    expect(response.body?.locked).toBe(false)
+  })
+
 })

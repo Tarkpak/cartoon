@@ -5,6 +5,11 @@ use autodl::*;
 use crate::process_util::hidden_command;
 use axum::body::{Body, Bytes};
 use futures_util::stream;
+#[path = "text_stream.rs"]
+mod text_stream;
+use text_stream::*;
+#[path = "script_parse_pipeline.rs"]
+mod script_parse_pipeline;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::convert::Infallible;
@@ -18767,7 +18772,7 @@ fn parse_text_content_value(value: &Value) -> Option<String> {
 }
 
 fn parse_text_delta_value(value: &Value) -> Option<String> {
-    if let Some(text) = value.as_str().filter(|text| !text.trim().is_empty()) {
+    if let Some(text) = value.as_str().filter(|text| !text.is_empty()) {
         return Some(text.to_string());
     }
     let Some(parts) = value.as_array() else {
@@ -18779,7 +18784,7 @@ fn parse_text_delta_value(value: &Value) -> Option<String> {
         if let Some(text) = part
             .get("text")
             .and_then(Value::as_str)
-            .filter(|text| !text.trim().is_empty())
+            .filter(|text| !text.is_empty())
         {
             chunks.push(text.to_string());
             continue;
@@ -18787,7 +18792,7 @@ fn parse_text_delta_value(value: &Value) -> Option<String> {
         if let Some(text) = part
             .get("content")
             .and_then(Value::as_str)
-            .filter(|text| !text.trim().is_empty())
+            .filter(|text| !text.is_empty())
         {
             chunks.push(text.to_string());
         }
@@ -18846,13 +18851,7 @@ fn parse_openai_compatible_text_delta(payload: &Value) -> Option<String> {
         return Some(content);
     }
 
-    choice
-        .get("delta")
-        .and_then(|delta| delta.get("reasoning_content"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string)
+    None
 }
 
 fn push_openai_compatible_sse_text(raw_event: &str, chunks: &mut Vec<String>) {
@@ -19079,10 +19078,13 @@ async fn request_openai_compatible_text_completion(
     for api_key in api_keys {
         let mut request_body = openai_compatible_text_request_body(model.as_str(), prompt);
         apply_text_reasoning_effort(&mut request_body, provider, model_id, reasoning_creds);
+        if text_stream_enabled() {
+            request_body["stream"] = json!(true);
+        }
         let response = llm_http_client()
             .post(&endpoint)
             .bearer_auth(api_key)
-            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::ACCEPT, if text_stream_enabled() { "text/event-stream" } else { "application/json" })
             .json(&request_body)
             .send()
             .await
@@ -19112,7 +19114,13 @@ async fn request_openai_compatible_text_completion(
             })?;
 
         let status = response.status();
-        let body_text = response.text().await.map_err(|error| error.to_string())?;
+        let body_text = read_text_model_response(response).await.map_err(|message| {
+            llm_dev_write_db_log(
+                provider, model_id, "generateText", "error", _log_started_at,
+                Some(endpoint.as_str()), Some(&request_body), None, None, Some(message.as_str()),
+            );
+            message
+        })?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
             llm_dev_write_db_log(
@@ -19246,6 +19254,11 @@ async fn request_gemini_text_completion(
     let base_url =
         provider_sync_base_url("gemini", creds).ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_gemini_generate_endpoint(&base_url, model_id);
+    let endpoint = if text_stream_enabled() {
+        format!("{}?alt=sse", endpoint.replace(":generateContent", ":streamGenerateContent"))
+    } else {
+        endpoint
+    };
     let mut last_error = None::<String>;
     let _log_started_at = Utc::now().timestamp_millis();
 
@@ -19272,7 +19285,7 @@ async fn request_gemini_text_completion(
         let response = llm_http_client()
             .post(&endpoint)
             .query(&[("key", api_key.as_str())])
-            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::ACCEPT, if text_stream_enabled() { "text/event-stream" } else { "application/json" })
             .json(&request_body)
             .send()
             .await
@@ -19302,7 +19315,13 @@ async fn request_gemini_text_completion(
             })?;
 
         let status = response.status();
-        let body_text = response.text().await.map_err(|error| error.to_string())?;
+        let body_text = read_text_model_response(response).await.map_err(|message| {
+            llm_dev_write_db_log(
+                "gemini", model_id, "generateText", "error", _log_started_at,
+                Some(endpoint.as_str()), Some(&request_body), None, None, Some(message.as_str()),
+            );
+            message
+        })?;
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
             llm_dev_write_db_log(
@@ -19321,7 +19340,7 @@ async fn request_gemini_text_completion(
             continue;
         }
 
-        let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+        let payload = parse_gemini_completion_response(&body_text).map_err(|error| {
             let message = format!(
                 "解析 Gemini 响应失败: {} ({})",
                 error,
@@ -20647,6 +20666,9 @@ pub(super) async fn api_script_parse(
     ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     validate_script_parse_request(&body)?;
     let context = model_log_context_from_workflow_body(&body, None, None);
+    if script_parse_pipeline::should_batch(&body) {
+        return script_parse_pipeline::parse(&state, &body).await.map(Json);
+    }
     let prompt = {
         let conn = db_connection(&state)?;
         build_script_parse_prompt(&conn, &body)?
@@ -20929,114 +20951,45 @@ pub(super) async fn api_script_parse_stream(
     // Response bodies are polled after the middleware's task-local scope ends.
     let edit_session = CURRENT_EDIT_SESSION.try_with(Clone::clone).ok().flatten();
 
-    enum ParseStreamState {
-        Accepted {
-            state: BackendState,
-            body: Value,
-            request_id: Option<String>,
-            edit_session: Option<String>,
-        },
-        Parsing {
-            state: BackendState,
-            body: Value,
-            request_id: Option<String>,
-            edit_session: Option<String>,
-        },
-        Model {
-            state: BackendState,
-            body: Value,
-            request_id: Option<String>,
-            edit_session: Option<String>,
-        },
-        Done,
-    }
-
-    fn ndjson_line(value: Value) -> Result<Bytes, Infallible> {
-        Ok(Bytes::from(format!("{}\n", value)))
-    }
-
+    let (progress_tx, mut progress_rx) = tokio::sync::watch::channel(json!({
+        "type": "progress",
+        "payload": { "step": "accepted", "message": "已接收解析请求，准备开始", "progress": 1 }
+    }));
+    // Keep the model future inside the response stream: disconnecting drops it too.
+    let parse = Box::pin(scope_script_parse_stream_context(edit_session, request_id,
+        TEXT_STREAM_PROGRESS.scope(progress_tx, api_script_parse(State(state), Json(body)))));
+    let started = std::time::Instant::now();
+    progress_rx.mark_changed();
+    let heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + Duration::from_secs(10), Duration::from_secs(10));
     let body_stream = stream::unfold(
-        ParseStreamState::Accepted {
-            state,
-            body,
-            request_id,
-            edit_session,
-        },
-        |stream_state| async move {
-            match stream_state {
-                ParseStreamState::Accepted {
-                    state,
-                    body,
-                    request_id,
-                    edit_session,
-                } => Some((
-                    ndjson_line(json!({
-                      "type": "progress",
-                      "payload": {
-                        "step": "accepted",
-                        "message": "已接收解析请求，准备开始",
-                        "progress": 1
-                      },
-                      "timestamp": now_iso()
-                    })),
-                    ParseStreamState::Parsing {
-                        state,
-                        body,
-                        request_id,
-                        edit_session,
-                    },
-                )),
-                ParseStreamState::Parsing {
-                    state,
-                    body,
-                    request_id,
-                    edit_session,
-                } => Some((
-                    ndjson_line(json!({
-                      "type": "progress",
-                      "payload": {
-                        "step": "parsing",
-                        "message": "正在调用剧本解析模型",
-                        "progress": 8
-                      },
-                      "timestamp": now_iso()
-                    })),
-                    ParseStreamState::Model {
-                        state,
-                        body,
-                        request_id,
-                        edit_session,
-                    },
-                )),
-                ParseStreamState::Model {
-                    state,
-                    body,
-                    request_id,
-                    edit_session,
-                } => {
-                    let parse_result = scope_script_parse_stream_context(
-                        edit_session,
-                        request_id,
-                        api_script_parse(State(state), Json(body)),
-                    ).await;
-                    let event = match parse_result {
-                        Ok(parsed) => json!({
-                          "type": "result",
-                          "payload": parsed.0,
-                          "timestamp": now_iso()
-                        }),
-                        Err(error) => json!({
-                          "type": "error",
-                          "payload": {
-                            "message": error.message
-                          },
-                          "timestamp": now_iso()
-                        }),
+        (parse, progress_rx, heartbeat, false, started),
+        |(mut parse, mut progress, mut heartbeat, done, started)| async move {
+            if done { return None; }
+            let (event, done) = tokio::select! {
+                biased;
+                result = &mut parse => {
+                    let event = match result {
+                        Ok(parsed) => json!({ "type": "result", "payload": parsed.0 }),
+                        Err(error) => {
+                            // The terminal error can win select! before the last watch update is sent.
+                            // Include its phase/counts so the client still highlights the actual failed phase.
+                            let mut payload = progress.borrow().get("payload").cloned().unwrap_or_else(|| json!({}));
+                            payload["message"] = json!(error.message);
+                            json!({ "type": "error", "payload": payload })
+                        },
                     };
-                    Some((ndjson_line(event), ParseStreamState::Done))
+                    (event, true)
                 }
-                ParseStreamState::Done => None,
-            }
+                _ = progress.changed() => (progress.borrow_and_update().clone(), false),
+                _ = heartbeat.tick() => (json!({
+                    "type": "heartbeat",
+                    "payload": { "message": format!("解析仍在进行，已等待 {} 秒", started.elapsed().as_secs()) }
+                }), false),
+            };
+            let mut event = event;
+            event["timestamp"] = json!(now_iso());
+            Some((Ok::<Bytes, Infallible>(Bytes::from(format!("{}\n", event))),
+                (parse, progress, heartbeat, done, started)))
         },
     );
 
@@ -21049,6 +21002,7 @@ pub(super) async fn api_script_parse_stream(
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-cache, no-transform"),
         )
+        .header("X-Accel-Buffering", "no")
         .body(Body::from_stream(body_stream))
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }

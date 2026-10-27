@@ -1,4 +1,4 @@
-import { nextTick, ref } from 'vue'
+import { effectScope, nextTick, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_SCRIPT_PARSE_MODE } from '#shared/types/script'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
@@ -82,6 +82,7 @@ describe('useAssetWorkbenchGeneration', () => {
   const parseScriptMock = parseAssetWorkbenchScript as unknown as {
     mockReset: () => void
     mockResolvedValue: (value: unknown) => void
+    mockImplementationOnce: (implementation: (options: Parameters<typeof parseAssetWorkbenchScript>[0]) => Promise<unknown>) => void
     mock: {
       calls: Array<[Record<string, unknown>]>
     }
@@ -201,6 +202,37 @@ describe('useAssetWorkbenchGeneration', () => {
     })
   })
 
+  it('keeps generation feedback visible when a heartbeat arrives', async () => {
+    const { generation, episodePlan, parseProgress } = createGeneration('当前分集剧本内容')
+    episodePlan.value = [createEpisode(1)]
+    parseScriptMock.mockImplementationOnce(async (options) => {
+      options.onProgress?.({ source: 'progress', step: 'generating', message: '模型正在生成解析结果，已接收 120 字' })
+      options.onProgress?.({ source: 'heartbeat', step: 'heartbeat', message: '解析仍在进行，已等待 10 秒' })
+      expect(parseProgress.value.step).toBe('generating')
+      expect(parseProgress.value.message).toContain('120 字')
+      expect(parseProgress.value.logs.at(-1)?.message).toContain('10 秒')
+      return { success: true, data: { scenes: [], characters: [] } }
+    })
+    await generation.parseScript({ targetEpisodeId: 'episode_001', scriptParseMode: DEFAULT_SCRIPT_PARSE_MODE })
+  })
+
+  it('retains batch counts during retries and freezes timing after a failure', async () => {
+    const { generation, episodePlan, parseProgress } = createGeneration('当前分集剧本内容')
+    episodePlan.value = [createEpisode(1)]
+    parseScriptMock.mockImplementationOnce(async (options) => {
+      expect(parseProgress.value.startedAt).toEqual(expect.any(Number))
+      options.onProgress?.({ source: 'progress', step: 'batch_generating', message: '已完成 2 / 4 批', chunkIndex: 2, chunkCount: 4 })
+      options.onProgress?.({ source: 'progress', step: 'batch_retry', message: '第 3 批正在重试' })
+      throw new Error('第 3 批失败')
+    })
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_001' })).toBe(false)
+    expect(parseProgress.value).toMatchObject({
+      active: false, step: 'error', failedStep: 'batch_retry', chunkIndex: 2, chunkCount: 4
+    })
+    expect(parseProgress.value.finishedAt).toEqual(expect.any(Number))
+    expect(parseProgress.value.finishedAt!).toBeGreaterThanOrEqual(parseProgress.value.startedAt!)
+  })
+
   it('ignores an old parse response after switching projects', async () => {
     let resolveParse: ((value: unknown) => void) | undefined
     parseScriptMock.mockResolvedValue(new Promise((resolve) => {
@@ -228,6 +260,7 @@ describe('useAssetWorkbenchGeneration', () => {
 
     expect(parsing.value).toBe(false)
     expect(parseProgress.value.active).toBe(false)
+    expect((parseScriptMock.mock.calls.at(-1)?.[0]?.signal as AbortSignal).aborted).toBe(true)
 
     resolveParse?.({
       success: true,
@@ -245,6 +278,43 @@ describe('useAssetWorkbenchGeneration', () => {
     await expect(pendingParse).resolves.toBe(false)
     expect(scenes.value).toEqual([])
     expect(saveProject).not.toHaveBeenCalled()
+  })
+
+  it('aborts pending model work when its Vue scope is disposed', async () => {
+    const scope = effectScope()
+    const { generation, episodePlan, saveProject } = scope.run(() => createGeneration('当前分集剧本'))!
+    episodePlan.value = [createEpisode(1)]
+    parseScriptMock.mockImplementationOnce(options => new Promise((_, reject) => {
+      options.signal?.addEventListener('abort', () => reject(new Error('已取消')), { once: true })
+    }))
+    const pending = generation.parseScript({ targetEpisodeId: 'episode_001' })
+    scope.stop()
+    await expect(pending).resolves.toBe(false)
+    expect(saveProject).not.toHaveBeenCalled()
+  })
+
+  it('rejects empty scene results without replacing the existing episode', async () => {
+    const { generation, episodePlan, scenes, saveProject, parseProgress } = createGeneration('当前分集剧本')
+    episodePlan.value = [createEpisode(1)]
+    const original = { id: 'existing', episodeId: 'episode_001', description: '原分镜', duration: 8 } as SceneData
+    scenes.value = [original]
+    parseScriptMock.mockResolvedValue({ success: true, data: { scenes: [] } })
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_001' })).toBe(false)
+    expect(scenes.value).toEqual([original])
+    expect(saveProject).not.toHaveBeenCalled()
+    expect(parseProgress.value.step).toBe('error')
+  })
+
+  it('reports a save failure at the final phase and retains the generated result for recovery', async () => {
+    const { generation, episodePlan, parseProgress, saveProject, onModelTaskCompleted, scenes } = createGeneration('当前分集剧本')
+    episodePlan.value = [createEpisode(1)]
+    parseScriptMock.mockResolvedValue({ success: true, data: { scenes: [{ id: 'scene_001', description: '生成结果', duration: 8 }] } })
+    saveProject.mockResolvedValueOnce(false)
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_001' })).toBe(false)
+    expect(parseProgress.value).toMatchObject({ step: 'error', failedStep: 'merging', targetEpisodeId: 'episode_001', active: false })
+    expect(parseProgress.value.message).toContain('保存失败')
+    expect(onModelTaskCompleted).not.toHaveBeenCalled()
+    expect(scenes.value[0]?.description).toContain('生成结果')
   })
 
   it('writes a generated image to the current character after re-hydration', async () => {

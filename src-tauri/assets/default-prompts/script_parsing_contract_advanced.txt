@@ -69,6 +69,13 @@
 20. 若本集规划补充包含角色、环境或道具锚点，必须优先沿用；冲突优先级为：原文事实 > 本集规划补充 > 分镜提示词。
 21. 禁止自行生成 @图片N、[图片N] 或其他引用编号。
 
+【精简输出规则】
+- 输出紧凑 JSON，省略缩进和无意义空白；不要删减对白、动作、镜头时长或用户要求的逐镜格式。
+- 全局视觉风格与导演节奏在内部统一规划，不要逐镜重复输出全局分析；description 只写当前镜头的完整执行内容。
+- dramatic 默认只输出 function；仅在当前镜头确有冲突、反转或结尾钩子时补充相关字段，不要为普通镜头凑齐十项分析。
+- 角色稳定外观放在顶层 characters；逐镜 appearance 只描述本镜发生的外观变化，无变化用空字符串。
+- 台词必须按原文顺序完整保留，不得为减少输出而概括、改写或省略。
+
 严格使用以下 JSON 结构：
 {
   "title": "剧本标题",
@@ -82,18 +89,7 @@
       "speedEffect": "normal",
       "transitionIn": "cut",
       "environmentCaptureMode": "单视角",
-      "dramatic": {
-        "function": "钩子",
-        "conflict": "本场核心冲突",
-        "emotionalCurve": "情绪变化",
-        "audienceHook": "继续观看的理由",
-        "painPoint": "共情或愤怒点",
-        "payoff": "爽点或回报点",
-        "powerShift": "权力关系变化",
-        "antagonistPressure": "施压方式",
-        "protagonistCounter": "反击或铺垫",
-        "cliffhanger": "结尾钩子"
-      },
+      "dramatic": { "function": "本镜戏剧功能" },
       "description": "遵循分镜提示词自定义格式的完整场景说明；未指定格式时使用完整时间轴描述",
       "setting": {
         "location": "主环境-子空间",

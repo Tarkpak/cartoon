@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import AssetWorkbenchParseProgress from './ParseProgress.vue'
 import { onActivated, onDeactivated } from 'vue'
 import { useIntervalFn, useStorage } from '@vueuse/core'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { Check, ChevronLeft, ChevronRight, Download, Eraser, FileDown, FolderOpen, Loader2, Play } from 'lucide-vue-next'
+import { isSelectedEpisodeParsing, shouldShowEpisodeParseProgress, type ParseProgressDisplayState } from '~/lib/asset-workbench-parse-progress'
 import type { ScriptParseMode } from '#shared/types/script'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
@@ -89,7 +91,7 @@ const props = defineProps<{
   queueSummary: QueueSummary
   autoRunning: boolean
   parsing: boolean
-  parseProgressMessage?: string | null
+  parseProgress?: ParseProgressDisplayState
   sceneChatOpenSceneId: string | null
   sceneChatCurrentMessages: SceneChatMessage[]
   sceneChatComposerAssets: DisplayAsset[]
@@ -566,7 +568,8 @@ const parsingEpisodeId = ref('')
 const parseEpisodeError = ref('')
 
 const selectedEpisodeParsing = computed(() => {
-  return parsingEpisodeId.value === selectedEpisodeId.value
+  return Boolean(parsingEpisodeId.value && parsingEpisodeId.value === selectedEpisodeId.value)
+    || isSelectedEpisodeParsing(props.parseProgress, props.parsing, selectedEpisodeId.value)
 })
 
 const parseSelectedEpisodeButtonLabel = computed(() => {
@@ -733,7 +736,9 @@ async function handleParseSelectedEpisode() {
   try {
     await props.onParseEpisode(episode.id)
   } catch (error) {
-    parseEpisodeError.value = error instanceof Error ? error.message : '本集解析失败，请稍后重试'
+    if (selectedEpisodeId.value === episode.id) {
+      parseEpisodeError.value = error instanceof Error ? error.message : '本集解析失败，请稍后重试'
+    }
   } finally {
     if (parsingEpisodeId.value === episode.id) {
       parsingEpisodeId.value = ''
@@ -992,18 +997,12 @@ watch(episodeDirectoryCollapsed, (value) => {
                 />
                 {{ parseSelectedEpisodeButtonLabel }}
               </Button>
-              <p
-                v-if="selectedEpisodeParsing"
-                class="rounded-xl bg-muted/20 px-2 py-1.5 text-xs text-muted-foreground"
-              >
-                {{ parseProgressMessage || '本集解析任务已创建，等待模型响应' }}
-              </p>
-              <p
-                v-else-if="parseEpisodeError"
-                class="rounded-xl border-0 bg-destructive/8 px-2 py-1.5 text-xs text-destructive"
-              >
-                {{ parseEpisodeError }}
-              </p>
+              <AssetWorkbenchParseProgress
+                v-if="selectedEpisodeParsing || parseEpisodeError || shouldShowEpisodeParseProgress(parseProgress, parsing, selectedEpisodeId)"
+                :state="parseEpisodeError ? { ...parseProgress, step: 'error', message: parseEpisodeError } : parseProgress"
+                :running="selectedEpisodeParsing || (parsing && parseProgress?.kind === 'episode')"
+                :title="parseProgress?.targetEpisodeTitle || selectedEpisodePlanItem?.title || '分集解析'"
+              />
             </div>
           </aside>
         </div>

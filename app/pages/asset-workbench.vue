@@ -1940,6 +1940,8 @@ async function handleParseSingleEpisode(payload: { id: string }) {
     parseProgress.value = {
       ...parseProgress.value,
       active: false,
+      failedStep: parseProgress.value.failedStep || 'merging',
+      finishedAt: Date.now(),
       step: 'error',
       message
     }
@@ -3977,7 +3979,7 @@ function reportWorkbenchActivity() {
           :queue-summary="queueSummary"
           :auto-running="autoRunning"
           :parsing="parsing"
-          :parse-progress-message="parseProgress.message"
+          :parse-progress="parseProgress"
           :scene-chat-open-scene-id="sceneChatOpenSceneId"
           :scene-chat-current-messages="sceneChatCurrentMessages"
           :scene-chat-composer-assets="sceneChatComposerAssets"

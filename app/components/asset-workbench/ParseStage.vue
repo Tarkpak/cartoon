@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import AssetWorkbenchParseProgress from './ParseProgress.vue'
+import type { ParseProgressDisplayState } from '~/lib/asset-workbench-parse-progress'
 import type { ScriptParseMode } from '#shared/types/script'
 import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
 import { ArrowRight, Loader2, Sparkles } from 'lucide-vue-next'
@@ -29,15 +31,7 @@ const props = defineProps<{
       environments?: Array<{ location: string }>
     }
   }>
-  parseProgress?: {
-    active?: boolean
-    step?: string
-    message?: string
-    progress?: number
-    chunkIndex?: number | null
-    chunkCount?: number | null
-    logs?: Array<{ id: string, message: string }>
-  }
+  parseProgress?: ParseProgressDisplayState
   scenesCount: number
   charactersCount: number
   hint: string
@@ -50,25 +44,12 @@ const lineCount = computed(() => {
 })
 const isDraggingTextFile = ref(false)
 const dragCounter = ref(0)
-const parseProgressPercent = computed(() => {
-  const value = props.parseProgress?.progress
-  if (typeof value !== 'number' || !Number.isFinite(value)) return 0
-  return Math.max(0, Math.min(100, Math.round(value)))
-})
-const parseProgressLogs = computed(() => {
-  const currentMessage = props.parseProgress?.message?.trim()
-  return (props.parseProgress?.logs || [])
-    .filter((item) => {
-      if (!currentMessage) return true
-      return item.message.trim() !== currentMessage
-    })
-    .slice(-6)
-    .reverse()
-})
 const plannedEpisodes = computed(() => generatedEpisodePlans(props.episodePlan))
 const hasEpisodePlan = computed(() => plannedEpisodes.value.length > 0)
 const workflowPreset = computed(() => resolveVideoWorkflowPreset(props.scriptParseMode))
 const isOriginExplainer = computed(() => props.scriptParseMode === 'origin_explainer')
+const progressIsDirectory = computed(() => props.parseProgress?.kind === 'directory'
+  || [props.parseProgress?.step, props.parseProgress?.failedStep].some(step => step?.startsWith('episode-plan')))
 const inputPlaceholder = computed(() => {
   return isOriginExplainer.value
     ? '输入科学原理、机械结构或工艺过程，例如：蒸汽机原理...'
@@ -88,13 +69,6 @@ const planReadyMessage = computed(() => {
     return `已生成镜头规划入口。请到“分镜视频”步骤按主题拆解并生成 ${workflowPreset.value.name} 多镜头场景。`
   }
   return `已生成分集目录（共 ${plannedEpisodes.value.length} 集）。精品剧模式会根据剧情节奏与情绪起伏自然拆分，请到“分镜视频”步骤管理分集边界并按集解析。`
-})
-const parseProgressChunkText = computed(() => {
-  const chunkIndex = props.parseProgress?.chunkIndex
-  const chunkCount = props.parseProgress?.chunkCount
-  if (typeof chunkIndex !== 'number' || typeof chunkCount !== 'number') return ''
-  if (chunkCount <= 1) return ''
-  return `分段进度：${chunkIndex}/${chunkCount}`
 })
 
 const emit = defineEmits<{
@@ -282,45 +256,14 @@ async function handleDrop(event: DragEvent) {
       </Button>
     </div>
 
-    <div
+    <AssetWorkbenchParseProgress
       v-if="parsing || parseProgress?.step === 'error'"
-      class="shrink-0 rounded-xl border-0 bg-primary/8 p-3"
-      role="status"
-      aria-live="polite"
-    >
-      <div class="flex items-center justify-between gap-2 text-xs">
-        <p class="text-foreground/90">
-          {{ parseProgress?.message || '解析进行中，请稍候…' }}
-        </p>
-        <span v-if="parsing" class="tabular-nums text-primary/80">
-          {{ parseProgressPercent }}%
-        </span>
-      </div>
-      <div v-if="parsing" class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-primary/15">
-        <div
-          class="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-          :style="{ width: `${parseProgressPercent}%` }"
-        />
-      </div>
-      <p
-        v-if="parseProgressChunkText"
-        class="mt-2 text-xs text-muted-foreground"
-      >
-        {{ parseProgressChunkText }}
-      </p>
-      <ul
-        v-if="parseProgressLogs.length > 0"
-        class="mt-2 max-h-28 space-y-1 overflow-y-auto text-xs text-muted-foreground"
-        aria-hidden="true"
-      >
-        <li
-          v-for="item in parseProgressLogs"
-          :key="item.id"
-        >
-          {{ item.message }}
-        </li>
-      </ul>
-    </div>
+      class="shrink-0"
+      :state="parseProgress"
+      :running="parsing"
+      :mode="progressIsDirectory ? 'directory' : 'episode'"
+      :title="progressIsDirectory ? (isOriginExplainer ? '镜头规划入口' : '分集目录') : '分集解析'"
+    />
 
     <p
       v-if="hint && !hasEpisodePlan"
