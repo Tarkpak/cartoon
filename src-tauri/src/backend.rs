@@ -3553,7 +3553,7 @@ fn validate_workflow_model_options(step: &str, options: &Value) -> Result<(), Ap
                 }
             }
             if let Some(value) = obj.get("openaiImageQuality").and_then(Value::as_str) {
-                if !matches!(value, "auto" | "low" | "medium" | "high") {
+                if !matches!(value, "auto" | "low" | "medium" | "high" | "xhigh" | "max") {
                     return Err(ApiError::new(
                         StatusCode::BAD_REQUEST,
                         "openaiImageQuality 无效",

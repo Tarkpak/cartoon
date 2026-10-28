@@ -99,7 +99,8 @@
           :loading="pending"
           :pagination="false"
           :row-key="rowKey"
-          :scroll-x="1350"
+          :scroll-x="tableScrollWidth"
+          table-layout="fixed"
           flex-height
         >
           <template #empty>
@@ -327,9 +328,8 @@ const columns = [
     title: '名称',
     key: 'name',
     width: 260,
-    fixed: 'left' as const,
     render(row: TosRow) {
-      const content = h(NEllipsis, { style: 'max-width: 190px' }, { default: () => row.name || '-' })
+      const content = h(NEllipsis, { style: 'display: block; width: 100%' }, { default: () => row.name || '-' })
       if (row.type !== 'directory') return content
       return h(
         NButton,
@@ -337,6 +337,7 @@ const columns = [
           size: 'small',
           text: true,
           type: 'primary',
+          style: 'max-width: 100%',
           onClick: () => openDirectory(row.key)
         },
         { default: () => content }
@@ -355,9 +356,9 @@ const columns = [
   {
     title: '对象 Key',
     key: 'key',
-    minWidth: 360,
+    width: 360,
     render(row: TosRow) {
-      return h(NEllipsis, { style: 'max-width: 520px' }, { default: () => row.key || '-' })
+      return h(NEllipsis, { style: 'display: block; width: 100%' }, { default: () => row.key || '-' })
     }
   },
   {
@@ -432,6 +433,8 @@ const columns = [
     }
   }
 ]
+
+const tableScrollWidth = columns.reduce((total, column) => total + column.width, 0)
 
 function renderPreview(row: TosRow) {
   if (row.type === 'directory') {
@@ -962,6 +965,15 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.tos-files-page {
+  container: tos-files / inline-size;
+  min-width: 0;
+}
+
+.tos-files-content {
+  min-width: 0;
+}
+
 .tos-files-shortcuts {
   display: flex;
   margin-left: auto;
@@ -971,6 +983,7 @@ onMounted(async () => {
 
 .tos-member-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
@@ -981,12 +994,12 @@ onMounted(async () => {
 
 .tos-files-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 160px 120px auto;
+  grid-template-columns: minmax(0, 1fr) 160px 120px auto;
   gap: 8px;
   align-items: center;
 }
 
-@media (max-width: 640px) {
+@container tos-files (max-width: 640px) {
   .tos-member-toolbar {
     align-items: stretch;
     flex-direction: column;
@@ -1001,7 +1014,11 @@ onMounted(async () => {
   }
 
   .tos-files-toolbar {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) 120px auto;
+  }
+
+  .tos-files-toolbar > :first-child {
+    grid-column: 1 / -1;
   }
 }
 
@@ -1159,18 +1176,24 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-@media (max-width: 760px) {
-  .tos-files-toolbar,
-  .tos-files-meta {
-    grid-template-columns: 1fr;
+@media (max-width: 860px) {
+  .tos-files-page {
+    height: 100%;
+    min-height: 0;
   }
+}
 
+@container tos-files (max-width: 760px) {
+  .tos-files-meta,
+  .tos-files-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@container tos-files (max-width: 360px) {
   .tos-files-toolbar {
-    display: grid;
-  }
-
-  .tos-files-meta {
-    display: grid;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

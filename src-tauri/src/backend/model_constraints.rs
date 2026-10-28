@@ -449,9 +449,13 @@ pub(super) fn build_available_model_entry(
             let supported_sizes = pick_explicit_string_list(
                 rule_image.and_then(|item| item.supported_sizes.as_ref()),
             );
-            let supported_qualities = pick_explicit_string_list(
+            let mut supported_qualities = pick_explicit_string_list(
                 rule_image.and_then(|item| item.supported_qualities.as_ref()),
             );
+
+            if normalized_model_id.starts_with("gpt-image-2.5-") {
+                supported_qualities.extend(["xhigh".to_string(), "max".to_string()]);
+            }
 
             let support_text_to_image = pick_bool(
                 rule_image.and_then(|item| item.support_text_to_image),
@@ -828,6 +832,20 @@ mod tests {
             entry.get("supportThinking").and_then(Value::as_bool),
             Some(true)
         );
+    }
+
+    #[test]
+    fn gpt_image_25_advertises_extended_quality_without_changing_older_models() {
+        for provider in ["openai", "custom_openai"] {
+            for model in ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare-2026-09-08"] {
+                let (kind, entry) = build_available_model_entry(provider, model);
+                assert_eq!(kind, AvailableModelKind::Image);
+                assert_eq!(entry["supportedQualities"], json!(["auto", "low", "medium", "high", "xhigh", "max"]));
+                assert!(entry.get("sizeConstraints").is_some());
+            }
+            let (_, entry) = build_available_model_entry(provider, "gpt-image-2");
+            assert_eq!(entry["supportedQualities"], json!(["auto", "low", "medium", "high"]));
+        }
     }
 
     #[test]

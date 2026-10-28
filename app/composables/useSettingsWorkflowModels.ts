@@ -82,7 +82,7 @@ export const WORKFLOW_CATEGORY_CONFIG: Record<WorkflowCategoryKey, WorkflowCateg
 }
 
 export const WORKFLOW_GEMINI_IMAGE_SIZES: WorkflowGeminiImageSize[] = ['512', '1K', '2K', '4K']
-export const WORKFLOW_OPENAI_IMAGE_QUALITIES: WorkflowOpenAIImageQuality[] = ['auto', 'low', 'medium', 'high']
+export const WORKFLOW_OPENAI_IMAGE_QUALITIES: WorkflowOpenAIImageQuality[] = ['auto', 'low', 'medium', 'high', 'xhigh', 'max']
 export const WORKFLOW_PANORAMA_SOURCE_MODES: WorkflowPanoramaSourceMode[] = [
   'equirectangular_360',
   'equirectangular_180',

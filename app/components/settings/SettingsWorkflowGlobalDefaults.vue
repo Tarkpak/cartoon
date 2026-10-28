@@ -538,7 +538,7 @@ function toCheckedBoolean(value: unknown): boolean {
           </SelectContent>
         </Select>
         <p class="text-xs text-muted-foreground">
-          OpenAI 图片生成请求参数支持 auto / low / medium / high；gpt-image-2 的尺寸还支持满足约束的自定义分辨率。
+          GPT Image 2 / 2.5 的流程生成默认使用 4K 级尺寸，并保留原图比例；方图最高 2880×2880。GPT Image 2.5 支持 xhigh / max，旧版 GPT Image 会回退到 high。
         </p>
       </div>
     </div>

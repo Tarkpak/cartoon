@@ -56,7 +56,7 @@ export type WorkflowModels = z.infer<typeof WorkflowModelsSchema>
 export const WorkflowGeminiImageSizeSchema = z.enum(['512', '1K', '2K', '4K'])
 export type WorkflowGeminiImageSize = z.infer<typeof WorkflowGeminiImageSizeSchema>
 
-export const WorkflowOpenAIImageQualitySchema = z.enum(['auto', 'low', 'medium', 'high'])
+export const WorkflowOpenAIImageQualitySchema = z.enum(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
 export type WorkflowOpenAIImageQuality = z.infer<typeof WorkflowOpenAIImageQualitySchema>
 
 export const WorkflowPanoramaSourceModeSchema = z.enum([
