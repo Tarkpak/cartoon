@@ -42,3 +42,19 @@ describe('independent asset image models', () => {
     expect(WorkflowStepSchema.safeParse('unknown_asset_step').success).toBe(false)
   })
 })
+
+describe('OpenAI image resolution settings', () => {
+  it('saves both resolution choices and keeps the 4K default', () => {
+    for (const openaiImageResolution of ['2K', '4K']) {
+      expect(WorkflowImageGenerationModelOptionsSchema.parse({ openaiImageResolution }).openaiImageResolution)
+        .toBe(openaiImageResolution)
+    }
+    expect(WorkflowImageGenerationModelOptionsSchema.parse({}).openaiImageResolution).toBe('4K')
+  })
+
+  it('rejects unsupported resolution values', () => {
+    for (const openaiImageResolution of ['8K', '', null, 2048]) {
+      expect(WorkflowImageGenerationModelOptionsSchema.safeParse({ openaiImageResolution }).success).toBe(false)
+    }
+  })
+})

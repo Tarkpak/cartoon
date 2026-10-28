@@ -7439,7 +7439,24 @@ fn parse_image_dimensions(size: &str) -> Option<(u32, u32)> {
 
 // GPT Image 2/2.5 support at most 8,294,400 pixels, 3840px per edge,
 // multiples of 16, and a 3:1 aspect ratio. Keep the workflow's composition.
+#[cfg(test)]
 fn resolve_workflow_image_size(model_id: &str, provider: &str, size: &str) -> Result<String, String> {
+    resolve_image_size_for_resolution(model_id, provider, size, "4K")
+}
+
+fn workflow_openai_image_resolution(options: &Value) -> &str {
+    workflow_image_options(options).get("openaiImageResolution")
+        .and_then(Value::as_str).unwrap_or("4K")
+}
+
+fn resolve_image_size_for_resolution(
+    model_id: &str, provider: &str, size: &str, resolution: &str,
+) -> Result<String, String> {
+    let (max_edge, max_pixels) = match resolution {
+        "2K" => (2048u64, 4_194_304.0),
+        "4K" => (3840u64, 8_294_400.0),
+        _ => return Err("图片分辨率仅支持 2K / 4K".to_string()),
+    };
     let model = normalize_model_id_for_remote(model_id).to_ascii_lowercase();
     if !matches!(provider, "openai" | "custom_openai") || !is_gpt_image_2_model(&model) {
         return Ok(size.to_string());
@@ -7447,22 +7464,22 @@ fn resolve_workflow_image_size(model_id: &str, provider: &str, size: &str) -> Re
     let (width, height) = parse_image_dimensions(size)
         .ok_or_else(|| format!("无法解析 OpenAI 图片尺寸：{size}"))?;
     if u64::from(width.max(height)) > u64::from(width.min(height)) * 3 {
-        return Err("OpenAI 4K 图片的长短边比例不能超过 3:1，请调整图片比例".to_string());
+        return Err("OpenAI 图片的长短边比例不能超过 3:1，请调整图片比例".to_string());
     }
     // Prefer an exact ratio (especially for cubemap grids with square faces).
     let divisor = gcd_u32(width, height);
     let width_step = u64::from(width / divisor) * 16;
     let height_step = u64::from(height / divisor) * 16;
-    if width_step.max(height_step) <= 3840 {
-        let steps = (3840 / width_step.max(height_step)).min(
-            (8_294_400.0 / (width_step * height_step) as f64).sqrt().floor() as u64,
+    if width_step.max(height_step) <= max_edge {
+        let steps = (max_edge / width_step.max(height_step)).min(
+            (max_pixels / (width_step * height_step) as f64).sqrt().floor() as u64,
         );
         if width_step * height_step * steps * steps >= 655_360 {
             return Ok(format!("{}x{}", width_step * steps, height_step * steps));
         }
     }
     let pixels = f64::from(width) * f64::from(height);
-    let scale = (8_294_400.0 / pixels).sqrt().min(3840.0 / f64::from(width.max(height)));
+    let scale = (max_pixels / pixels).sqrt().min(max_edge as f64 / f64::from(width.max(height)));
     let output_width = ((f64::from(width) * scale / 16.0).floor() as u32) * 16;
     let output_height = ((f64::from(height) * scale / 16.0).floor() as u32) * 16;
     Ok(format!("{output_width}x{output_height}"))
@@ -7474,6 +7491,9 @@ fn apimart_resolution_for_size(size: &str, quality: Option<&str>) -> Option<Stri
     if let Some((width, height)) = parse_image_dimensions(size) {
         if u64::from(width) * u64::from(height) > 4_194_304 || width.max(height) > 2560 {
             return Some("4k".to_string());
+        }
+        if width.max(height) > 1536 || u64::from(width) * u64::from(height) > 2_359_296 {
+            return Some("2k".to_string());
         }
     }
     normalize_apimart_resolution(quality)
@@ -8955,7 +8975,9 @@ async fn run_workflow_image_model(
     let provider = resolve_model_provider_required_string(&model_id, &creds)?;
     let (openai_image_quality, gemini_image_size) =
         workflow_image_generation_options(&workflow_model_options, &provider);
-    let resolved_size = resolve_workflow_image_size(&model_id, &provider, size)?;
+    let resolved_size = resolve_image_size_for_resolution(
+        &model_id, &provider, size, workflow_openai_image_resolution(&workflow_model_options),
+    )?;
     let size = resolved_size.as_str();
     let (source, mime_type) = match provider.as_str() {
         "qwen" => {
@@ -18104,6 +18126,38 @@ mod tests {
     }
 
     #[test]
+    fn openai_image_resolutions_match_between_model_tests_and_workflows() {
+        for provider in ["openai", "custom_openai"] {
+            for model in ["gpt-image-2", "gpt-image-2.5-sunburst"] {
+                for (resolution, ratio, source, expected) in [
+                    ("2K", "16:9", "1280x720", "2048x1152"),
+                    ("2K", "9:16", "720x1280", "1152x2048"),
+                    ("2K", "1:1", "1024x1024", "2048x2048"),
+                    ("2K", "2:1", "2048x1024", "2048x1024"),
+                    ("4K", "16:9", "1280x720", "3840x2160"),
+                    ("4K", "1:1", "1024x1024", "2880x2880"),
+                    ("4K", "2:1", "2048x1024", "3840x1920"),
+                ] {
+                    let options = json!({"image_options": {"openaiImageResolution": resolution}});
+                    assert!(validate_workflow_model_options("image_options", &options["image_options"]).is_ok());
+                    let workflow_size = resolve_image_size_for_resolution(model, provider, source, workflow_openai_image_resolution(&options)).unwrap();
+                    let test_size = resolve_model_test_image_size(&json!({"imageResolution": resolution, "imageAspectRatio": ratio}), model, provider).unwrap();
+                    assert_eq!(test_size, expected);
+                    assert_eq!(workflow_size, test_size);
+                    assert_eq!(apimart_resolution_for_size(&test_size, Some("max")).unwrap(), resolution.to_ascii_lowercase());
+                }
+            }
+        }
+        assert_eq!(workflow_openai_image_resolution(&json!({})), "4K");
+        for invalid in [json!("8K"), json!(42), Value::Null] {
+            assert!(validate_workflow_model_options("image_options", &json!({"openaiImageResolution": invalid})).is_err());
+            assert!(resolve_model_test_image_size(&json!({"imageResolution": invalid}), "gpt-image-2", "openai").is_err());
+        }
+        assert!(resolve_model_test_image_size(&json!({"imageResolution": "2K"}), "gpt-image-1.5", "openai").is_err());
+        assert_eq!(resolve_model_test_image_size(&json!({"imageSize": "1536x1024"}), "gpt-image-1.5", "openai").unwrap(), "1536x1024");
+    }
+
+    #[test]
     fn openai_4k_workflow_sizes_preserve_composition_and_api_limits() {
         for provider in ["openai", "custom_openai"] {
             for model in ["gpt-image-2", "models/gpt-image-2.5-sunburst", "gpt-image-2.5-flare-2026-09-08"] {
@@ -18894,6 +18948,22 @@ async fn assert_generated_environment_image_size(
     Ok(())
 }
 
+fn resolve_model_test_image_size(body: &Value, model_id: &str, provider: &str) -> Result<String, String> {
+    let aspect_ratio = normalize_image_aspect_ratio(body.get("imageAspectRatio").and_then(Value::as_str));
+    if let Some(resolution) = body.get("imageResolution") {
+        let resolution = resolution.as_str().ok_or("imageResolution 必须是字符串")?;
+        let model = normalize_model_id_for_remote(model_id).to_ascii_lowercase();
+        if !matches!(provider, "openai" | "custom_openai") || !is_gpt_image_2_model(&model) {
+            return Err("当前模型不支持 2K / 4K 分辨率预设".to_string());
+        }
+        let size = if aspect_ratio == "auto" { "1x1".to_string() } else { aspect_ratio.replace(':', "x") };
+        return resolve_image_size_for_resolution(model_id, provider, &size, resolution);
+    }
+    Ok(body.get("imageSize").and_then(Value::as_str).map(str::trim)
+        .filter(|value| !value.is_empty()).map(str::to_string)
+        .unwrap_or_else(|| resolve_image_test_size(model_id, provider, &aspect_ratio)))
+}
+
 fn resolve_image_test_size(model_id: &str, provider: &str, aspect_ratio: &str) -> String {
     let aspect_ratio = if aspect_ratio == "auto" {
         "1:1"
@@ -18983,7 +19053,7 @@ fn resolve_image_test_size(model_id: &str, provider: &str, aspect_ratio: &str) -
         return image_size_for_table(aspect_ratio, VOLCENGINE, "2048*2048");
     }
     let size = image_size_for_table(aspect_ratio, GENERIC, "1024*1024");
-    resolve_workflow_image_size(model_id, provider, &size).unwrap_or(size)
+    resolve_image_size_for_resolution(model_id, provider, &size, "4K").unwrap_or(size)
 }
 
 fn normalize_model_id_for_remote(raw: &str) -> String {
@@ -19939,15 +20009,9 @@ pub(super) async fn api_models_test(
             json!(text)
         }
         "image" => {
-            let aspect_ratio =
-                normalize_image_aspect_ratio(body.get("imageAspectRatio").and_then(Value::as_str));
-            let size = body
-                .get("imageSize")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-                .unwrap_or_else(|| resolve_image_test_size(&model_id, &provider, &aspect_ratio));
+            let aspect_ratio = normalize_image_aspect_ratio(body.get("imageAspectRatio").and_then(Value::as_str));
+            let size = resolve_model_test_image_size(&body, &model_id, &provider)
+                .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error))?;
             let image_quality = body
                 .get("imageQuality")
                 .and_then(Value::as_str)
@@ -23378,7 +23442,9 @@ pub(super) async fn api_asset_reference_generate(
             ),
         ));
     }
-    panorama_source.size = resolve_workflow_image_size(&model_id, &provider, &panorama_source.size)
+    panorama_source.size = resolve_image_size_for_resolution(
+        &model_id, &provider, &panorama_source.size, workflow_openai_image_resolution(&workflow_model_options),
+    )
         .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error))?;
     let source_spec = build_panorama_source_prompt_context(&panorama_source, &aspect_ratio);
     let setting = build_scene_setting_text(&scene);

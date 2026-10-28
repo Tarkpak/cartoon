@@ -541,6 +541,10 @@ pub(super) fn build_available_model_entry(
             {
                 object.insert("sizeConstraints".to_string(), size_constraints.clone());
             }
+            if matches!(provider, "openai" | "custom_openai") && normalized_model_id.contains("image-2") {
+                object.insert("supportedResolutions".to_string(), json!(["2K", "4K"]));
+                object.insert("supportedAspectRatios".to_string(), json!(["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "3:1", "1:3"]));
+            }
             if !supported_qualities.is_empty() {
                 object.insert("supportedQualities".to_string(), json!(supported_qualities));
             }
@@ -842,6 +846,7 @@ mod tests {
                 assert_eq!(kind, AvailableModelKind::Image);
                 assert_eq!(entry["supportedQualities"], json!(["auto", "low", "medium", "high", "xhigh", "max"]));
                 assert!(entry.get("sizeConstraints").is_some());
+                assert_eq!(entry["supportedResolutions"], json!(["2K", "4K"]));
             }
             let (_, entry) = build_available_model_entry(provider, "gpt-image-2");
             assert_eq!(entry["supportedQualities"], json!(["auto", "low", "medium", "high"]));

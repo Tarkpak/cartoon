@@ -28,6 +28,7 @@ const {
   updateVideoGenerationModelOptions,
   updateWorkflowGeminiImageSize,
   updateWorkflowOpenaiImageQuality,
+  updateWorkflowOpenaiImageResolution,
   updateWorkflowPanoramaSourceMode,
   updateWorkflowPanoramaCustomAspectRatio,
   updateWorkflowPanoramaCustomSize,
@@ -107,6 +108,7 @@ const {
               :update-video-generation-model-options="updateVideoGenerationModelOptions"
               :update-workflow-gemini-image-size="updateWorkflowGeminiImageSize"
               :update-workflow-openai-image-quality="updateWorkflowOpenaiImageQuality"
+              :update-workflow-openai-image-resolution="updateWorkflowOpenaiImageResolution"
               :update-workflow-panorama-source-mode="updateWorkflowPanoramaSourceMode"
               :update-workflow-panorama-custom-aspect-ratio="updateWorkflowPanoramaCustomAspectRatio"
               :update-workflow-panorama-custom-size="updateWorkflowPanoramaCustomSize"

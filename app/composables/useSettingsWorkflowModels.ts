@@ -111,6 +111,7 @@ const DEFAULT_VIDEO_AUDIO_DEFAULTS: WorkflowVideoAudioDefaults = {
 const DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS: WorkflowImageGenerationModelOptions = {
   geminiImageSize: '1K',
   openaiImageQuality: 'auto',
+  openaiImageResolution: '4K',
   panoramaSourceMode: 'equirectangular_360',
   panoramaCustomAspectRatio: '2:1',
   panoramaCustomSize: '2048*1024'
@@ -499,6 +500,12 @@ export function useSettingsWorkflowModels() {
     })
   }
 
+  function updateWorkflowOpenaiImageResolution(value: unknown) {
+    const normalized = toSelectString(value).toUpperCase()
+    if (normalized !== '2K' && normalized !== '4K') return
+    void updateImageGenerationModelOptions({ openaiImageResolution: normalized })
+  }
+
   function updateWorkflowOpenaiImageQuality(value: unknown) {
     const normalized = toSelectString(value).toLowerCase()
     if (!WORKFLOW_OPENAI_IMAGE_QUALITIES.includes(normalized as WorkflowOpenAIImageQuality)) return
@@ -659,6 +666,7 @@ export function useSettingsWorkflowModels() {
     updateVideoGenerationModelOptions,
     updateWorkflowGeminiImageSize,
     updateWorkflowOpenaiImageQuality,
+    updateWorkflowOpenaiImageResolution,
     updateWorkflowPanoramaSourceMode,
     updateWorkflowPanoramaCustomAspectRatio,
     updateWorkflowPanoramaCustomSize,

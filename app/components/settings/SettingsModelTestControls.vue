@@ -20,6 +20,7 @@ const customPrompts = defineModel<Record<ModelTestTab, string>>('customPrompts',
 const imageAspectRatio = defineModel<string>('imageAspectRatio', { required: true })
 const imageSize = defineModel<string>('imageSize', { required: true })
 const imageQuality = defineModel<string>('imageQuality', { required: true })
+const imageResolution = defineModel<string>('imageResolution', { required: true })
 const videoDuration = defineModel<number>('videoDuration', { required: true })
 const videoResolution = defineModel<string>('videoResolution', { required: true })
 const videoAspectRatio = defineModel<string>('videoAspectRatio', { required: true })
@@ -38,6 +39,7 @@ const props = defineProps<{
   currentImageModelSizeSelectionMode: 'fixed' | 'preset' | 'constraint'
   currentImageModelSizeHelp: string
   currentImageModelQualityOptions: string[]
+  currentImageModelResolutionOptions: string[]
   canRunImageTest: boolean
   canRunVideoTest: boolean
   referenceImages: string[]
@@ -201,7 +203,7 @@ const videoReferenceMaterialReady = computed(() => {
           </Select>
         </div>
         <div
-          v-if="activeTab === 'image' && props.currentImageModelSizeOptions.length > 0"
+          v-if="activeTab === 'image' && props.currentImageModelResolutionOptions.length === 0 && props.currentImageModelSizeOptions.length > 0"
           class="flex items-center gap-2"
         >
           <label class="text-xs text-muted-foreground/80">
@@ -226,6 +228,20 @@ const videoReferenceMaterialReady = computed(() => {
             class="max-w-[260px] truncate text-xs text-muted-foreground/70"
             :title="props.currentImageModelSizeHelp"
           >{{ props.currentImageModelSizeHelp }}</span>
+        </div>
+        <div
+          v-if="activeTab === 'image' && props.currentImageModelResolutionOptions.length > 0"
+          class="flex items-center gap-2"
+        >
+          <label class="text-xs text-muted-foreground/80">分辨率</label>
+          <Select v-model="imageResolution">
+            <SelectTrigger class="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="resolution in props.currentImageModelResolutionOptions" :key="resolution" :value="resolution">
+                {{ resolution }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div
           v-if="activeTab === 'image' && props.currentImageModelQualityOptions.length > 0"

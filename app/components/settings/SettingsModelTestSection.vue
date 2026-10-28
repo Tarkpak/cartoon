@@ -65,6 +65,8 @@ const {
   imageAspectRatio,
   imageSize,
   imageQuality,
+  imageResolution,
+  currentImageModelResolutionOptions,
   canRunImageTest,
   canRunVideoTest,
   fileInputRef,
@@ -310,6 +312,8 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
           v-model:image-aspect-ratio="imageAspectRatio"
           v-model:image-size="imageSize"
           v-model:image-quality="imageQuality"
+          v-model:image-resolution="imageResolution"
+          :current-image-model-resolution-options="currentImageModelResolutionOptions"
           :can-run-image-test="canRunImageTest"
           :can-run-video-test="canRunVideoTest"
           :current-image-model-aspect-ratio-options="currentImageModelAspectRatioOptions"

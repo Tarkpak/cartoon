@@ -3125,6 +3125,7 @@ fn default_workflow_model_options() -> Value {
       "image_options": {
         "geminiImageSize": "1K",
         "openaiImageQuality": "auto",
+        "openaiImageResolution": "4K",
         "panoramaSourceMode": "equirectangular_360",
         "panoramaCustomAspectRatio": "2:1",
         "panoramaCustomSize": "2048*1024"
@@ -3570,6 +3571,11 @@ fn validate_workflow_model_options(step: &str, options: &Value) -> Result<(), Ap
                         StatusCode::BAD_REQUEST,
                         "geminiImageSize 无效",
                     ));
+                }
+            }
+            if let Some(value) = obj.get("openaiImageResolution") {
+                if !matches!(value.as_str(), Some("2K" | "4K")) {
+                    return Err(ApiError::new(StatusCode::BAD_REQUEST, "openaiImageResolution 无效"));
                 }
             }
             if let Some(value) = obj.get("openaiImageQuality").and_then(Value::as_str) {

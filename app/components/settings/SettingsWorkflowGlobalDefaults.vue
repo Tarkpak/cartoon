@@ -12,6 +12,7 @@ import type {
   WorkflowVideoAudioDefaults,
   WorkflowPanoramaSourceMode
 } from '#shared/types/workflow-models'
+import { OPENAI_IMAGE_RESOLUTIONS } from '#shared/types/workflow-models'
 import { getSettingsProviderLabel, toSelectString } from '@/lib/settings-models'
 import {
   WORKFLOW_GEMINI_IMAGE_SIZES,
@@ -37,6 +38,7 @@ const props = defineProps<{
   updateVideoGenerationModelOptions: (patch: Partial<KlingV3OmniVideoOptions>) => Promise<void>
   updateWorkflowGeminiImageSize: (value: unknown) => void
   updateWorkflowOpenaiImageQuality: (value: unknown) => void
+  updateWorkflowOpenaiImageResolution: (value: unknown) => void
   updateWorkflowPanoramaSourceMode: (value: unknown) => void
   updateWorkflowPanoramaCustomAspectRatio: (value: string) => Promise<void>
   updateWorkflowPanoramaCustomSize: (value: string) => Promise<void>
@@ -120,8 +122,15 @@ const hasGeminiImageInUse = computed(() => {
 const hasOpenAIImageInUse = computed(() => {
   if (props.activeCategory !== 'image') return false
   const isOpenAIImage = (id: string) => id.trim().toLowerCase().startsWith('gpt-image')
+    || props.models.image.some(model => model.model === id && model.supportedResolutions?.length)
   return isOpenAIImage(props.selectedModels.image)
     || props.workflows.some(w => w.selectedModel && isOpenAIImage(w.selectedModel))
+})
+
+const hasOpenAIResolutionInUse = computed(() => {
+  if (props.activeCategory !== 'image') return false
+  const selected = new Set([props.selectedModels.image, ...props.workflows.map(workflow => workflow.selectedModel)])
+  return props.models.image.some(model => selected.has(model.model) && model.supportedResolutions?.length)
 })
 
 function updateKlingSound(value: unknown) {
@@ -482,7 +491,7 @@ function toCheckedBoolean(value: unknown): boolean {
           图片生成额外配置
         </h5>
         <p class="mt-1 text-xs text-muted-foreground">
-          对角色资产生成和环境参考图生成统一生效；不同图片模型按各自能力读取对应配置项。
+          对角色、环境、道具和其他资产图片生成统一生效；不同图片模型按各自能力读取对应配置项。
         </p>
       </div>
 
@@ -518,6 +527,21 @@ function toCheckedBoolean(value: unknown): boolean {
         v-if="hasOpenAIImageInUse"
         class="space-y-1.5"
       >
+        <template v-if="hasOpenAIResolutionInUse">
+          <label class="text-xs text-muted-foreground">OpenAI 分辨率</label>
+          <Select
+            :model-value="props.imageGenerationOptions.openaiImageResolution"
+            :disabled="props.workflowSaving"
+            @update:model-value="props.updateWorkflowOpenaiImageResolution"
+          >
+            <SelectTrigger class="h-9 w-full text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="resolution in OPENAI_IMAGE_RESOLUTIONS" :key="resolution" :value="resolution">
+                {{ resolution }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </template>
         <label class="text-xs text-muted-foreground">OpenAI 画质（quality）</label>
         <Select
           :model-value="props.imageGenerationOptions.openaiImageQuality"
@@ -538,7 +562,7 @@ function toCheckedBoolean(value: unknown): boolean {
           </SelectContent>
         </Select>
         <p class="text-xs text-muted-foreground">
-          GPT Image 2 / 2.5 的流程生成默认使用 4K 级尺寸，并保留原图比例；方图最高 2880×2880。GPT Image 2.5 支持 xhigh / max，旧版 GPT Image 会回退到 high。
+          GPT Image 2 / 2.5 支持 2K / 4K，与模型测试页使用相同尺寸规则。2K 方图 2048×2048，4K 方图最高 2880×2880；其他比例保持构图。GPT Image 2.5 支持 xhigh / max，旧版 GPT Image 会回退到 high。
         </p>
       </div>
     </div>

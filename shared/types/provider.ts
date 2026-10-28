@@ -39,6 +39,7 @@ export const ImageModelConfigSchema = z.object({
   displayName: z.string(),
   description: z.string().optional(),
   supportedSizes: z.array(z.string()).optional(),
+  supportedResolutions: z.array(z.enum(['2K', '4K'])).optional(),
   sizeSelectionMode: z.enum(['fixed', 'preset', 'constraint']).optional(),
   sizeConstraints: z.object({
     maxEdge: z.number().int().positive().optional(),

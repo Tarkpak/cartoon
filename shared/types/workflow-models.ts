@@ -60,6 +60,10 @@ export type WorkflowModels = z.infer<typeof WorkflowModelsSchema>
 export const WorkflowGeminiImageSizeSchema = z.enum(['512', '1K', '2K', '4K'])
 export type WorkflowGeminiImageSize = z.infer<typeof WorkflowGeminiImageSizeSchema>
 
+export const OPENAI_IMAGE_RESOLUTIONS = ['2K', '4K'] as const
+export const WorkflowOpenAIImageResolutionSchema = z.enum(OPENAI_IMAGE_RESOLUTIONS)
+export type WorkflowOpenAIImageResolution = z.infer<typeof WorkflowOpenAIImageResolutionSchema>
+
 export const WorkflowOpenAIImageQualitySchema = z.enum(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
 export type WorkflowOpenAIImageQuality = z.infer<typeof WorkflowOpenAIImageQualitySchema>
 
@@ -81,6 +85,7 @@ export type WorkflowPanoramaImageSize = z.infer<typeof WorkflowPanoramaImageSize
 export const WorkflowImageGenerationModelOptionsSchema = z.object({
   geminiImageSize: WorkflowGeminiImageSizeSchema.default('1K'),
   openaiImageQuality: WorkflowOpenAIImageQualitySchema.default('auto'),
+  openaiImageResolution: WorkflowOpenAIImageResolutionSchema.default('4K'),
   panoramaSourceMode: WorkflowPanoramaSourceModeSchema.default('equirectangular_360'),
   panoramaCustomAspectRatio: WorkflowPanoramaAspectRatioSchema.default('2:1'),
   panoramaCustomSize: WorkflowPanoramaImageSizeSchema.default('2048*1024')
@@ -141,6 +146,7 @@ export const WorkflowModelOptionsSchema = z.object({
   image_options: WorkflowImageGenerationModelOptionsSchema.default({
     geminiImageSize: '1K',
     openaiImageQuality: 'auto',
+    openaiImageResolution: '4K',
     panoramaSourceMode: 'equirectangular_360',
     panoramaCustomAspectRatio: '2:1',
     panoramaCustomSize: '2048*1024'

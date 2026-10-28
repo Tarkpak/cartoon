@@ -1,3 +1,4 @@
+import { OPENAI_IMAGE_RESOLUTIONS } from '#shared/types/workflow-models'
 import type { ImageModelConfig, VideoModelConfig } from '#shared/types/provider'
 import { resolveApiErrorMessage } from '@/lib/api-error'
 import { pollModelTestVideoTask } from '@/lib/model-test-video'
@@ -64,6 +65,10 @@ export function useSettingsModelTest() {
   const imageAspectRatio = ref<string>(DEFAULT_IMAGE_ASPECT_RATIO)
   const imageSize = ref<string>('')
   const imageQuality = ref<string>(DEFAULT_IMAGE_QUALITY)
+  const imageResolution = ref<string>('4K')
+  const currentImageModelResolutionOptions = computed(() =>
+    OPENAI_IMAGE_RESOLUTIONS.filter(value => currentImageModel.value?.supportedResolutions?.includes(value))
+  )
 
   const imagePrompt = computed({
     get: () => customPrompts.value.image,
@@ -699,7 +704,9 @@ export function useSettingsModelTest() {
         if (currentImageModelAspectRatioOptions.value.length > 0) {
           body.imageAspectRatio = imageAspectRatio.value
         }
-        if (currentImageModelSizeOptions.value.length > 0) {
+        if (currentImageModelResolutionOptions.value.length > 0) {
+          body.imageResolution = imageResolution.value
+        } else if (currentImageModelSizeOptions.value.length > 0) {
           body.imageSize = imageSize.value
         }
         if (currentImageModelQualityOptions.value.length > 0) {
@@ -887,6 +894,8 @@ export function useSettingsModelTest() {
     imageAspectRatio,
     imageSize,
     imageQuality,
+    imageResolution,
+    currentImageModelResolutionOptions,
     canRunImageTest,
     canRunVideoTest,
     fileInputRef,
