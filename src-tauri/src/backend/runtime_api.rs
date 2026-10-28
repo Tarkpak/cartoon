@@ -7265,6 +7265,8 @@ fn workflow_step_label(workflow_step: &str) -> &'static str {
         "video_import_script_generation" => "视频转项目剧本整理",
         "scene_description_refinement" => "场景描述二次改写",
         "character_portrait" => "角色资产生成",
+        "prop_generation" => "道具资产生成",
+        "other_asset_generation" => "其他资产生成",
         "frame_generation" => "环境参考图生成",
         "video_generation" => "分镜视频生成",
         _ => "工作流",
@@ -18094,6 +18096,14 @@ mod tests {
     }
 
     #[test]
+    fn independent_asset_image_generation_routes_to_the_category_model() {
+        assert_eq!(asset_image_workflow_step("prop"), "prop_generation");
+        assert_eq!(asset_image_workflow_step("other"), "other_asset_generation");
+        assert_eq!(workflow_step_label(asset_image_workflow_step("prop")), "道具资产生成");
+        assert_eq!(workflow_step_label(asset_image_workflow_step("other")), "其他资产生成");
+    }
+
+    #[test]
     fn openai_4k_workflow_sizes_preserve_composition_and_api_limits() {
         for provider in ["openai", "custom_openai"] {
             for model in ["gpt-image-2", "models/gpt-image-2.5-sunburst", "gpt-image-2.5-flare-2026-09-08"] {
@@ -23202,6 +23212,14 @@ fn parse_video_generate_request(body: &Value) -> Result<(String, Value), ApiErro
     Ok((scene_id, config))
 }
 
+fn asset_image_workflow_step(category: &str) -> &'static str {
+    if category == "other" {
+        "other_asset_generation"
+    } else {
+        "prop_generation"
+    }
+}
+
 pub(super) async fn api_asset_prop_generate(
     State(state): State<BackendState>,
     Json(body): Json<Value>,
@@ -23238,7 +23256,7 @@ pub(super) async fn api_asset_prop_generate(
         .scope(context, async {
             run_workflow_image_model(
                 &state,
-                "character_portrait",
+                asset_image_workflow_step(&category),
                 &prompt,
                 "1024x1024",
                 &format!("prop_{}", prop_id),

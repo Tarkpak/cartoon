@@ -71,7 +71,7 @@ export const WORKFLOW_CATEGORY_CONFIG: Record<WorkflowCategoryKey, WorkflowCateg
     name: '图片生成',
     icon: Image,
     color: 'green',
-    description: '覆盖角色/道具资产生成与环境参考图生成。'
+    description: '覆盖角色、环境参考图、道具与其他资产生成。'
   },
   video: {
     name: '视频生成',

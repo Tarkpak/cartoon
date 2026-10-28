@@ -3090,6 +3090,22 @@ fn default_workflow_steps() -> Value {
         "optionalCapabilities": ["reference_image"]
       },
       {
+        "id": "prop_generation",
+        "name": "道具资产生成",
+        "description": "道具资产图生成",
+        "category": "image",
+        "requiredCapabilities": [],
+        "optionalCapabilities": []
+      },
+      {
+        "id": "other_asset_generation",
+        "name": "其他资产生成",
+        "description": "其他资产图生成",
+        "category": "image",
+        "requiredCapabilities": [],
+        "optionalCapabilities": []
+      },
+      {
         "id": "video_generation",
         "name": "分镜视频生成",
         "description": "按分镜生成视频",
@@ -3294,7 +3310,7 @@ fn workflow_step_category(step_id: &str) -> Option<&'static str> {
         | "script_parsing"
         | "video_import_script_generation"
         | "scene_description_refinement" => Some("text"),
-        "character_portrait" | "frame_generation" => Some("image"),
+        "character_portrait" | "prop_generation" | "other_asset_generation" | "frame_generation" => Some("image"),
         "video_generation" => Some("video"),
         _ => None,
     }
@@ -3424,6 +3440,8 @@ fn workflow_overrides(conn: &Connection) -> Result<Value, ApiError> {
     let Some(object) = raw.as_object() else {
         return Ok(json!({}));
     };
+    // Keep the original seven steps for detecting legacy full snapshots.
+    // New independently configurable steps must not change that migration heuristic.
     let workflow_steps = [
         "script_writing",
         "script_parsing",
@@ -3492,6 +3510,8 @@ fn workflow_current_selections(conn: &Connection, available: &Value) -> Result<V
         "scene_description_refinement",
         "character_portrait",
         "frame_generation",
+        "prop_generation",
+        "other_asset_generation",
         "video_generation",
     ] {
         let resolved = overrides
@@ -15046,6 +15066,58 @@ mod tests {
             Some(("cloud-only-id".to_string(), None))
         );
         assert_eq!(cloud_model_log_identity(&json!({})), None);
+    }
+
+    #[test]
+    fn independent_asset_image_models_resolve_and_reset_separately() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);").unwrap();
+        let available = json!({"image": [
+            {"model": "global-image"}, {"model": "character-image"},
+            {"model": "prop-image"}, {"model": "other-image"}
+        ], "text": [{"model": "text-only"}]});
+        super::set_config_json(&conn, super::SELECTED_MODELS_KEY,
+            &json!({"image": "global-image", "_userSelected": {"image": true}})).unwrap();
+        super::set_config_json(&conn, super::WORKFLOW_MODELS_KEY,
+            &json!({"character_portrait": "character-image", "prop_generation": "prop-image", "other_asset_generation": "other-image"})).unwrap();
+        let selected = super::workflow_current_selections(&conn, &available).unwrap();
+        assert_eq!(selected["character_portrait"], "character-image");
+        assert_eq!(selected["prop_generation"], "prop-image");
+        assert_eq!(selected["other_asset_generation"], "other-image");
+        assert_eq!(selected["frame_generation"], "global-image");
+        let steps = super::default_workflow_steps();
+        for step in ["prop_generation", "other_asset_generation"] {
+            assert!(steps.as_array().unwrap().iter().any(|item| item["id"] == step && item["category"] == "image"));
+            assert!(super::workflow_model_exists_for_step(&available, step, "prop-image"));
+            assert!(!super::workflow_model_exists_for_step(&available, step, "text-only"));
+        }
+        // A stale/removed override falls back to the global image selection.
+        super::set_config_json(&conn, super::WORKFLOW_MODELS_KEY,
+            &json!({"prop_generation": "removed-model"})).unwrap();
+        let selected = super::workflow_current_selections(&conn, &available).unwrap();
+        assert_eq!(selected["prop_generation"], "global-image");
+        assert_eq!(selected["other_asset_generation"], "global-image");
+        let mut overrides = json!({"prop_generation": "prop-image", "other_asset_generation": "other-image", "video_generation": "video"});
+        let cleared = super::clear_workflow_overrides_for_category(&mut overrides, "image");
+        assert_eq!(cleared.len(), 2);
+        assert_eq!(overrides, json!({"video_generation": "video"}));
+    }
+
+    #[test]
+    fn independent_asset_image_steps_preserve_legacy_snapshot_detection() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);").unwrap();
+        super::set_config_json(&conn, super::WORKFLOW_MODELS_KEY, &json!({
+            "script_writing": "qwen3.6-plus", "script_parsing": "qwen3.6-plus",
+            "video_import_script_generation": "qwen3.6-plus", "scene_description_refinement": "qwen3.6-plus",
+            "character_portrait": "qwen-image-2.0-pro", "frame_generation": "qwen-image-2.0-pro",
+            "video_generation": "wan2.7-t2v", "prop_generation": "qwen-image-2.0-pro",
+            "other_asset_generation": "other-image"
+        })).unwrap();
+        let overrides = super::workflow_overrides(&conn).unwrap();
+        assert!(overrides.get("character_portrait").is_none());
+        assert_eq!(overrides["prop_generation"], "qwen-image-2.0-pro");
+        assert_eq!(overrides["other_asset_generation"], "other-image");
     }
 
     #[test]

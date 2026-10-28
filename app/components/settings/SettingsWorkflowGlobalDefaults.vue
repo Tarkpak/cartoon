@@ -59,7 +59,7 @@ const activeDefaultConfig = computed<ActiveDefaultConfig>(() => {
       return {
         key: 'image',
         label: '图片生成',
-        description: '未单独覆盖的角色资产与环境参考图流程默认使用这里的模型。',
+        description: '未单独覆盖的角色、环境参考图、道具与其他资产流程默认使用这里的模型。',
         value: props.selectedModels.image,
         placeholder: '选择图片模型',
         models: props.models.image

@@ -15,6 +15,8 @@ export const WorkflowStepSchema = z.enum([
   // 图片流程
   'character_portrait',
   'frame_generation',
+  'prop_generation',
+  'other_asset_generation',
 
   // 视频流程
   'video_generation'
@@ -49,6 +51,8 @@ export const WorkflowModelsSchema = z.object({
   scene_description_refinement: z.string().optional(),
   character_portrait: z.string().optional(),
   frame_generation: z.string().optional(),
+  prop_generation: z.string().optional(),
+  other_asset_generation: z.string().optional(),
   video_generation: z.string().optional()
 })
 export type WorkflowModels = z.infer<typeof WorkflowModelsSchema>
@@ -213,6 +217,22 @@ export const WORKFLOW_STEP_CONFIGS: WorkflowStepConfig[] = [
     requiredCapabilities: [],
     optionalCapabilities: ['reference_image'],
     tips: '优先选择出图稳定、支持环境一致性的图片模型'
+  },
+  {
+    id: 'prop_generation',
+    name: '道具资产生成',
+    description: '根据道具描述生成道具资产图',
+    category: 'image',
+    requiredCapabilities: [],
+    tips: '可单独选择适合物品细节与材质表现的图片模型'
+  },
+  {
+    id: 'other_asset_generation',
+    name: '其他资产生成',
+    description: '根据其他资产描述生成资产图',
+    category: 'image',
+    requiredCapabilities: [],
+    tips: '可独立于角色和道具选择图片模型'
   },
   {
     id: 'video_generation',
