@@ -211,6 +211,30 @@ describe('scene description mention normalization', () => {
     expect(restored).toBe('镜头扫过桌上的@线索照片。')
   })
 
+  it('drops stale automatic thought references on save but preserves explicit selections', () => {
+    const candidates = buildSceneAssetMentionCandidates([
+      createAsset({ id: 'char:zheng', name: '郑学军', type: 'character' })
+    ])
+    const options = { text: '张建军笑了（**算盘打得深：@郑学军会来送枪**）',
+      candidates, selectedAssetReferenceIds: ['char:zheng'] }
+    expect(normalizeSceneDescriptionMentionsForSave(options).assetIds).toEqual([])
+    expect(normalizeSceneDescriptionMentionsForSave({ ...options, preserveSelectedAssetReferenceIds: true }).assetIds)
+      .toEqual(['char:zheng'])
+  })
+
+  it('does not turn thought-only and labelled dialogue names into character references', () => {
+    const assets = ['张建军', '郑学军'].map((name, index) => createAsset({
+      id: `char:${index}`, name, type: 'character'
+    }))
+    const restored = restoreSceneDescriptionMentionsForEdit({
+      text: '张建军笑了（**算盘打得深：郑学军会来送枪**）\n【台词】张建军（笃定）：郑学军就会主动送过来。',
+      candidates: buildSceneAssetMentionCandidates(assets),
+      selectedAssetReferenceIds: assets.map(asset => asset.id)
+    })
+    expect(restored).toContain('@张建军笑了')
+    expect(restored).not.toContain('@郑学军')
+  })
+
   it('does not restore character names inside dialogue text as mention tokens', () => {
     const assets = [
       createAsset({

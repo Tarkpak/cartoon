@@ -1,3 +1,4 @@
+import { isCharacterOnlyMentionedOffscreen } from '~/lib/scene-character-presence'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type { DisplayAsset, SceneVideoReferenceAsset } from '~/lib/asset-workbench-types'
@@ -226,6 +227,10 @@ export function resolveConfiguredCharacterReferences(
   for (const characterId of characterIds) {
     const character = findCharacterByAssetRefId(characterId, options.characters)
     if (!character) continue
+    // Explicit asset selections are retained below; stale automatic references
+    // from dialogue/thoughts must not add a character to the picture.
+    if (isCharacterOnlyMentionedOffscreen(options.scene.description || '', character.name)
+        && !explicitlySelectedFamilyIds.has(character.parentCharacterId || character.id)) continue
 
     const familyId = character.parentCharacterId || character.id
     if (explicitlySelectedFamilyIds.has(familyId)) continue

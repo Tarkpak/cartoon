@@ -71,6 +71,22 @@ function createSceneConfig(sceneId: string, mustReferenceAssetIds: string[]): Sc
 }
 
 describe('scene video reference assets', () => {
+  it('excludes a stale reference mentioned only in thoughts while keeping the visible speaker', () => {
+    const scene = createScene({ id: 'thoughts', title: '主动送枪',
+      description: '张建军笑了（**算盘打得深：郑学军会主动送枪**）\n【台词】张建军：“郑学军会来。”\n[引用资产]\n@张建军\n@郑学军',
+      characters: [{ name: '张建军' }, { name: '郑学军' }] })
+    const characters = [
+      createCharacter({ id: 'zhang', name: '张建军', baseImage: 'zhang.png' }),
+      createCharacter({ id: 'zheng', name: '郑学军', baseImage: 'zheng.png' })
+    ]
+    const options = { scene, characters, propAssets: [], sceneConfigs: {
+      thoughts: createSceneConfig('thoughts', ['char:zhang', 'char:zheng'])
+    } }
+    expect(resolveSceneVideoReferenceAssets(options).map(asset => asset.name)).toEqual(['张建军'])
+    scene.characters[1]!.assetId = 'char:zheng'
+    expect(resolveSceneVideoReferenceAssets(options).map(asset => asset.name)).toContain('郑学军')
+  })
+
   it('does not fallback to dialogue-detected characters when description has no @ mention', () => {
     const scene = createScene({
       id: 'scene_1',

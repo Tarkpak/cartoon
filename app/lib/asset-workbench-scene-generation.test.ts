@@ -38,6 +38,19 @@ function createScene(input: Partial<SceneData> & Pick<SceneData, 'id' | 'title' 
 }
 
 describe('asset-workbench-scene-generation', () => {
+  it('filters speech-only characters from generation payloads and adds a visual constraint', () => {
+    const scene = createScene({ id: 'thoughts', title: '送枪',
+      description: '张建军笑了（**算盘打得深：郑学军会来送枪**）\n【台词】张建军：“郑学军会来。”',
+      characters: [{ name: '张建军' }, { name: '郑学军' }] })
+    const payload = buildAssetWorkflowScenePayload({ scene, scenes: [scene],
+      sceneConfig: { sceneId: scene.id, mustReferenceAssetIds: [], consistencyLevel: 'soft', continuityNotes: '' },
+      resolveAssetName: id => id, resolveSceneDescriptionWithoutAssetMentions: raw => raw || '' })
+    expect(payload.characters.map(character => character.name)).toEqual(['张建军'])
+    expect(payload.cameraNote).toContain('仅被提及的人物不得出镜')
+    expect(payload.description).toContain('郑学军会来')
+    expect(scene.characters).toHaveLength(2)
+  })
+
   it('retries only transient video reference image download failures', () => {
     expect(isRetryableVideoImageDownloadError(new Error(
       'Failed to download the provided image (image_download_error=image_download_interrupted): the connection dropped while downloading the image.'

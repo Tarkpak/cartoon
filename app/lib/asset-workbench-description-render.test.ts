@@ -50,6 +50,20 @@ describe('scene description render segments', () => {
     }])
   })
 
+  it('does not display a dialogue-only character as a visual asset badge', () => {
+    const scene = createScene({ id: 'thoughts', title: '送枪',
+      description: '张建军笑了（**算盘打得深：郑学军会来送枪**）\n【台词】张建军：“郑学军会来。”\n[引用资产]\n@张建军\n@郑学军' })
+    const assets: DisplayAsset[] = [
+      { id: 'char:zhang', name: '张建军', type: 'character' },
+      { id: 'char:zheng', name: '郑学军', type: 'character' }
+    ]
+    const segments = resolveSceneDescriptionRenderSegments({ scene, assets,
+      uniqueSorted: values => Array.from(new Set(values)) })
+    expect(segments.filter(segment => segment.type === 'asset').map(segment => segment.asset?.name))
+      .not.toContain('郑学军')
+    expect(JSON.stringify(segments)).toContain('郑学军会来')
+  })
+
   it('renders inline asset mention tokens as asset segments', () => {
     const scene = createScene({
       id: 'scene_1',

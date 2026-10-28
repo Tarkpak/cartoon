@@ -1,4 +1,6 @@
 use super::*;
+#[path = "scene_character_presence.rs"]
+mod scene_character_presence;
 #[path = "autodl.rs"]
 mod autodl;
 use autodl::*;
@@ -10825,6 +10827,9 @@ fn inject_collaboration_image_references(config: &mut Value, provider: &str, mod
         let linked = scene["characters"].as_array().is_some_and(|items| items.iter().any(|item| {
             item["assetId"].as_str().is_some_and(|asset_id| asset_id.strip_prefix("char:").unwrap_or(asset_id) == id)
         }));
+        if !linked && scene_character_presence::only_mentioned_offscreen(
+            scene["description"].as_str().unwrap_or(""), name,
+        ) { continue; }
         if !linked && !collaboration_asset_is_selected(&source, &format!("char:{id}"), name, "character", "角色") { continue; }
         let ark_id = (character["arkAsset"]["status"] == "Active").then(|| character["arkAsset"]["assetId"].clone());
         let image = character["baseImage"].as_str().map(str::trim).filter(|image| !image.is_empty())
@@ -20530,6 +20535,23 @@ fn collaboration_episode_context(episode: &Value, settings: &Value, instruction:
 #[cfg(test)]
 mod collaboration_generation_tests {
     use super::*;
+    #[test]
+    fn collaboration_video_filters_thought_only_references_but_keeps_explicit_cast() {
+        let mut config = json!({"collaborationVoiceContext": {
+            "scene": {"id": "s", "description": "张建军笑了（**算盘打得深：郑学军会来送枪**）\n[引用资产]\n@张建军\n@郑学军"},
+            "characters": [
+                {"id":"zhang", "body":{"name":"张建军", "baseImage":"https://example.com/zhang.png"}},
+                {"id":"zheng", "body":{"name":"郑学军", "baseImage":"https://example.com/zheng.png"}}
+            ]
+        }});
+        inject_collaboration_image_references(&mut config, "volcengine", "doubao-seedance-2-0-mini-260615").unwrap();
+        assert_eq!(config["references"]["characterAssets"].as_array().unwrap().len(), 1);
+        assert_eq!(config["references"]["characterAssets"][0]["name"], "张建军");
+        config["collaborationVoiceContext"]["scene"]["characters"] = json!([{"assetId": "char:zheng"}]);
+        inject_collaboration_image_references(&mut config, "volcengine", "doubao-seedance-2-0-mini-260615").unwrap();
+        assert_eq!(config["references"]["characterAssets"].as_array().unwrap().len(), 2);
+    }
+
     #[test]
     fn collaboration_video_requests_include_cloud_character_and_prop_images() {
         let mut config = json!({"firstFrame":"https://shared.example/env.png", "collaborationVoiceContext":{

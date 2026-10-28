@@ -1,3 +1,4 @@
+import { isCharacterOnlyMentionedOffscreen } from '~/lib/scene-character-presence'
 import { normalizeProjectVideoUrl } from '#shared/utils/video-url'
 import {
   isFatalVideoTaskStatusError,
@@ -152,17 +153,20 @@ export function buildSceneGenerationCameraNote(
   const referenceAssetNames = options.referenceAssetNames
     ?.map(name => name.trim())
     .filter(Boolean)
-  const refNames = hasExplicitReferenceAssetNames
+  const refNames = (hasExplicitReferenceAssetNames
     ? referenceAssetNames || []
     : extractSceneDescriptionMentionTokens(options.scene.description || '')
         .map(resolveMentionName)
-        .filter(Boolean)
+        .filter(Boolean))
+    .filter(name => !isCharacterOnlyMentionedOffscreen(options.scene.description || '', name)
+      || options.scene.characters.some(character => character.assetId && character.name === name))
   const continuityNote = options.sceneConfig.continuityNotes.trim()
   const crossSpaceNote = buildSceneEnvironmentCrossSpaceNote(options.scene, options.scenes)
   const shouldAppendCrossSpaceNote = !!crossSpaceNote
     && !continuityNote.includes(crossSpaceNote)
   const parts = Array.from(new Set([
     baseNote,
+    '出镜约束：仅呈现本镜头画面动作中实际出场及明确指定出镜的角色；台词、心理活动、旁白、画外音中仅被提及的人物不得出镜，也不得将其叙述的动作直接演成画面。明确标注的回忆、闪回或想象画面按其画面描述呈现。',
     refNames.length > 0 ? `引用资产：${refNames.join('、')}` : '',
     continuityNote ? `连续性提示：${continuityNote}` : '',
     shouldAppendCrossSpaceNote ? `跨空间提示：${crossSpaceNote}` : ''
@@ -192,7 +196,8 @@ export function buildAssetWorkflowScenePayload(
     duration: options.scene.duration,
     setting: options.scene.setting,
     narration: options.scene.narration,
-    characters: options.scene.characters,
+    characters: options.scene.characters.filter(character => character.assetId
+      || !isCharacterOnlyMentionedOffscreen(options.scene.description || '', character.name)),
     props: options.scene.props
   }
 }

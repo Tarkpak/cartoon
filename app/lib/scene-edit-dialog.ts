@@ -1,3 +1,4 @@
+import { collectSceneNonVisualRanges, isCharacterOnlyMentionedOffscreen } from '~/lib/scene-character-presence'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import { TIME_OF_DAY_OPTIONS } from '#shared/types/script'
 import type { DisplayAsset } from '~/lib/asset-workbench-types'
@@ -89,7 +90,7 @@ function mergeTextRanges(ranges: TextRange[]): TextRange[] {
 }
 
 function collectDialogueLikeRanges(text: string, characterNames: string[]): TextRange[] {
-  const ranges: TextRange[] = []
+  const ranges: TextRange[] = collectSceneNonVisualRanges(text)
 
   for (const match of text.matchAll(SCENE_QUOTED_DIALOGUE_REGEX)) {
     const content = match[0] || ''
@@ -569,6 +570,11 @@ export function normalizeSceneDescriptionMentionsForSave(options: {
   )
 
   const mentionedAssetIds = extractMentionedAssetIdsFromDescription(options.text, candidateTokenMap)
+    .filter((assetId) => {
+      const asset = candidateTokenMap.get(candidateIdTokenMap.get(assetId) || '')?.asset
+      return asset?.type !== 'character'
+        || !isCharacterOnlyMentionedOffscreen(options.text, asset.name)
+    })
   const assetIds = options.preserveSelectedAssetReferenceIds
     ? uniqueValues([
         ...mentionedAssetIds,

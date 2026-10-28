@@ -1,3 +1,4 @@
+import { collectSceneNonVisualRanges, isCharacterOnlyMentionedOffscreen } from '~/lib/scene-character-presence'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
   DisplayAsset,
@@ -68,7 +69,7 @@ function mergeTextRanges(ranges: TextRange[]): TextRange[] {
 }
 
 function collectDialogueLikeRanges(text: string, characterNames: string[]): TextRange[] {
-  const ranges: TextRange[] = []
+  const ranges: TextRange[] = collectSceneNonVisualRanges(text)
 
   for (const match of text.matchAll(SCENE_QUOTED_DIALOGUE_REGEX)) {
     const content = match[0] || ''
@@ -339,7 +340,16 @@ export function resolveSceneDescriptionRenderSegments(options: {
   uniqueSorted: (values: string[]) => string[]
 }): SceneDescriptionRenderSegment[] {
   const mentionAssetMap = resolveSceneDescriptionMentionAssetMap(options)
+  for (const [token, asset] of mentionAssetMap) {
+    if (asset.type === 'character' && isCharacterOnlyMentionedOffscreen(options.scene.description || '', asset.name)
+      && !options.scene.characters.some(character => character.assetId === asset.id
+        || `char:${character.assetId}` === asset.id)) mentionAssetMap.delete(token)
+  }
   const inlineMentionAssets = resolveSceneDescriptionInlineMentionAssets(options)
+    .filter(item => item.asset.type !== 'character'
+      || !isCharacterOnlyMentionedOffscreen(options.scene.description || '', item.name)
+      || options.scene.characters.some(character => character.assetId === item.asset.id
+        || `char:${character.assetId}` === item.asset.id))
     .slice()
     .sort((left, right) => right.name.length - left.name.length)
   const characterNames = inlineMentionAssets
