@@ -1,3 +1,5 @@
+import openaiModelCatalog from '../assets/openai-model-catalog.json'
+
 export interface ProviderModelCatalogEntry {
   model: string
   kind: string
@@ -124,13 +126,7 @@ export function manualProviderSeedAvailableModels(providerKey: string): string[]
         'kling-v2.5-turbo'
       ]
     case 'openai':
-      return [
-        'gpt-4.1',
-        'gpt-4.1-mini',
-        'gpt-4o',
-        'gpt-4o-mini',
-        'gpt-image-1'
-      ]
+      return [...openaiModelCatalog.models]
     default:
       return []
   }
@@ -216,6 +212,12 @@ export function resolveProviderModelState(input: ProviderModelStateInput): Provi
 
   if (availableModels.length === 0) {
     availableModels = models.length > 0 ? [...models] : manualProviderSeedAvailableModels(input.providerKey)
+  }
+
+  // Old installs already have a short default list stored in the database.
+  // Expand it without changing enabled models; a healthy account sync stays authoritative.
+  if (normalizeProviderKey(input.providerKey) === 'openai' && (!input.syncedAt || input.syncError)) {
+    availableModels = normalizeModelList([...availableModels, ...models, ...openaiModelCatalog.models])
   }
 
   return {
