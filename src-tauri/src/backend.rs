@@ -1265,13 +1265,8 @@ fn normalize_cloud_model_policy_provider(provider: &str) -> Option<String> {
     if provider.is_empty() {
         return None;
     }
-    let normalized = if provider == "openai" {
-        "custom_openai"
-    } else {
-        provider
-    };
-    if is_supported_provider(normalized) {
-        Some(normalized.to_string())
+    if is_supported_provider(provider) {
+        Some(provider.to_string())
     } else {
         None
     }
@@ -14504,6 +14499,26 @@ mod tests {
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use std::collections::HashSet;
+
+    #[test]
+    fn cloud_model_policy_keeps_official_openai_separate_from_custom() {
+        let mut policy = std::collections::HashMap::new();
+        super::insert_cloud_model_policy(
+            &mut policy, "openai", Some(&json!(["gpt-4.1", "gpt-image-2"])),
+        );
+        super::insert_cloud_model_policy(
+            &mut policy, "custom_openai", Some(&json!(["gpt-4.1", "custom-model"])),
+        );
+        assert_eq!(policy["openai"], vec!["gpt-4.1", "gpt-image-2"]);
+        assert_eq!(policy["custom_openai"], vec!["gpt-4.1", "custom-model"]);
+        for provider in ["openai", "custom_openai"] {
+            let (_, entry) = super::build_available_model_entry(provider, "gpt-image-2");
+            assert_eq!(entry["provider"], provider);
+        }
+        assert!(super::normalize_cloud_model_policy_provider("unknown").is_none());
+        assert!(super::normalize_cloud_model_policy_provider("").is_none());
+        assert_eq!(super::normalize_cloud_model_policy_provider(" openai ").as_deref(), Some("openai"));
+    }
 
     #[test]
     fn cloud_sync_preserves_actionable_error_instead_of_generic_status() {
