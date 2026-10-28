@@ -7785,6 +7785,7 @@ async fn poll_openai_compatible_image_task(
 }
 
 async fn request_custom_openai_image_generation(
+    provider: &str,
     model_id: &str,
     prompt: &str,
     size: &str,
@@ -7792,14 +7793,22 @@ async fn request_custom_openai_image_generation(
     reference_images: &[String],
     creds: &Value,
 ) -> Result<(String, Option<String>), String> {
-    let custom_openai = custom_openai_entry_for_model(model_id, creds)
-        .ok_or_else(|| "未配置自定义 OpenAI 供应商".to_string())?;
-    let request_creds = wrap_custom_openai_creds(&custom_openai);
-    let api_keys = provider_sync_api_keys("custom_openai", &request_creds);
+    let custom_openai = if provider == "custom_openai" {
+        custom_openai_entry_for_model(model_id, creds)
+            .ok_or_else(|| "未配置自定义 OpenAI 供应商".to_string())?
+    } else {
+        creds.get(provider).cloned().unwrap_or_else(|| json!({}))
+    };
+    let request_creds = if provider == "custom_openai" {
+        wrap_custom_openai_creds(&custom_openai)
+    } else {
+        creds.clone()
+    };
+    let api_keys = provider_sync_api_keys(provider, &request_creds);
     if api_keys.is_empty() {
         llm_dev_log!(
             "error",
-            "custom_openai",
+            provider,
             model_id,
             "generateImage",
             None::<i64>,
@@ -7807,7 +7816,7 @@ async fn request_custom_openai_image_generation(
         );
         return Err("未配置 API Key".to_string());
     }
-    let base_url = provider_sync_base_url("custom_openai", &request_creds)
+    let base_url = provider_sync_base_url(provider, &request_creds)
         .ok_or_else(|| "未配置 Base URL".to_string())?;
     let model = normalize_model_id_for_remote(model_id);
     let normalized_model = model.to_ascii_lowercase();
@@ -7828,7 +7837,9 @@ async fn request_custom_openai_image_generation(
         .filter(|value| !value.is_empty())
         .or(configured_quality);
     let quality = normalize_openai_quality(raw_quality);
-    let resolution = if is_apimart_gpt_image_2 {
+    let resolution = if provider == "openai" {
+        None
+    } else if is_apimart_gpt_image_2 {
         normalize_apimart_resolution(raw_quality)
     } else {
         normalize_apimart_resolution(
@@ -7855,7 +7866,7 @@ async fn request_custom_openai_image_generation(
 
     llm_dev_log!(
         "request",
-        "custom_openai",
+        provider,
         model_id,
         "generateImage",
         None::<i64>,
@@ -7905,7 +7916,7 @@ async fn request_custom_openai_image_generation(
                     "image[]",
                     reference_image_part(reference, index).map_err(|error| {
                         llm_dev_write_db_log(
-                            "custom_openai",
+                            provider,
                             model_id,
                             "generateImage",
                             "error",
@@ -7918,7 +7929,7 @@ async fn request_custom_openai_image_generation(
                         );
                         llm_dev_log!(
                             "error",
-                            "custom_openai",
+                            provider,
                             model_id,
                             "generateImage",
                             Some(Utc::now().timestamp_millis() - _log_started_at),
@@ -7938,7 +7949,7 @@ async fn request_custom_openai_image_generation(
                 .map_err(|error| {
                     let message = build_llm_transport_error_message(&error);
                     llm_dev_write_db_log(
-                        "custom_openai",
+                        provider,
                         model_id,
                         "generateImage",
                         "error",
@@ -7951,7 +7962,7 @@ async fn request_custom_openai_image_generation(
                     );
                     llm_dev_log!(
                         "error",
-                        "custom_openai",
+                        provider,
                         model_id,
                         "generateImage",
                         Some(Utc::now().timestamp_millis() - _log_started_at),
@@ -7988,7 +7999,7 @@ async fn request_custom_openai_image_generation(
                 .map_err(|error| {
                     let message = build_llm_transport_error_message(&error);
                     llm_dev_write_db_log(
-                        "custom_openai",
+                        provider,
                         model_id,
                         "generateImage",
                         "error",
@@ -8001,7 +8012,7 @@ async fn request_custom_openai_image_generation(
                     );
                     llm_dev_log!(
                         "error",
-                        "custom_openai",
+                        provider,
                         model_id,
                         "generateImage",
                         Some(Utc::now().timestamp_millis() - _log_started_at),
@@ -8016,7 +8027,7 @@ async fn request_custom_openai_image_generation(
         if !status.is_success() {
             let message = build_sync_error_message(status, &body_text);
             llm_dev_write_db_log(
-                "custom_openai",
+                provider,
                 model_id,
                 "generateImage",
                 "error",
@@ -8037,7 +8048,7 @@ async fn request_custom_openai_image_generation(
                 truncate_for_error(&body_text, 160)
             );
             llm_dev_write_db_log(
-                "custom_openai",
+                provider,
                 model_id,
                 "generateImage",
                 "error",
@@ -8056,7 +8067,7 @@ async fn request_custom_openai_image_generation(
               "mimeType": result.1.as_deref()
             });
             llm_dev_write_db_log(
-                "custom_openai",
+                provider,
                 model_id,
                 "generateImage",
                 "success",
@@ -8069,7 +8080,7 @@ async fn request_custom_openai_image_generation(
             );
             llm_dev_log!(
                 "success",
-                "custom_openai",
+                provider,
                 model_id,
                 "generateImage",
                 Some(Utc::now().timestamp_millis() - _log_started_at),
@@ -8081,7 +8092,7 @@ async fn request_custom_openai_image_generation(
         if let Some(task_id) = parse_openai_compatible_image_task_id(&payload) {
             let parsed_response = json!({ "taskId": task_id.as_str() });
             llm_dev_write_db_log(
-                "custom_openai",
+                provider,
                 model_id,
                 "generateImage",
                 "task",
@@ -8094,7 +8105,7 @@ async fn request_custom_openai_image_generation(
             );
             llm_dev_log!(
                 "task",
-                "custom_openai",
+                provider,
                 model_id,
                 "generateImage",
                 Some(Utc::now().timestamp_millis() - _log_started_at),
@@ -8110,7 +8121,7 @@ async fn request_custom_openai_image_generation(
                       "mimeType": result.1.as_deref()
                     });
                     llm_dev_write_db_log(
-                        "custom_openai",
+                        provider,
                         model_id,
                         "generateImage",
                         "success",
@@ -8123,7 +8134,7 @@ async fn request_custom_openai_image_generation(
                     );
                     llm_dev_log!(
                         "success",
-                        "custom_openai",
+                        provider,
                         model_id,
                         "generateImage",
                         Some(Utc::now().timestamp_millis() - _log_started_at),
@@ -8134,7 +8145,7 @@ async fn request_custom_openai_image_generation(
                 }
                 Err(error) => {
                     llm_dev_write_db_log(
-                        "custom_openai",
+                        provider,
                         model_id,
                         "generateImage",
                         "error",
@@ -8147,7 +8158,7 @@ async fn request_custom_openai_image_generation(
                     );
                     llm_dev_log!(
                         "error",
-                        "custom_openai",
+                        provider,
                         model_id,
                         "generateImage",
                         Some(Utc::now().timestamp_millis() - _log_started_at),
@@ -8160,7 +8171,7 @@ async fn request_custom_openai_image_generation(
         }
         let message = "OpenAI 兼容图片生成未返回图片 URL 或 base64".to_string();
         llm_dev_write_db_log(
-            "custom_openai",
+            provider,
             model_id,
             "generateImage",
             "error",
@@ -8177,7 +8188,7 @@ async fn request_custom_openai_image_generation(
     let message = last_error.unwrap_or_else(|| "OpenAI 兼容图片生成失败".to_string());
     llm_dev_log!(
         "error",
-        "custom_openai",
+        provider,
         model_id,
         "generateImage",
         Some(Utc::now().timestamp_millis() - _log_started_at),
@@ -8249,8 +8260,9 @@ async fn request_openai_compatible_image_generation(
     reference_images: &[String],
     creds: &Value,
 ) -> Result<(String, Option<String>), String> {
-    if provider == "custom_openai" {
+    if matches!(provider, "custom_openai" | "openai") {
         return request_custom_openai_image_generation(
+            provider,
             model_id,
             prompt,
             size,
@@ -8888,7 +8900,7 @@ async fn run_workflow_image_model(
         "qwen" => {
             request_qwen_image_generation(&model_id, prompt, size, reference_images, &creds).await?
         }
-        "volcengine" | "custom_openai" => {
+        "volcengine" | "custom_openai" | "openai" => {
             request_openai_compatible_image_generation(
                 &provider,
                 &model_id,
@@ -13480,7 +13492,7 @@ fn workflow_gemini_image_size(workflow_model_options: &Value) -> Option<String> 
 }
 
 fn is_openai_image_quality_provider(provider: &str) -> bool {
-    matches!(provider, "custom_openai" | "volcengine")
+    matches!(provider, "custom_openai" | "openai" | "volcengine")
 }
 
 fn is_openai_image_quality_model(normalized_model: &str) -> bool {
@@ -16596,6 +16608,11 @@ fn resolve_model_provider(model_id: &str, creds: &Value) -> Option<String> {
     if is_custom_openai_model(model_id, creds) {
         return Some("custom_openai".to_string());
     }
+    let normalized = normalize_model_id_for_remote(model_id).to_ascii_lowercase();
+    if resolve_provider_configured("openai", creds)
+        && (normalized.starts_with("gpt-") || normalized.starts_with("o1") || normalized.starts_with("o3") || normalized.starts_with("o4")) {
+        return Some("openai".to_string());
+    }
     infer_model_provider(model_id)
 }
 
@@ -17185,6 +17202,33 @@ mod tests {
             assert_eq!(refs[0]["url"], url);
             assert_eq!(refs[0]["status"], "ready");
         }
+    }
+
+    #[test]
+    fn official_openai_credentials_route_text_and_images() {
+        let creds = json!({"openai": {"apiKey": "test-key"}});
+        assert_eq!(provider_sync_base_url("openai", &creds).as_deref(), Some("https://api.openai.com/v1"));
+        assert_eq!(provider_sync_api_keys("openai", &creds), vec!["test-key"]);
+        for model in ["gpt-4.1", "gpt-image-1", "o3-mini"] {
+            assert_eq!(resolve_model_provider(model, &creds).as_deref(), Some("openai"));
+        }
+        assert_eq!(provider_credentials_public(&creds)["openai"]["hasApiKey"], true);
+        assert!(provider_credentials_public(&creds)["openai"].get("apiKey").is_none());
+        assert!(is_openai_image_quality_provider("openai"));
+    }
+
+    #[test]
+    fn official_openai_missing_key_and_custom_provider_precedence() {
+        assert!(!resolve_provider_configured("openai", &json!({})));
+        assert!(provider_sync_api_keys("openai", &json!({})).is_empty());
+        let creds = json!({
+            "openai": {"apiKey": "official-key"},
+            "custom_openai": {"providers": [{"id": "test", "enabled": true,
+                "baseUrl": "https://example.com/v1", "apiKey": "custom-key",
+                "textModels": ["gpt-4.1"]}]}
+        });
+        assert_eq!(resolve_model_provider("gpt-4.1", &creds).as_deref(), Some("custom_openai"));
+        assert_eq!(resolve_model_provider("gpt-image-1", &creds).as_deref(), Some("openai"));
     }
 
     #[test]
@@ -19162,6 +19206,14 @@ async fn request_openai_compatible_text_completion(
     for api_key in api_keys {
         let mut request_body = openai_compatible_text_request_body(model.as_str(), prompt);
         apply_text_reasoning_effort(&mut request_body, provider, model_id, reasoning_creds);
+        if provider == "openai" {
+            // Reasoning models reject custom temperature; use the API defaults and
+            // each model's output limit rather than a shared hard-coded limit.
+            if let Some(body) = request_body.as_object_mut() {
+                body.remove("temperature");
+                body.remove("max_completion_tokens");
+            }
+        }
         if text_stream_enabled() {
             request_body["stream"] = json!(true);
         }
@@ -19529,7 +19581,7 @@ async fn run_text_model_test_remote(
     creds: &Value,
 ) -> Result<String, String> {
     match provider {
-        "qwen" | "volcengine" | "deepseek" | "custom_openai" => {
+        "qwen" | "volcengine" | "deepseek" | "openai" | "custom_openai" => {
             request_openai_compatible_text_completion(provider, model_id, prompt, creds).await
         }
         "gemini" => request_gemini_text_completion(model_id, prompt, creds).await,
@@ -19540,7 +19592,7 @@ async fn run_text_model_test_remote(
 fn text_model_test_error_has_transport_log(provider: &str, error: &str) -> bool {
     matches!(
         provider,
-        "qwen" | "volcengine" | "deepseek" | "custom_openai" | "gemini"
+        "qwen" | "volcengine" | "deepseek" | "openai" | "custom_openai" | "gemini"
     ) && !matches!(error, "未配置 API Key" | "未配置 Base URL")
 }
 
@@ -19760,7 +19812,7 @@ pub(super) async fn api_models_test(
                     )
                     .await
                 }
-                "volcengine" | "custom_openai" => {
+                "volcengine" | "custom_openai" | "openai" => {
                     request_openai_compatible_image_generation(
                         &provider,
                         &model_id,

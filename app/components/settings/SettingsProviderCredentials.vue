@@ -3,7 +3,7 @@ import { Check, Loader2, Save, X } from 'lucide-vue-next'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import type { ProviderCredentialsPublic } from '#shared/types/provider'
 
-type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'deepseek' | 'kling' | 'autodl' | 'topaz'
+type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'openai' | 'deepseek' | 'kling' | 'autodl' | 'topaz'
 
 const props = defineProps<{
   provider: CredentialProvider
@@ -20,6 +20,7 @@ const PROVIDER_BASE_URL_PLACEHOLDER: Record<CredentialProvider, string> = {
   gemini: 'https://generativelanguage.googleapis.com/v1beta',
   qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
+  openai: 'https://api.openai.com/v1',
   deepseek: 'https://api.deepseek.com',
   kling: 'https://api-beijing.klingai.com',
   topaz: 'https://api.topazlabs.com'

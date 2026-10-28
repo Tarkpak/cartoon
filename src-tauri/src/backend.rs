@@ -2165,11 +2165,7 @@ fn cloud_provider_credentials_to_local(raw: Option<Value>) -> Value {
             .and_then(sanitize_custom_openai_provider_id)
             .unwrap_or_else(|| format!("cloud_{}", custom_openai_entries.len().saturating_add(1)));
 
-        let target_provider = if provider == "openai" {
-            "custom_openai"
-        } else {
-            provider
-        };
+        let target_provider = provider;
 
         if target_provider == "custom_openai" {
             if api_key.is_empty() || base_url.is_empty() {
@@ -3159,6 +3155,7 @@ fn default_provider_credentials() -> Value {
       "qwen":       { "apiKey": "", "baseUrl": "" },
       "volcengine": { "apiKey": "", "mediakitApiKey": "", "arkAccessKey": "", "arkSecretKey": "", "arkProjectName": "default", "arkOpenApiBaseUrl": "", "baseUrl": "" },
       "deepseek":   { "apiKey": "", "baseUrl": "" },
+      "openai": { "apiKey": "", "baseUrl": "" },
       "autodl":     { "apiKey": "", "baseUrl": "" },
       "kling":      { "accessKey": "", "secretKey": "", "baseUrl": "" },
       "topaz":      { "apiKey": "", "baseUrl": "https://api.topazlabs.com" }
@@ -9239,13 +9236,14 @@ async fn api_models_workflow_post(
     })))
 }
 
-const SUPPORTED_MODEL_PROVIDERS: [&str; 8] = [
+const SUPPORTED_MODEL_PROVIDERS: [&str; 9] = [
     "autodl",
     "qwen",
     "volcengine",
     "kling",
     "gemini",
     "deepseek",
+    "openai",
     "custom_openai",
     "topaz",
 ];
@@ -9893,6 +9891,7 @@ fn normalize_imported_provider_credentials(input: &Value) -> Result<Value, ApiEr
     let gemini = settings_optional_object_field(input, "gemini", "providerCredentials")?;
     let qwen = settings_optional_object_field(input, "qwen", "providerCredentials")?;
     let volcengine = settings_optional_object_field(input, "volcengine", "providerCredentials")?;
+    let openai = settings_optional_object_field(input, "openai", "providerCredentials")?;
     let deepseek = settings_optional_object_field(input, "deepseek", "providerCredentials")?;
     let autodl = settings_optional_object_field(input, "autodl", "providerCredentials")?;
     let kling = settings_optional_object_field(input, "kling", "providerCredentials")?;
@@ -9902,6 +9901,7 @@ fn normalize_imported_provider_credentials(input: &Value) -> Result<Value, ApiEr
       "gemini": normalize_imported_api_key_provider_credentials(gemini, "gemini")?,
       "qwen": normalize_imported_api_key_provider_credentials(qwen, "qwen")?,
       "volcengine": normalize_imported_api_key_provider_credentials(volcengine, "volcengine")?,
+      "openai": normalize_imported_api_key_provider_credentials(openai, "openai")?,
       "deepseek": normalize_imported_api_key_provider_credentials(deepseek, "deepseek")?,
       "autodl": normalize_imported_api_key_provider_credentials(autodl, "autodl")?,
       "kling": normalize_imported_kling_credentials(kling)?,
@@ -10174,6 +10174,7 @@ fn provider_sync_base_url(provider: &str, creds: &Value) -> Option<String> {
         "volcengine" => {
             configured.or_else(|| Some("https://ark.cn-beijing.volces.com/api/v3".to_string()))
         }
+        "openai" => configured.or_else(|| Some("https://api.openai.com/v1".to_string())),
         "deepseek" => configured.or_else(|| Some("https://api.deepseek.com".to_string())),
         "autodl" => configured.or_else(|| Some("https://autodl.art".to_string())),
         "gemini" => configured
@@ -10185,7 +10186,7 @@ fn provider_sync_base_url(provider: &str, creds: &Value) -> Option<String> {
 
 fn provider_sync_api_key(provider: &str, creds: &Value) -> Option<String> {
     match provider {
-        "qwen" | "volcengine" | "deepseek" | "custom_openai" | "autodl" => {
+        "qwen" | "volcengine" | "openai" | "deepseek" | "custom_openai" | "autodl" => {
             provider_credential_field(creds, provider, "apiKey")
         }
         _ => None,
@@ -10409,6 +10410,7 @@ fn resolve_provider_meta(
             "official_api",
             true,
         )),
+        "openai" => Some(("OpenAI", "OpenAI 官方文本与图片 API，支持同步账号可用模型。", "official_api", true)),
         "deepseek" => Some((
             "DeepSeek",
             "通过 DeepSeek 官方 OpenAI 兼容 /models 同步账号可用模型，默认接入文本生成流程。",
@@ -10445,7 +10447,7 @@ fn resolve_provider_meta(
 
 fn resolve_provider_configured(provider: &str, creds: &Value) -> bool {
     match provider {
-        "qwen" | "volcengine" | "deepseek" | "gemini" | "autodl" | "topaz" => {
+        "qwen" | "volcengine" | "openai" | "deepseek" | "gemini" | "autodl" | "topaz" => {
             provider_credential_field(creds, provider, "apiKey").is_some()
         }
         "kling" => {
@@ -10578,6 +10580,7 @@ fn manual_provider_seed_available_models(provider: &str) -> Vec<String> {
             "doubao-seedance-2-0-fast-260128".to_string(),
             "doubao-seedance-2-0-mini-260615".to_string(),
         ],
+        "openai" => vec!["gpt-4.1".to_string(), "gpt-4.1-mini".to_string(), "gpt-image-1".to_string(), "gpt-image-1.5".to_string(), "gpt-image-2".to_string()],
         "deepseek" => vec![
             "deepseek-v4-pro".to_string(),
             "deepseek-v4-flash".to_string(),
@@ -11569,6 +11572,7 @@ fn provider_credentials_public(creds: &Value) -> Value {
         "arkOpenApiBaseUrl": provider_credential_field(creds, "volcengine", "arkOpenApiBaseUrl").unwrap_or_default(),
         "baseUrl": base_url("volcengine")
       },
+      "openai": { "hasApiKey": mask("openai", "apiKey"), "baseUrl": base_url("openai") },
       "deepseek":   { "hasApiKey": mask("deepseek", "apiKey"), "baseUrl": base_url("deepseek") },
       "autodl":     { "hasApiKey": mask("autodl", "apiKey"), "baseUrl": base_url("autodl") },
       "topaz":      { "hasApiKey": mask("topaz", "apiKey"), "baseUrl": base_url("topaz") },
@@ -13592,7 +13596,7 @@ async fn api_provider_credentials_put(
 ) -> Result<Json<Value>, ApiError> {
     if !matches!(
         provider.as_str(),
-        "gemini" | "qwen" | "volcengine" | "deepseek" | "kling" | "autodl" | "topaz"
+        "gemini" | "qwen" | "volcengine" | "openai" | "deepseek" | "kling" | "autodl" | "topaz"
     ) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,

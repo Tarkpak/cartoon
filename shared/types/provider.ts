@@ -11,7 +11,7 @@ export const ModelProviderSchema = z.enum([
   'volcengine', // 火山引擎 (豆包)
   'topaz', // Topaz Labs 视频增强
   'custom_openai', // 自定义 OpenAI 兼容接口
-  'openai', // OpenAI (预留)
+  'openai', // OpenAI 官方 API
   'deepseek' // DeepSeek
 ])
 export type ModelProvider = z.infer<typeof ModelProviderSchema>
@@ -221,6 +221,7 @@ export const ProviderCredentialsPublicSchema = z.object({
   gemini: ProviderApiKeyCredentialSchema,
   qwen: ProviderApiKeyCredentialSchema,
   volcengine: ProviderApiKeyCredentialSchema,
+  openai: ProviderApiKeyCredentialSchema.default({}),
   deepseek: ProviderApiKeyCredentialSchema,
   topaz: ProviderApiKeyCredentialSchema,
   kling: KlingCredentialSchema

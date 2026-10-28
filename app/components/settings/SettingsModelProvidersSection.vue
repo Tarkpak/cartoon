@@ -17,7 +17,7 @@ import SettingsConfirmDialog from '@/components/settings/SettingsConfirmDialog.v
 import { useSettingsModelCatalog } from '@/composables/useSettingsModelCatalog'
 import { supportsTextReasoningEffort, type ReasoningEffort } from '#shared/utils/model-reasoning'
 
-type ProviderId = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'deepseek' | 'custom_openai' | 'autodl' | 'topaz'
+type ProviderId = 'gemini' | 'qwen' | 'kling' | 'volcengine' | 'openai' | 'deepseek' | 'custom_openai' | 'autodl' | 'topaz'
 
 interface ModelProviderCatalogEntry {
   model: string
@@ -91,7 +91,7 @@ const activeProviderSummary = computed(() => {
   return providers.value.find(provider => provider.provider === activeProvider.value) || providers.value[0] || null
 })
 
-type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'deepseek' | 'kling' | 'autodl' | 'topaz'
+type CredentialProvider = 'gemini' | 'qwen' | 'volcengine' | 'openai' | 'deepseek' | 'kling' | 'autodl' | 'topaz'
 
 const activeCredentialProvider = computed<CredentialProvider | null>(() => {
   const provider = activeProviderSummary.value?.provider

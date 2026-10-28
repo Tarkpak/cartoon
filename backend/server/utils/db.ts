@@ -533,6 +533,7 @@ function ensureDefaultProviders(conn: Database) {
     ['qwen', '通义千问', 'https://dashscope.aliyuncs.com/compatible-mode/v1'],
     ['volcengine', '火山方舟', 'https://ark.cn-beijing.volces.com/api/v3'],
     ['deepseek', 'DeepSeek', 'https://api.deepseek.com'],
+    ['openai', 'OpenAI', 'https://api.openai.com/v1'],
     ['autodl', 'AutoDL', 'https://autodl.art'],
     ['topaz', 'Topaz Labs', 'https://api.topazlabs.com'],
     ['kling', '可灵', 'https://api-beijing.klingai.com'],

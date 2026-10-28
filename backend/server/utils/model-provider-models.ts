@@ -33,6 +33,7 @@ export const CLIENT_MODEL_PROVIDER_KEYS = [
   'qwen',
   'volcengine',
   'deepseek',
+  'openai',
   'kling',
   'custom_openai'
 ] as const
