@@ -844,7 +844,6 @@ fn llm_http_client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         Client::builder()
-            .no_proxy()
             .default_headers(llm_default_headers())
             .redirect(reqwest::redirect::Policy::limited(5))
             .build()
