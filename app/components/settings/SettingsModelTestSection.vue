@@ -142,7 +142,7 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="flex h-full min-h-0 flex-col overflow-hidden">
     <div
       v-if="loading"
       class="flex flex-1 items-center justify-center"
@@ -179,7 +179,7 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
     </div>
 
     <template v-else-if="models">
-      <div class="flex flex-1 flex-col overflow-hidden">
+      <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <div class="bg-background px-4 py-3 md:px-6">
           <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div class="min-w-0">

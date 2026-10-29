@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useCachedOverlayActive } from '@/composables/useCachedOverlayActive'
+
+const overlayActive = useCachedOverlayActive()
+
 import type { DropdownMenuContentEmits, DropdownMenuContentProps } from 'reka-ui'
 import type { HTMLAttributes } from 'vue'
 import { reactiveOmit } from '@vueuse/core'
@@ -27,7 +31,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
 
 <template>
-  <DropdownMenuPortal>
+  <DropdownMenuPortal v-if="overlayActive">
     <DropdownMenuContent
       v-bind="{ ...forwarded, ...$attrs }"
       :class="cn(

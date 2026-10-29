@@ -74,11 +74,11 @@ const videoResultMeta = computed(() => {
 </script>
 
 <template>
-  <div class="flex-1 overflow-y-auto p-4">
+  <div class="p-4">
     <!-- Idle state -->
     <div
       v-if="activeResult.status === 'idle'"
-      class="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground"
+      class="flex min-h-40 flex-col items-center justify-center gap-2 text-muted-foreground"
     >
       <component
         :is="activeTabIcon"
@@ -92,7 +92,7 @@ const videoResultMeta = computed(() => {
     <!-- Testing state -->
     <div
       v-else-if="activeResult.status === 'testing'"
-      class="flex h-full flex-col items-center justify-center gap-3"
+      class="flex min-h-40 flex-col items-center justify-center gap-3"
     >
       <div class="relative">
         <Loader2 class="h-10 w-10 animate-spin text-primary/60" />

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useCachedOverlayActive } from '@/composables/useCachedOverlayActive'
+
+const overlayActive = useCachedOverlayActive()
+
 import { cn } from '@/lib/utils'
 import {
   DialogClose,
@@ -29,7 +33,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
 
 <template>
-  <DialogPortal>
+  <DialogPortal v-if="overlayActive">
     <!-- A light, slightly blurred scrim keeps the page recognisable behind the dialog. -->
     <DialogOverlay
       :class="cn(

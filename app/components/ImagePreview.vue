@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useCachedOverlayActive } from '@/composables/useCachedOverlayActive'
+
+const overlayActive = useCachedOverlayActive()
+
 import { Download, RotateCcw, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-vue-next'
 
 interface ImagePreviewProps {
@@ -211,7 +215,7 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
-watch(() => props.open, (isOpen) => {
+watch(() => props.open && overlayActive.value, (isOpen) => {
   if (isOpen) {
     document.addEventListener('keydown', handleKeydown)
     document.addEventListener('wheel', handleDocumentWheel, { capture: true, passive: false })
@@ -241,7 +245,7 @@ onUnmounted(() => {
       leave-to-class="opacity-0"
     >
       <div
-        v-if="open"
+        v-if="open && overlayActive"
         class="pointer-events-auto fixed inset-0 z-[9999] flex items-center justify-center overscroll-none"
       >
         <!-- 背景遮罩 -->

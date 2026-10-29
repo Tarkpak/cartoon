@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useCachedOverlayActive } from '@/composables/useCachedOverlayActive'
+
+const overlayActive = useCachedOverlayActive()
+
 import type { TooltipContentEmits, TooltipContentProps } from 'reka-ui'
 import type { HTMLAttributes } from 'vue'
 import { reactiveOmit } from '@vueuse/core'
@@ -22,7 +26,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
 
 <template>
-  <TooltipPortal>
+  <TooltipPortal v-if="overlayActive">
     <TooltipContent
       v-bind="{ ...forwarded, ...$attrs }"
       :class="cn(

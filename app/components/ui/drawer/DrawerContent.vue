@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { useCachedOverlayActive } from '@/composables/useCachedOverlayActive'
 import type { DialogContentEmits, DialogContentProps } from 'reka-ui'
 import type { HTMLAttributes } from 'vue'
 import { reactiveOmit } from '@vueuse/core'
@@ -7,6 +8,7 @@ import { DrawerContent, DrawerPortal } from 'vaul-vue'
 import { cn } from '@/lib/utils'
 import DrawerOverlay from './DrawerOverlay.vue'
 
+const overlayActive = useCachedOverlayActive()
 const props = defineProps<DialogContentProps & { class?: HTMLAttributes['class'] }>()
 const emits = defineEmits<DialogContentEmits>()
 
@@ -15,7 +17,7 @@ const forwardedProps = useForwardPropsEmits(delegatedProps, emits)
 </script>
 
 <template>
-  <DrawerPortal>
+  <DrawerPortal v-if="overlayActive">
     <DrawerOverlay />
     <DrawerContent
       v-bind="forwardedProps"
