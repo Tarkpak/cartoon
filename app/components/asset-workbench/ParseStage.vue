@@ -32,7 +32,7 @@ const props = defineProps<{
     }
   }>
   parseProgress?: ParseProgressDisplayState
-  scenesCount: number
+  environmentAssetsCount: number
   charactersCount: number
   hint: string
 }>()
@@ -220,7 +220,7 @@ async function handleDrop(event: DragEvent) {
         {{ planActionDisabledReason }}
       </span>
       <div
-        v-if="scenesCount > 0 || charactersCount > 0"
+        v-if="environmentAssetsCount > 0 || charactersCount > 0"
         class="flex items-center gap-2 text-xs text-muted-foreground"
         aria-live="polite"
       >
@@ -229,7 +229,7 @@ async function handleDrop(event: DragEvent) {
             class="inline-block h-1.5 w-1.5 rounded-full bg-success"
             aria-hidden="true"
           />
-          {{ scenesCount }} 个场景
+          {{ environmentAssetsCount }} 个场景设定
         </span>
         <span class="inline-flex items-center gap-1">
           <span

@@ -3883,7 +3883,7 @@ function reportWorkbenchActivity() {
       :parsing="parsing"
       :episode-plan="episodePlan"
       :parse-progress="parseProgress"
-      :scenes-count="scenes.length"
+      :environment-assets-count="displayEnvironmentAssetCards.length"
       :characters-count="characters.length"
       :hint="parseStageHint"
       @prepare-episodes="handlePrepareEpisodePlan"

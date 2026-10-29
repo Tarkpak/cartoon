@@ -42,6 +42,7 @@ export function useProjectsIndexPage() {
   const totalProjects = ref(0)
   const pageSizeOptions = projectPageSizeOptions
   let mountedUserId: string | undefined
+  let hasActivated = false
 
   const showCreateDialog = ref(false)
   const newProject = ref(createProjectDraft())
@@ -119,7 +120,7 @@ export function useProjectsIndexPage() {
   }
 
   async function createProject() {
-    if (!newProject.value.title.trim()) return
+    if (creating.value || !newProject.value.title.trim()) return
 
     const styleId = ensureCreateStyleId(false)
     if (!styleId) return
@@ -128,7 +129,8 @@ export function useProjectsIndexPage() {
     try {
       const response = await $fetch<{
         success: boolean
-        project: {
+        message?: string
+        project?: {
           id: string
         }
       }>('/api/project/create', {
@@ -142,6 +144,9 @@ export function useProjectsIndexPage() {
           aspectRatio: newProject.value.aspectRatio
         }
       })
+      if (!response.success || !response.project?.id) {
+        throw new Error(response.message || '创建项目失败')
+      }
       showCreateDialog.value = false
       createStep.value = 'basic'
       newProject.value = createProjectDraft(ensureCreateStyleId(true))
@@ -160,6 +165,7 @@ export function useProjectsIndexPage() {
       await fetchProjects(1)
     } catch (createProjectError) {
       console.error('创建项目失败:', createProjectError)
+      useToast().toast.error('创建项目失败', { description: getDisplayErrorMessage(createProjectError, '请重试。') })
     } finally {
       creating.value = false
     }
@@ -255,6 +261,15 @@ export function useProjectsIndexPage() {
     currentPage.value = 1
     void fetchProjects(1)
   }, 300)
+
+  onActivated(() => {
+    // KeepAlive also activates on the initial mount, which already loads the list.
+    if (!hasActivated) {
+      hasActivated = true
+      return
+    }
+    void fetchProjects(currentPage.value)
+  })
 
   onMounted(async () => {
     await Promise.all([

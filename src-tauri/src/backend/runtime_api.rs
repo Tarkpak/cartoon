@@ -19692,7 +19692,7 @@ async fn request_openai_compatible_text_completion(
 
     for api_key in api_keys {
         let mut request_body = openai_compatible_text_request_body(model.as_str(), prompt);
-        apply_qwen_text_options(&mut request_body, provider, model.as_str(), text_stream_enabled());
+        apply_qwen_text_options(&mut request_body, provider, model.as_str(), true);
         apply_text_reasoning_effort(&mut request_body, provider, model_id, reasoning_creds);
         if provider == "openai" {
             // Reasoning models reject custom temperature; use the API defaults and
