@@ -67,13 +67,23 @@ describe('Aliyun current model catalog', () => {
     }
   })
 
-  it('expands existing and text-only synced catalogs while preserving enabled models', () => {
-    const state = resolveProviderModelState({ providerKey: 'qwen', modelsJson: '["qwen3.6-plus"]', availableModelsJson: '["private-text-model"]', syncedAt: '2026-10-29' })
+  it('supplements catalogs after a failed sync while preserving enabled models', () => {
+    const state = resolveProviderModelState({ providerKey: 'qwen', modelsJson: '["qwen3.6-plus"]', availableModelsJson: '["private-text-model"]', syncedAt: '2026-10-29', syncError: 'timeout' })
     expect(state.availableModels).toContain('wan3.0-video')
     expect(state.availableModels).toContain('qwen-image-3.0-pro')
     expect(state.availableModels).toContain('private-text-model')
     expect(state.models).toEqual(['qwen3.6-plus'])
     expect(new Set(state.availableModels).size).toBe(state.availableModels.length)
+  })
+})
+
+describe('Aliyun native synced catalog', () => {
+  it('keeps a successful upstream catalog authoritative without injecting models', () => {
+    const state = resolveProviderModelState({ providerKey: 'qwen',
+      modelsJson: '["qwen3.6-plus"]', availableModelsJson: '["wan3.0-video"]', syncedAt: '2026-10-30' })
+    expect(state.availableModels).toEqual(['wan3.0-video'])
+    expect(state.models).toEqual(['qwen3.6-plus'])
+    expect(state.availableModelCatalog[0]?.category).toBe('video')
   })
 })
 

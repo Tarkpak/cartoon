@@ -12,6 +12,7 @@ import {
   resolveProviderModelState,
   retainEnabledModels
 } from '../../../../../utils/model-provider-models'
+import { fetchQwenNativeModels } from '../../../../../utils/qwen-native-models'
 import { getAdminProviderRow } from '../../../../../utils/custom-openai-providers'
 
 async function fetchProviderModels(baseUrl: string, apiKey: string) {
@@ -77,7 +78,9 @@ export default defineEventHandler(async (event) => {
   const timestamp = nowIso()
 
   try {
-    const remoteModels = await fetchProviderModels(baseUrl, apiKey)
+    const remoteModels = provider.provider_key === 'qwen'
+      ? await fetchQwenNativeModels(baseUrl, apiKey)
+      : await fetchProviderModels(baseUrl, apiKey)
     const availableModels = resolveProviderModelState({
       providerKey: provider.provider_key,
       availableModelsJson: JSON.stringify(remoteModels),

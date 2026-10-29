@@ -231,7 +231,8 @@ export function resolveProviderModelState(input: ProviderModelStateInput): Provi
   }
 
   // Compatible /models lists may omit native image and video models.
-  if (['qwen', 'volcengine'].includes(normalizeProviderKey(input.providerKey))) {
+  if (normalizeProviderKey(input.providerKey) === 'volcengine'
+    || (normalizeProviderKey(input.providerKey) === 'qwen' && (!input.syncedAt || input.syncError))) {
     availableModels = normalizeModelList([...availableModels, ...models, ...manualProviderSeedAvailableModels(input.providerKey)])
   }
 
