@@ -12,6 +12,8 @@ mod text_stream;
 use text_stream::*;
 #[path = "script_parse_pipeline.rs"]
 mod script_parse_pipeline;
+#[path = "context_budget.rs"]
+mod context_budget;
 #[path = "character_registry.rs"]
 mod character_registry;
 #[path = "script_offsets.rs"]
@@ -4510,7 +4512,6 @@ fn extract_character_names(text: &str) -> Vec<String> {
     names
 }
 
-const EPISODE_PLAN_SINGLE_PASS_MAX_CHARS: usize = 32_000;
 const EPISODE_PLAN_CHUNK_TARGET_CHARS: usize = 24_000;
 const EPISODE_PLAN_CHUNK_MAX_CHARS: usize = 32_000;
 const EPISODE_PLAN_CHUNK_MIN_CHARS: usize = 10_000;
@@ -4646,6 +4647,40 @@ fn split_text_into_episode_plan_chunks(text: &str) -> Vec<EpisodePlanChunk> {
         });
     }
     chunks
+}
+
+fn bisect_episode_plan_chunk(mut chunk: EpisodePlanChunk) -> (EpisodePlanChunk, EpisodePlanChunk) {
+    let chars = chunk.text.chars().collect::<Vec<_>>();
+    let midpoint = chars.len() / 2;
+    let cut = find_backward_break(&chars, midpoint, midpoint / 2, &['\n', '。', '！', '？'])
+        .unwrap_or(midpoint);
+    let second = EpisodePlanChunk {
+        index: 0, start_offset: chunk.start_offset + cut,
+        end_offset: chunk.end_offset, text: chars[cut..].iter().collect(),
+    };
+    chunk.end_offset = second.start_offset;
+    chunk.text = chars[..cut].iter().collect();
+    (chunk, second)
+}
+
+#[cfg(test)]
+mod context_chunk_tests {
+    use super::*;
+
+    #[test]
+    fn splitting_keeps_every_source_character_and_global_offsets() {
+        let source = "甲说：你好😀。\n乙回答：再见。".repeat(100);
+        let length = source.chars().count();
+        let chunk = EpisodePlanChunk { index: 1, start_offset: 17, end_offset: 17 + length, text: source.clone() };
+        let (first, second) = bisect_episode_plan_chunk(chunk);
+        assert_eq!(format!("{}{}", first.text, second.text), source);
+        assert_eq!(first.start_offset, 17);
+        assert_eq!(first.end_offset, second.start_offset);
+        assert_eq!(second.end_offset, 17 + length);
+        assert_eq!(first.text.chars().count(), first.end_offset - first.start_offset);
+        assert_eq!(second.text.chars().count(), second.end_offset - second.start_offset);
+        assert!(!first.text.is_empty() && !second.text.is_empty());
+    }
 }
 
 fn build_parsed_script_payload(body: &Value) -> Value {
@@ -7159,21 +7194,34 @@ mod project_character_baseline_tests {
 
 async fn expand_episode_plan_with_repair(
     state: &BackendState,
-    prompt: &str,
+    source: &str,
     model_text: &str,
     body: &Value,
 ) -> Result<Value, String> {
     let output = extract_json_from_text(model_text)?;
     character_registry::expand_with_repair(output, body, |output, error| async move {
+        let data = output.get("data").unwrap_or(&output);
+        let usage = data.get("episodes").and_then(Value::as_array).map(|episodes| {
+            episodes.iter().map(|episode| json!({
+                "title": episode.get("title"),
+                "startOffset": episode.get("startOffset"),
+                "endOffset": episode.get("endOffset"),
+                "characterIds": episode.pointer("/episodeAssets/characterIds")
+            })).collect::<Vec<_>>()
+        }).unwrap_or_default();
         let repair_prompt = format!(
-            "{prompt}\n\n【上次生成的 JSON】\n{output}\n\n【人物引用校验失败，修复一次】\n{error}\n\
-             请检查全部人物引用，修复所有未定义 ID（不只上面报告的第一个）。\
-             依据输入原文和已有身份表，为遗漏的人物在顶层 newCharacters 补齐 id、规范姓名和稳定外观；\
-             若引用实际对应已登记人物，改为正确的已有 id。不得猜测合并身份，不得删除人物引用来绕过校验。\
-             保持分集、标题、原文偏移、道具和环境等其他内容不变。返回修复后的完整 JSON，不要只返回补丁。"
+            "【原文】\n{source}\n{}\n【已有新增人物档案】\n{}\n【分集人物引用】\n{}\n\
+             【校验失败】{error}\n请核对全部未定义人物 ID，仅补全缺失的档案。\
+             根据原文和人物身份表判断姓名、别名、稳定外观；不得猜测合并身份。\
+             如果临时 ID 对应已有身份，使用其规范姓名和明确别名以关联已有身份。\
+             只返回 {{\"newCharacters\":[{{\"id\":\"缺失ID\",\"name\":\"规范姓名\",\"aliases\":[],\"description\":\"稳定外观\"}}]}}。\
+             不要重复已有定义，不要返回或修改分集目录。",
+            character_registry::source_prompt(body, source),
+            data.get("newCharacters").unwrap_or(&Value::Null), json!(usage)
         );
+        context_budget::check(&repair_prompt)?;
         let (text, _, _) = run_workflow_text_model(state, "script_parsing", &repair_prompt).await?;
-        extract_json_from_text(&text)
+        character_registry::apply_definition_patch(output, extract_json_from_text(&text)?)
     }).await
 }
 
@@ -7207,28 +7255,14 @@ async fn build_model_episode_plan(
             false,
         ));
     }
-    if normalized_text.chars().count() <= EPISODE_PLAN_SINGLE_PASS_MAX_CHARS {
-        let prompt = {
-            let conn = db_connection(state).map_err(|error| error.message)?;
-            build_episode_plan_prompt_text(&conn, &normalized_text, script_parse_mode, None, None)
-                .map_err(|error| error.message)?
-        };
-        let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}", json_string(body.get("style"), "遵循原文时代与题材"), character_registry::prompt(body));
-        let (model_text, provider, model_id) =
-            run_workflow_text_model(state, "script_parsing", &prompt).await?;
-        let value = expand_episode_plan_with_repair(state, &prompt, &model_text, body).await?;
-        let mut episodes = build_episode_plan_from_model_output(&normalized_text, value);
-        normalize_episode_character_baselines(&mut episodes, body);
-        return Ok((episodes, provider, model_id, false));
-    }
-
-    let chunks = split_text_into_episode_plan_chunks(&normalized_text);
-    let chunk_count = chunks.len();
+    let mut chunks = std::collections::VecDeque::from(split_text_into_episode_plan_chunks(&normalized_text));
     let mut chunk_results = Vec::new();
     let mut provider_name = String::new();
     let mut model_name = String::new();
     let mut segment_body = body.clone();
-    for chunk in chunks {
+    while let Some(mut chunk) = chunks.pop_front() {
+        chunk.index = chunk_results.len() + 1;
+        let chunk_count = chunk_results.len() + chunks.len() + 1;
         let prompt = {
             let conn = db_connection(state).map_err(|error| error.message)?;
             build_episode_plan_prompt_text(
@@ -7240,25 +7274,40 @@ async fn build_model_episode_plan(
             )
             .map_err(|error| error.message)?
         };
-        let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}", json_string(body.get("style"), "遵循原文时代与题材"), character_registry::prompt(&segment_body));
+        let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}", json_string(body.get("style"), "遵循原文时代与题材"), character_registry::source_prompt(&segment_body, &chunk.text));
+        if context_budget::check(&prompt).is_err() {
+            let chars = chunk.text.chars().collect::<Vec<_>>();
+            if chars.len() <= 512 || chunk_count >= 256 {
+                context_budget::check(&prompt)?;
+            }
+            let (first, second) = bisect_episode_plan_chunk(chunk);
+            chunks.push_front(second);
+            chunks.push_front(first);
+            continue;
+        }
         let (model_text, provider, model_id) =
             run_workflow_text_model(state, "script_parsing", &prompt).await?;
         if provider_name.is_empty() {
             provider_name = provider;
             model_name = model_id;
         }
-        let value = expand_episode_plan_with_repair(state, &prompt, &model_text, &segment_body).await?;
+        let value = expand_episode_plan_with_repair(state, &chunk.text, &model_text, &segment_body).await?;
         let episodes = build_episode_plan_from_model_output(&chunk.text, value);
         character_registry::carry_forward(&mut segment_body, &episodes);
         chunk_results.push((chunk, episodes));
     }
-    let mut episodes = merge_chunked_episode_plans(&normalized_text, chunk_results);
+    let segmented = chunk_results.len() > 1;
+    let mut episodes = if segmented {
+        merge_chunked_episode_plans(&normalized_text, chunk_results)
+    } else {
+        chunk_results.pop().map(|(_, episodes)| episodes).unwrap_or_default()
+    };
     normalize_episode_character_baselines(&mut episodes, body);
     Ok((
         episodes,
         provider_name,
         model_name,
-        true,
+        segmented,
     ))
 }
 

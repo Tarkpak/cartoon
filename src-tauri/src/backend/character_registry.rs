@@ -240,6 +240,48 @@ pub(super) fn prompt(body: &Value) -> String {
     )
 }
 
+/// Keep every identity searchable, but include visual settings only for people
+/// explicitly mentioned in this source. Validation still uses the full registry.
+pub(super) fn source_prompt(body: &Value, source: &str) -> String {
+    let registry = Registry::new(body);
+    let records = registry.records.iter().map(|record| {
+        let relevant = field(record, "name").into_iter().chain(
+            record.get("aliases").and_then(Value::as_array).into_iter().flatten()
+                .filter_map(Value::as_str),
+        ).any(|name| !name.trim().is_empty() && source.contains(name.trim()));
+        if relevant {
+            record.clone()
+        } else {
+            let mut identity = json!({"id": record["id"], "name": record["name"]});
+            if let Some(aliases) = record.get("aliases") {
+                identity["aliases"] = aliases.clone();
+            }
+            identity
+        }
+    }).collect::<Vec<_>>();
+    format!("{}\n【人物身份表】\n{}\n未提供外观的已有身份仍已登记，不得重建身份或改写外观。", CHARACTER_REFERENCE_RULES, json!(records))
+}
+
+/// Merge additive identity definitions only; model repairs cannot edit episode data.
+pub(super) fn apply_definition_patch(mut output: Value, patch: Value) -> Result<Value, String> {
+    let data = if output.get("data").is_some() { &mut output["data"] } else { &mut output };
+    let patch = patch.get("data").unwrap_or(&patch);
+    let additions = patch.get("newCharacters").and_then(Value::as_array)
+        .ok_or("人物修复必须返回 newCharacters 数组")?;
+    if data.get("newCharacters").is_none() {
+        data["newCharacters"] = json!([]);
+    }
+    let definitions = data["newCharacters"].as_array_mut().ok_or("newCharacters 必须是数组")?;
+    for item in additions {
+        let id = field(item, "id").ok_or("人物修复缺少 ID")?;
+        if definitions.iter().any(|existing| field(existing, "id") == Some(id)) {
+            return Err(format!("人物修复不得覆盖已定义 ID：{id}"));
+        }
+        definitions.push(item.clone());
+    }
+    Ok(output)
+}
+
 /// Episode context contains usage only for registered people; their full settings live in one table.
 pub(super) fn compact_episode_context(episodes: &Value, body: &Value) -> Value {
     let registry = Registry::new(body);
@@ -522,6 +564,34 @@ fn resolve_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_context_keeps_all_identities_and_only_relevant_appearance() {
+        let body = json!({"characterBaselines":[
+            {"id":"a","name":"甲","aliases":["老甲"],"description":"唯一蓝衣外观"},
+            {"id":"b","name":"乙","aliases":["老乙"],"description":"无关红衣外观"}
+        ]});
+        let context = source_prompt(&body, "老甲走进房间");
+        assert!(context.contains("唯一蓝衣外观"));
+        assert!(!context.contains("无关红衣外观"));
+        assert!(context.contains("老乙"));
+        assert!(context.contains("\"id\":\"b\""));
+        assert_eq!(body["characterBaselines"][1]["description"], "无关红衣外观");
+    }
+
+    #[test]
+    fn additive_repair_preserves_episode_data_and_saved_definitions() {
+        let output = json!({"data":{"newCharacters":[{"id":"new_1","name":"甲","description":"蓝衣"}],
+            "episodes":[{"startOffset":0,"endOffset":12,"episodeAssets":{"characterIds":["new_1","new_23"]}}]}});
+        let repaired = apply_definition_patch(output.clone(), json!({
+            "newCharacters":[{"id":"new_23","name":"乙","description":"灰衣"}],
+            "episodes":[]
+        })).unwrap();
+        assert_eq!(repaired["data"]["episodes"], output["data"]["episodes"]);
+        assert!(expand(repaired, &json!({})).is_ok());
+        assert!(apply_definition_patch(output.clone(), json!({"newCharacters":[{"id":"new_1","name":"丙"}]})).is_err());
+        assert!(apply_definition_patch(output, json!({"episodes":[]})).is_err());
+    }
 
     #[tokio::test]
     async fn repairs_missing_episode_characters_and_revalidates_all_references() {
