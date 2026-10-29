@@ -1994,15 +1994,15 @@ function retryFailedSceneTasks() {
   void retryScenes(sceneIds)
 }
 
-function resolveStageProgress(key: AutoStageKey): { progress?: string, progressTitle?: string, hasError?: boolean } {
-  if (key === 'assets' && assetPreparationSummary.value.total > 0) {
+function resolveStageProgress(key: AutoStageKey): { progress?: number, progressTitle?: string, hasError?: boolean } {
+  if (key === 'assets') {
     const { ready, total, title } = assetPreparationSummary.value
-    return { progress: `${ready}/${total}`, progressTitle: title }
+    return { progress: total > 0 ? Math.min(100, Math.max(0, ready / total * 100)) : 0, progressTitle: title }
   }
-  if (key === 'videos' && queueSummary.value.total > 0) {
+  if (key === 'videos') {
     const { done, total, error } = queueSummary.value
     return {
-      progress: `${done}/${total}`,
+      progress: total > 0 ? Math.min(100, Math.max(0, done / total * 100)) : 0,
       progressTitle: `分镜视频已完成 ${done} / ${total}${error ? `，${error} 个失败` : ''}`,
       hasError: error > 0
     }

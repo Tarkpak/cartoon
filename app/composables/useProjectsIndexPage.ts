@@ -92,6 +92,28 @@ export function useProjectsIndexPage() {
     return resolved
   }
 
+  function creationPresetStorageKey(): string | null {
+    const userId = currentUser.value?.id?.trim()
+    return userId ? `playlet:last-video-project-preset:${userId}` : null
+  }
+
+  function restoreCreationPreset() {
+    const key = creationPresetStorageKey()
+    if (isWritingWorkspace.value || !key || typeof window === 'undefined') return
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(key) || 'null') as unknown
+      if (!saved || typeof saved !== 'object') return
+      const preset = saved as Record<string, unknown>
+      if (typeof preset.styleId === 'string' && hasAvailableStyle(preset.styleId)) {
+        newProject.value.styleId = preset.styleId
+      }
+      const mode = scriptParseModeOptions.find(option => option.value === preset.scriptParseMode)
+      if (mode) newProject.value.scriptParseMode = mode.value
+    } catch {
+      // Unavailable storage or an outdated preference must not block creation.
+    }
+  }
+
   async function fetchProjects(targetPage = currentPage.value) {
     loading.value = true
     error.value = null
@@ -125,6 +147,9 @@ export function useProjectsIndexPage() {
     const styleId = ensureCreateStyleId(false)
     if (!styleId) return
 
+    const preset = { styleId, scriptParseMode: newProject.value.scriptParseMode }
+    const presetStorageKey = isWritingWorkspace.value ? null : creationPresetStorageKey()
+
     creating.value = true
     try {
       const response = await $fetch<{
@@ -146,6 +171,13 @@ export function useProjectsIndexPage() {
       })
       if (!response.success || !response.project?.id) {
         throw new Error(response.message || '创建项目失败')
+      }
+      if (presetStorageKey && typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem(presetStorageKey, JSON.stringify(preset))
+        } catch {
+          // Saving a preference is optional; the project was already created.
+        }
       }
       showCreateDialog.value = false
       createStep.value = 'basic'
@@ -175,6 +207,7 @@ export function useProjectsIndexPage() {
     await loadStylePresets(true)
 
     newProject.value = createProjectDraft(ensureCreateStyleId(true))
+    restoreCreationPreset()
     createStep.value = 'basic'
     showCreateDialog.value = true
   }

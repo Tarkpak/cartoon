@@ -65,7 +65,7 @@ const navigation = computed(() => {
   ]
 
   return [
-    { name: '我的项目', path: '/projects', icon: Folder },
+    { name: '项目', path: '/projects', icon: Folder },
     {
       name: '素材',
       path: assetChildren[0].path,

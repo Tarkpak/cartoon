@@ -6,7 +6,7 @@ defineProps<{
     key: string
     label: string
     status: 'pending' | 'running' | 'done'
-    progress?: string
+    progress?: number
     progressTitle?: string
     hasError?: boolean
   }>
@@ -36,7 +36,7 @@ const emit = defineEmits<{
         />
         <button
           type="button"
-          class="group inline-flex h-8 items-center gap-1.5 rounded-full py-1 pl-1 pr-3 text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background active:scale-[0.98]"
+          class="group relative isolate inline-flex h-8 overflow-hidden items-center gap-1.5 rounded-full py-1 pl-1 pr-3 text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background active:scale-[0.98]"
           :class="activeStage === stage.key
             ? 'bg-primary font-semibold text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90'
             : stage.status === 'running'
@@ -46,8 +46,18 @@ const emit = defineEmits<{
                 : 'font-medium text-muted-foreground hover:bg-muted hover:text-foreground'"
           :aria-current="activeStage === stage.key ? 'step' : undefined"
           :title="stage.progressTitle"
+          :aria-label="stage.progressTitle ? `${stage.label}：${stage.progressTitle}` : stage.label"
           @click="emit('select-stage', stage.key)"
         >
+          <span
+            v-if="stage.progress !== undefined"
+            class="pointer-events-none absolute inset-0 -z-10 origin-left transition-transform duration-300 ease-out motion-reduce:transition-none"
+            :class="stage.hasError
+              ? 'bg-amber-500/30'
+              : activeStage === stage.key ? 'bg-emerald-400/35' : 'bg-emerald-500/20'"
+            :style="{ transform: `scaleX(${stage.progress / 100})` }"
+            aria-hidden="true"
+          />
           <span
             class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
             :class="activeStage === stage.key
@@ -70,18 +80,7 @@ const emit = defineEmits<{
             <span v-else>{{ idx + 1 }}</span>
           </span>
           <span class="whitespace-nowrap">{{ stage.label }}</span>
-          <span
-            v-if="stage.progress"
-            class="inline-flex items-center gap-1 whitespace-nowrap font-normal tabular-nums"
-            :class="activeStage === stage.key ? 'text-primary-foreground/80' : 'text-muted-foreground'"
-          >
-            {{ stage.progress }}
-            <span
-              v-if="stage.hasError"
-              class="h-1.5 w-1.5 rounded-full bg-destructive"
-              aria-label="有失败项"
-            />
-          </span>
+
         </button>
       </template>
     </nav>
