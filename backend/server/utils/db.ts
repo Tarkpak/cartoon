@@ -45,12 +45,18 @@ export function getDb() {
   const dir = dirname(target)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
-  db = new Database(target)
-  db.exec('PRAGMA journal_mode = WAL')
-  db.exec('PRAGMA busy_timeout = 5000')
-  db.exec('PRAGMA foreign_keys = ON')
-  initSchema(db)
-  return db
+  const conn = new Database(target)
+  try {
+    conn.exec('PRAGMA journal_mode = WAL')
+    conn.exec('PRAGMA busy_timeout = 5000')
+    conn.exec('PRAGMA foreign_keys = ON')
+    initSchema(conn)
+    db = conn
+    return conn
+  } catch (error) {
+    conn.close()
+    throw error
+  }
 }
 
 function initSchema(conn: Database) {
@@ -556,11 +562,15 @@ function ensureDefaultProviders(conn: Database) {
        encrypted_access_key, encrypted_secret_key, encrypted_security_token, updated_at)
     VALUES (?, '', '', '', '', '', '', '', '', ?)
   `)
+  const selectProvider = conn.prepare('SELECT id FROM model_providers WHERE provider_key = ?')
   const timestamp = nowIso()
   for (const [providerKey, displayName, baseUrl] of providers) {
     const id = `provider_${providerKey}`
     insertProvider.run(id, providerKey, displayName, baseUrl, timestamp, timestamp)
-    insertCreds.run(id, timestamp)
+    // Imported providers can use a different ID for the same unique provider key.
+    const provider = selectProvider.get(providerKey) as { id: string } | null
+    if (!provider) throw new Error(`Default provider key is missing: ${providerKey}`)
+    insertCreds.run(provider.id, timestamp)
   }
 
   conn.prepare(`
