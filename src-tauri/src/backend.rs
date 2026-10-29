@@ -10559,7 +10559,7 @@ fn resolve_provider_models(
     if available.is_empty() {
         available = manual_provider_seed_available_models(provider);
     }
-    if provider == "qwen" {
+    if matches!(provider, "qwen" | "volcengine") {
         for model in manual_provider_seed_available_models(provider) {
             if !available.contains(&model) { available.push(model); }
         }
@@ -10611,6 +10611,12 @@ fn manual_provider_seed_available_models(provider: &str) -> Vec<String> {
             "fun-asr-mtl".to_string(),
         ],
         "volcengine" => vec![
+            "doubao-seed-evolving".to_string(),
+            "doubao-seed-2-1-pro-260915".to_string(),
+            "doubao-seed-2-1-lite-260915".to_string(),
+            "doubao-seed-2-1-turbo-260628".to_string(),
+            "doubao-seedream-5-0-pro-260628".to_string(),
+            "doubao-seedream-5-0-flash-260915".to_string(),
             "doubao-seed-2-0-pro-260215".to_string(),
             "deepseek-v3-2-251201".to_string(),
             "doubao-seedream-5-0-260128".to_string(),
@@ -10984,7 +10990,7 @@ async fn api_model_provider_sync(
     };
 
     let sync_result = fetch_provider_models_from_remote(&provider, &load_provider_creds(&conn)).await.map(|mut models| {
-        if provider == "qwen" {
+        if matches!(provider.as_str(), "qwen" | "volcengine") {
             for model in manual_provider_seed_available_models(&provider) {
                 if !models.contains(&model) { models.push(model); }
             }

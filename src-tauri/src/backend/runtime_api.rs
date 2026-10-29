@@ -8330,6 +8330,52 @@ fn parse_gemini_image_result(payload: &Value) -> Option<(String, Option<String>)
     None
 }
 
+fn is_seedream_5_pro_or_flash(model: &str) -> bool {
+    model.starts_with("doubao-seedream-5-0-pro") || model.starts_with("doubao-seedream-5-0-flash")
+}
+
+fn build_volcengine_image_request(
+    model: &str,
+    prompt: &str,
+    size: &str,
+    references: &[String],
+) -> Result<Value, String> {
+    let (_, caps) = build_available_model_entry("volcengine", model);
+    let limit = caps
+        .get("maxReferenceImages")
+        .and_then(Value::as_u64)
+        .unwrap_or(1) as usize;
+    if references.len() > limit {
+        return Err(format!("当前图片模型最多支持 {limit} 张参考图片"));
+    }
+    let size = if size.trim().is_empty() {
+        "2K".to_string()
+    } else {
+        size.trim().replace('*', "x")
+    };
+    if is_seedream_5_pro_or_flash(model) {
+        if let Some((width, height)) = parse_image_dimensions(&size) {
+            let pixels = u64::from(width) * u64::from(height);
+            if !(921_600..=4_624_220).contains(&pixels)
+                || u64::from(width.max(height)) > u64::from(width.min(height)) * 16
+            {
+                return Err("Seedream 5.0 Pro / Flash 图片总像素需在 921600–4624220 之间，长短边比例不能超过 16:1".to_string());
+            }
+        } else if !matches!(size.as_str(), "1K" | "1.5K" | "2K") {
+            return Err("Seedream 5.0 Pro / Flash 仅支持 1K、1.5K、2K 或有效像素尺寸".to_string());
+        }
+    }
+    // Native Ark image generation has no OpenAI `n` parameter. Pro/Flash
+    // generate one image and do not accept sequential_image_generation.
+    let mut body = json!({"model": model, "prompt": prompt, "size": size, "response_format": "url", "watermark": false});
+    if references.len() == 1 {
+        body["image"] = json!(references[0]);
+    } else if !references.is_empty() {
+        body["image"] = json!(references);
+    }
+    Ok(body)
+}
+
 async fn request_openai_compatible_image_generation(
     provider: &str,
     model_id: &str,
@@ -8385,12 +8431,11 @@ async fn request_openai_compatible_image_generation(
     );
 
     for api_key in api_keys {
-        let mut request_body = json!({
-          "model": model.as_str(),
-          "prompt": prompt,
-          "size": size,
-          "n": 1
-        });
+        let mut request_body = if provider == "volcengine" {
+            build_volcengine_image_request(&model, prompt, size, reference_images)?
+        } else {
+            json!({"model": model.as_str(), "prompt": prompt, "size": size, "n": 1})
+        };
         let normalized_model = model.to_ascii_lowercase();
         if is_openai_image_quality_model(&normalized_model) {
             if let Some(quality) = quality_override
@@ -8401,12 +8446,8 @@ async fn request_openai_compatible_image_generation(
                 request_body["quality"] = json!(quality);
             }
         }
-        if !reference_images.is_empty() {
-            if provider == "volcengine" {
-                request_body["image"] = json!(reference_images[0]);
-            } else {
-                request_body["reference_images"] = json!(reference_images);
-            }
+        if provider != "volcengine" && !reference_images.is_empty() {
+            request_body["reference_images"] = json!(reference_images);
         }
 
         let response = llm_http_client()
@@ -14092,7 +14133,7 @@ fn build_volcengine_video_request(model_id: &str, config: &Value) -> Value {
       "ratio": aspect_ratio,
       "resolution": resolution,
       "watermark": false,
-      "generate_audio": config.get("audio").and_then(Value::as_bool).unwrap_or(true)
+      "generate_audio": config.get("withAudio").or_else(|| config.get("audio")).and_then(Value::as_bool).unwrap_or(true)
     })
 }
 
@@ -19239,6 +19280,7 @@ fn resolve_image_test_size(model_id: &str, provider: &str, aspect_ratio: &str) -
         ("3:2", "2496*1664"),
         ("2:3", "1664*2496"),
         ("21:9", "3136*1344"),
+        ("9:21", "1344*3136"),
     ];
 
     if provider == "qwen" {
@@ -27145,5 +27187,117 @@ mod qwen_adaptation_tests {
         );
         assert_eq!(r2v["input"]["media"].as_array().unwrap().len(), 9);
         assert_eq!(r2v["input"]["media"][0]["type"], "reference_image");
+    }
+}
+
+#[cfg(test)]
+mod volcengine_adaptation_tests {
+    use super::*;
+
+    #[test]
+    fn seed_21_is_classified_as_thinking_text() {
+        for model in [
+            "doubao-seed-evolving",
+            "doubao-seed-2-1-pro-260915",
+            "doubao-seed-2-1-lite-260915",
+            "doubao-seed-2-1-turbo-260628",
+        ] {
+            let (kind, caps) = build_available_model_entry("volcengine", model);
+            assert_eq!(kind, AvailableModelKind::Text);
+            assert_eq!(caps["supportThinking"], true);
+            let body = openai_compatible_text_request_body(model, "生成剧本");
+            assert_eq!(body["model"], model);
+            assert!(body.get("max_completion_tokens").is_none());
+        }
+    }
+
+    #[test]
+    fn seedream_pro_and_flash_advertise_documented_limits() {
+        for model in [
+            "doubao-seedream-5-0-pro-260628",
+            "doubao-seedream-5-0-flash-260915",
+        ] {
+            let (kind, caps) = build_available_model_entry("volcengine", model);
+            assert_eq!(kind, AvailableModelKind::Image);
+            assert_eq!(caps["maxReferenceImages"], 10);
+            assert!(caps["supportedSizes"].as_array().unwrap().contains(&json!("2K")));
+            assert!(!caps["supportedSizes"].as_array().unwrap().contains(&json!("4K")));
+            assert_eq!(caps["sizeConstraints"]["maxPixels"], 4_624_220);
+            let refs = vec!["https://example.com/reference.png".to_string(); 10];
+            let request =
+                build_volcengine_image_request(model, "多角色合影", "2048*2048", &refs).unwrap();
+            assert_eq!(request["image"].as_array().unwrap().len(), 10);
+            assert_eq!(request["size"], "2048x2048");
+            assert_eq!(request["response_format"], "url");
+            assert!(request.get("n").is_none());
+            assert!(request.get("sequential_image_generation").is_none());
+        }
+    }
+
+    #[test]
+    fn seedream_handles_text_to_image_and_single_reference() {
+        let model = "doubao-seedream-5-0-pro-260628";
+        let text = build_volcengine_image_request(model, "场景", "", &[]).unwrap();
+        assert_eq!(text["size"], "2K");
+        assert!(text.get("image").is_none());
+        let single =
+            build_volcengine_image_request(model, "修改服装", "1.5K", &["hero.png".to_string()])
+                .unwrap();
+        assert_eq!(single["image"], "hero.png");
+        assert_eq!(single["size"], "1.5K");
+    }
+
+    #[test]
+    fn seedream_rejects_invalid_dimensions_and_excess_references() {
+        let model = "doubao-seedream-5-0-flash-260915";
+        for size in [
+            "4K",
+            "auto",
+            "512x512",
+            "4096x4096",
+            "0x2048",
+            "broken",
+            "17000x100",
+        ] {
+            assert!(
+                build_volcengine_image_request(model, "场景", size, &[]).is_err(),
+                "{size}"
+            );
+        }
+        assert!(build_volcengine_image_request(
+            model,
+            "合影",
+            "2K",
+            &vec!["hero.png".to_string(); 11]
+        )
+        .is_err());
+        assert!(build_volcengine_image_request(
+            "doubao-seedream-5-0-lite-260128",
+            "场景",
+            "4K",
+            &[]
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn seedance_25_preserves_current_limits_and_audio_preference() {
+        let model = "doubao-seedance-2-5-260628";
+        let config = json!({"duration": 30, "resolution": "1080p", "withAudio": false});
+        assert!(validate_provider_video_duration(&config, "volcengine", model).is_ok());
+        let request = build_volcengine_video_request(model, &config);
+        assert_eq!(request["duration"], 30);
+        assert_eq!(request["resolution"], "1080p");
+        assert_eq!(request["generate_audio"], false);
+        let legacy = build_volcengine_video_request(model, &json!({"audio": false}));
+        assert_eq!(legacy["generate_audio"], false);
+        let (_, caps) = build_available_model_entry("volcengine", model);
+        assert_eq!(caps["maxReferenceImages"], 30);
+        assert_eq!(caps["maxReferenceVideos"], 10);
+        assert_eq!(caps["maxReferenceAudios"], 10);
+        assert!(
+            validate_provider_video_duration(&json!({"duration": 31}), "volcengine", model)
+                .is_err()
+        );
     }
 }

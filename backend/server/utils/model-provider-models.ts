@@ -104,6 +104,12 @@ export function manualProviderSeedAvailableModels(providerKey: string): string[]
       ]
     case 'volcengine':
       return [
+        'doubao-seed-evolving',
+        'doubao-seed-2-1-pro-260915',
+        'doubao-seed-2-1-lite-260915',
+        'doubao-seed-2-1-turbo-260628',
+        'doubao-seedream-5-0-pro-260628',
+        'doubao-seedream-5-0-flash-260915',
         'doubao-seed-2-0-pro-260215',
         'deepseek-v3-2-251201',
         'doubao-seedream-5-0-260128',
@@ -224,9 +230,9 @@ export function resolveProviderModelState(input: ProviderModelStateInput): Provi
     availableModels = models.length > 0 ? [...models] : manualProviderSeedAvailableModels(input.providerKey)
   }
 
-  // DashScope's compatible /models may omit native image and video models.
-  if (normalizeProviderKey(input.providerKey) === 'qwen') {
-    availableModels = normalizeModelList([...availableModels, ...models, ...manualProviderSeedAvailableModels('qwen')])
+  // Compatible /models lists may omit native image and video models.
+  if (['qwen', 'volcengine'].includes(normalizeProviderKey(input.providerKey))) {
+    availableModels = normalizeModelList([...availableModels, ...models, ...manualProviderSeedAvailableModels(input.providerKey)])
   }
 
   // Old installs already have a short default list stored in the database.

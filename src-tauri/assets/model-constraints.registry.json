@@ -11,7 +11,7 @@
     {
       "provider": "volcengine",
       "url": "https://www.volcengine.com/docs/82379/1330310?lang=zh",
-      "updatedAt": "2026-05-30"
+      "updatedAt": "2026-10-29"
     },
     {
       "provider": "qwen",
@@ -614,6 +614,113 @@
         "supportFirstLastFrame": false,
         "supportReferenceImages": true,
         "maxReferenceImages": 2
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": {
+        "type": "prefix",
+        "value": "doubao-seedream-5-0-pro"
+      },
+      "modelKind": "image",
+      "displayName": "Doubao Seedream 5.0 Pro",
+      "description": "Seedream 5.0 pro，文生图与多参考图编辑，最多 10 张参考图",
+      "docUrl": "https://www.volcengine.com/docs/ark/seedream-5-0-pro",
+      "image": {
+        "supportedAspectRatios": [
+          "1:1",
+          "16:9",
+          "9:16",
+          "4:3",
+          "3:4",
+          "3:2",
+          "2:3",
+          "21:9",
+          "9:21"
+        ],
+        "supportedSizes": [
+          "1K", "1.5K", "2K",
+          "2048x2048", "2848x1600", "1600x2848",
+          "2304x1728", "1728x2304", "2496x1664", "1664x2496",
+          "3136x1344", "1344x3136"
+        ],
+        "sizeConstraints": {
+          "minPixels": 921600,
+          "maxPixels": 4624220,
+          "maxAspectRatio": "16:1"
+        },
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 10
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": {
+        "type": "prefix",
+        "value": "doubao-seedream-5-0-flash"
+      },
+      "modelKind": "image",
+      "displayName": "Doubao Seedream 5.0 Flash",
+      "description": "Seedream 5.0 flash，文生图与多参考图编辑，最多 10 张参考图",
+      "docUrl": "https://www.volcengine.com/docs/ark/seedream-5-0-pro",
+      "image": {
+        "supportedAspectRatios": [
+          "1:1",
+          "16:9",
+          "9:16",
+          "4:3",
+          "3:4",
+          "3:2",
+          "2:3",
+          "21:9",
+          "9:21"
+        ],
+        "supportedSizes": [
+          "1K", "1.5K", "2K",
+          "2048x2048", "2848x1600", "1600x2848",
+          "2304x1728", "1728x2304", "2496x1664", "1664x2496",
+          "3136x1344", "1344x3136"
+        ],
+        "sizeConstraints": {
+          "minPixels": 921600,
+          "maxPixels": 4624220,
+          "maxAspectRatio": "16:1"
+        },
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 10
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": {
+        "type": "exact",
+        "value": "doubao-seed-evolving"
+      },
+      "modelKind": "text",
+      "displayName": "Doubao Seed Evolving",
+      "description": "豆包快速迭代文本模型，支持深度思考与多模态理解",
+      "docUrl": "https://www.volcengine.com/docs/ark/deep-thinking",
+      "text": {
+        "supportThinking": true
+      }
+    },
+    {
+      "provider": "volcengine",
+      "match": {
+        "type": "prefix",
+        "value": "doubao-seed-2-1-"
+      },
+      "modelKind": "text",
+      "description": "Doubao Seed 2.1，文本生成、多模态理解与深度思考",
+      "docUrl": "https://www.volcengine.com/docs/ark/deep-thinking",
+      "text": {
+        "supportThinking": true
       }
     },
     {

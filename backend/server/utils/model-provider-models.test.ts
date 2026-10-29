@@ -76,3 +76,30 @@ describe('Aliyun current model catalog', () => {
     expect(new Set(state.availableModels).size).toBe(state.availableModels.length)
   })
 })
+
+describe('Volcengine current model catalog', () => {
+  it('includes the latest Seed 2.1 and Seedream Pro/Flash models with the correct kind', () => {
+    const catalog = buildAvailableModelCatalog('volcengine', manualProviderSeedAvailableModels('volcengine'))
+    for (const [model, kind] of [
+      ['doubao-seed-evolving', 'text'],
+      ['doubao-seed-2-1-pro-260915', 'text'],
+      ['doubao-seed-2-1-lite-260915', 'text'],
+      ['doubao-seed-2-1-turbo-260628', 'text'],
+      ['doubao-seedream-5-0-pro-260628', 'image'],
+      ['doubao-seedream-5-0-flash-260915', 'image'],
+      ['doubao-seedance-2-5-260628', 'video']
+    ]) {
+      expect(catalog.find(entry => entry.model === model)?.kind).toBe(kind)
+    }
+  })
+
+  it('supplements stored text-only sync results without enabling new models', () => {
+    const state = resolveProviderModelState({ providerKey: 'volcengine', modelsJson: '["private-model"]', availableModelsJson: '["private-model"]', syncedAt: '2026-10-29' })
+    expect(state.models).toEqual(['private-model'])
+    expect(state.availableModels).toContain('private-model')
+    expect(state.availableModels).toContain('doubao-seed-2-1-pro-260915')
+    expect(state.availableModels).toContain('doubao-seedream-5-0-flash-260915')
+    expect(state.availableModels).toContain('doubao-seedance-2-5-260628')
+    expect(new Set(state.availableModels).size).toBe(state.availableModels.length)
+  })
+})
