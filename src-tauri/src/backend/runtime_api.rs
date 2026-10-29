@@ -7157,6 +7157,26 @@ mod project_character_baseline_tests {
     }
 }
 
+async fn expand_episode_plan_with_repair(
+    state: &BackendState,
+    prompt: &str,
+    model_text: &str,
+    body: &Value,
+) -> Result<Value, String> {
+    let output = extract_json_from_text(model_text)?;
+    character_registry::expand_with_repair(output, body, |output, error| async move {
+        let repair_prompt = format!(
+            "{prompt}\n\n【上次生成的 JSON】\n{output}\n\n【人物引用校验失败，修复一次】\n{error}\n\
+             请检查全部人物引用，修复所有未定义 ID（不只上面报告的第一个）。\
+             依据输入原文和已有身份表，为遗漏的人物在顶层 newCharacters 补齐 id、规范姓名和稳定外观；\
+             若引用实际对应已登记人物，改为正确的已有 id。不得猜测合并身份，不得删除人物引用来绕过校验。\
+             保持分集、标题、原文偏移、道具和环境等其他内容不变。返回修复后的完整 JSON，不要只返回补丁。"
+        );
+        let (text, _, _) = run_workflow_text_model(state, "script_parsing", &repair_prompt).await?;
+        extract_json_from_text(&text)
+    }).await
+}
+
 async fn build_model_episode_plan(
     state: &BackendState,
     text: &str,
@@ -7196,7 +7216,7 @@ async fn build_model_episode_plan(
         let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}", json_string(body.get("style"), "遵循原文时代与题材"), character_registry::prompt(body));
         let (model_text, provider, model_id) =
             run_workflow_text_model(state, "script_parsing", &prompt).await?;
-        let value = character_registry::expand(extract_json_from_text(&model_text)?, body)?;
+        let value = expand_episode_plan_with_repair(state, &prompt, &model_text, body).await?;
         let mut episodes = build_episode_plan_from_model_output(&normalized_text, value);
         normalize_episode_character_baselines(&mut episodes, body);
         return Ok((episodes, provider, model_id, false));
@@ -7227,7 +7247,7 @@ async fn build_model_episode_plan(
             provider_name = provider;
             model_name = model_id;
         }
-        let value = character_registry::expand(extract_json_from_text(&model_text)?, &segment_body)?;
+        let value = expand_episode_plan_with_repair(state, &prompt, &model_text, &segment_body).await?;
         let episodes = build_episode_plan_from_model_output(&chunk.text, value);
         character_registry::carry_forward(&mut segment_body, &episodes);
         chunk_results.push((chunk, episodes));

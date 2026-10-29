@@ -11,7 +11,32 @@ pub(super) const CHARACTER_REFERENCE_RULES: &str = r#"【人物引用协议（�
 顶层 characterIds 列出本次实际使用的已有或新增角色 id，不再返回顶层 characters 完整档案。
 目录中每集的 episodeAssets 使用 characterIds:["角色id"]，不再返回 episodeAssets.characters 完整档案。
 分镜 scenes[].characters 仍为数组，每项只写 {"characterId":"角色id","appearance":"本镜外观变化，无变化为空","emotion":"表演情绪"}；稳定外观由身份表提供，不重复输出。
+输出前核对所有 characterIds 和 characterId：每个引用必须在项目已有身份表或本次顶层 newCharacters 中定义，禁止引用未定义的临时 id。
 其他分集、镜头、环境、道具字段继续遵守原协议。只输出 JSON。"#;
+
+/// Retry only dangling references, once. Never invent identities locally or drop references.
+pub(super) async fn expand_with_repair<F, Fut>(
+    output: Value,
+    body: &Value,
+    repair: F,
+) -> Result<Value, String>
+where
+    F: FnOnce(Value, String) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, String>>,
+{
+    match expand(output.clone(), body) {
+        Ok(value) => Ok(value),
+        Err(error) if error.starts_with("模型引用了未登记的人物 ID：") => {
+            eprintln!("[ScriptPlan][character-repair] {error}; attempting one repair");
+            let repaired = repair(output, error.clone())
+                .await
+                .map_err(|cause| format!("{error}；自动修复调用失败：{cause}"))?;
+            expand(repaired, body)
+                .map_err(|cause| format!("人物引用自动修复后校验仍失败：{cause}"))
+        }
+        Err(error) => Err(error),
+    }
+}
 
 fn field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value
@@ -497,6 +522,53 @@ fn resolve_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn repairs_missing_episode_characters_and_revalidates_all_references() {
+        let output = json!({"newCharacters":[],"episodes":[{"title":"第7集",
+            "episodeAssets":{"characterIds":["new_23","new_24"]}}]});
+        let result = expand_with_repair(output.clone(), &json!({}), |mut value, error| async move {
+            assert!(error.contains("new_23"));
+            value["newCharacters"] = json!([
+                {"id":"new_23","name":"甲","description":"蓝衣"},
+                {"id":"new_24","name":"乙","description":"灰衣"}
+            ]);
+            Ok(value)
+        }).await.unwrap();
+        assert_eq!(result["episodes"][0]["title"], "第7集");
+        let characters = result["episodes"][0]["episodeAssets"]["characters"].as_array().unwrap();
+        assert_eq!(characters.len(), 2);
+        assert_eq!(characters[0]["name"], "甲");
+        assert_eq!(characters[1]["name"], "乙");
+
+        let error = expand_with_repair(output, &json!({}), |mut value, _| async move {
+            value["newCharacters"] = json!([{"id":"new_23","name":"甲","description":"蓝衣"}]);
+            Ok(value)
+        }).await.unwrap_err();
+        assert!(error.contains("自动修复后校验仍失败"));
+        assert!(error.contains("new_24"));
+    }
+
+    #[tokio::test]
+    async fn skips_repair_for_valid_output_and_other_validation_errors() {
+        let valid = expand_with_repair(json!({"episodes":[]}), &json!({}), |_, _| async {
+            panic!("valid output must not invoke repair")
+        }).await.unwrap();
+        assert_eq!(valid["episodes"], json!([]));
+        let error = expand_with_repair(json!({"newCharacters":[{"id":"new_1"}]}), &json!({}), |_, _| async {
+            panic!("unrelated validation errors must not invoke repair")
+        }).await.unwrap_err();
+        assert!(error.contains("新增角色必须包含"));
+    }
+
+    #[tokio::test]
+    async fn preserves_original_error_when_repair_call_fails() {
+        let error = expand_with_repair(json!({"characterIds":["new_23"]}), &json!({}), |_, _| async {
+            Err("network timeout".into())
+        }).await.unwrap_err();
+        assert!(error.contains("new_23"));
+        assert!(error.contains("自动修复调用失败：network timeout"));
+    }
 
     #[test]
     fn reconciles_parallel_discoveries_and_scene_references() {
