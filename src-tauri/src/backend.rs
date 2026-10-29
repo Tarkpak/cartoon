@@ -10189,8 +10189,11 @@ fn provider_sync_base_url(provider: &str, creds: &Value) -> Option<String> {
     let configured = provider_credential_field(creds, provider, "baseUrl")
         .and_then(|value| normalize_provider_base_url(&value));
     match provider {
-        "qwen" => configured
-            .or_else(|| Some("https://dashscope.aliyuncs.com/compatible-mode/v1".to_string())),
+        "qwen" => Some(configured.map(|base| {
+            let root = base.split("/compatible-mode").next().unwrap_or(&base)
+                .split("/api/v1").next().unwrap_or(&base).trim_end_matches('/');
+            format!("{root}/compatible-mode/v1")
+        }).unwrap_or_else(|| "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string())),
         "volcengine" => {
             configured.or_else(|| Some("https://ark.cn-beijing.volces.com/api/v3".to_string()))
         }
@@ -10556,6 +10559,11 @@ fn resolve_provider_models(
     if available.is_empty() {
         available = manual_provider_seed_available_models(provider);
     }
+    if provider == "qwen" {
+        for model in manual_provider_seed_available_models(provider) {
+            if !available.contains(&model) { available.push(model); }
+        }
+    }
     let synced_at = catalog_entry
         .and_then(|item| item.get("syncedAt"))
         .and_then(Value::as_str)
@@ -10577,6 +10585,18 @@ fn manual_provider_seed_available_models(provider: &str) -> Vec<String> {
             "minimax_h3_lightx2v".to_string(),
         ],
         "qwen" => vec![
+            "qwen3.8-max".to_string(),
+            "qwen3.7-plus".to_string(),
+            "qwen3.8-flash".to_string(),
+            "qwen-image-3.0-pro".to_string(),
+            "qwen-image-3.0".to_string(),
+            "qwen-image-2.1-pro".to_string(),
+            "qwen-image-2.1-turbo".to_string(),
+            "wan3.0-video".to_string(),
+            "wan3.0-video-prime".to_string(),
+            "happyhorse-1.1-t2v".to_string(),
+            "happyhorse-1.1-i2v".to_string(),
+            "happyhorse-1.1-r2v".to_string(),
             "qwen3.6-plus".to_string(),
             "qwen3-max-2026-01-23".to_string(),
             "qwen-image-2.0-pro".to_string(),
@@ -10963,8 +10983,14 @@ async fn api_model_provider_sync(
         )
     };
 
-    let sync_result =
-        fetch_provider_models_from_remote(&provider, &load_provider_creds(&conn)).await;
+    let sync_result = fetch_provider_models_from_remote(&provider, &load_provider_creds(&conn)).await.map(|mut models| {
+        if provider == "qwen" {
+            for model in manual_provider_seed_available_models(&provider) {
+                if !models.contains(&model) { models.push(model); }
+            }
+        }
+        models
+    });
     let synced_at = now_iso();
     let sync_error = sync_result.as_ref().err().cloned();
     let synced_models = sync_result.clone().unwrap_or_default();

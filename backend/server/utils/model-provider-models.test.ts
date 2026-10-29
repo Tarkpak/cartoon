@@ -58,3 +58,21 @@ describe('OpenAI offline catalog', () => {
       .toEqual(['custom-model'])
   })
 })
+
+describe('Aliyun current model catalog', () => {
+  it('classifies current text, image and video models', () => {
+    const catalog = buildAvailableModelCatalog('qwen', manualProviderSeedAvailableModels('qwen'))
+    for (const [model, kind] of [['qwen3.8-max', 'text'], ['qwen3.7-plus', 'text'], ['qwen3.8-flash', 'text'], ['qwen-image-3.0-pro', 'image'], ['qwen-image-2.1-turbo', 'image'], ['wan3.0-video-prime', 'video'], ['happyhorse-1.1-r2v', 'video']]) {
+      expect(catalog.find(entry => entry.model === model)?.kind).toBe(kind)
+    }
+  })
+
+  it('expands existing and text-only synced catalogs while preserving enabled models', () => {
+    const state = resolveProviderModelState({ providerKey: 'qwen', modelsJson: '["qwen3.6-plus"]', availableModelsJson: '["private-text-model"]', syncedAt: '2026-10-29' })
+    expect(state.availableModels).toContain('wan3.0-video')
+    expect(state.availableModels).toContain('qwen-image-3.0-pro')
+    expect(state.availableModels).toContain('private-text-model')
+    expect(state.models).toEqual(['qwen3.6-plus'])
+    expect(new Set(state.availableModels).size).toBe(state.availableModels.length)
+  })
+})

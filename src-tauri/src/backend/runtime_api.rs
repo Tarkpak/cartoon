@@ -8537,19 +8537,25 @@ async fn request_openai_compatible_image_generation(
     Err(message)
 }
 
-fn qwen_multimodal_generation_endpoint(base_url: &str) -> String {
+fn qwen_native_api_base_url(base_url: &str) -> String {
     let normalized = base_url.trim().trim_end_matches('/');
-    if normalized.contains("/compatible-mode") {
-        "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
-            .to_string()
-    } else if normalized.ends_with("/services/aigc/multimodal-generation/generation") {
-        normalized.to_string()
-    } else {
-        format!(
-            "{}/services/aigc/multimodal-generation/generation",
-            normalized
-        )
+    if let Some((root, _)) = normalized.split_once("/compatible-mode") {
+        return format!("{root}/api/v1");
     }
+    if normalized.ends_with("/api/v1") {
+        normalized.to_string()
+    } else if let Some((root, _)) = normalized.split_once("/api/v1/") {
+        format!("{root}/api/v1")
+    } else {
+        format!("{normalized}/api/v1")
+    }
+}
+
+fn qwen_multimodal_generation_endpoint(base_url: &str) -> String {
+    format!(
+        "{}/services/aigc/multimodal-generation/generation",
+        qwen_native_api_base_url(base_url)
+    )
 }
 
 fn qwen_image_size(model: &str, requested_size: &str) -> String {
@@ -8562,7 +8568,11 @@ fn qwen_image_size(model: &str, requested_size: &str) -> String {
     if model == "wan2.7-image" {
         return "1K".to_string();
     }
-    if model == "qwen-image-2.0-pro" || model == "qwen-image-2.0" {
+    if model.starts_with("qwen-image-3.0")
+        || model.starts_with("qwen-image-2.1")
+        || model == "qwen-image-2.0-pro"
+        || model == "qwen-image-2.0"
+    {
         return "2048*2048".to_string();
     }
     "1664*928".to_string()
@@ -8587,11 +8597,16 @@ async fn request_qwen_image_generation(
         );
         return Err("未配置千问 API Key，请在设置中配置".to_string());
     }
-    let base_url = qwen_api_base_url();
+    let base_url = qwen_native_api_base_url(&provider_sync_base_url("qwen", creds).unwrap_or_default());
     let endpoint = qwen_multimodal_generation_endpoint(&base_url);
     let model = normalize_model_id_for_remote(model_id);
     let mut content = vec![json!({ "text": prompt })];
-    for image in reference_images.iter().take(4) {
+    let (_, caps) = build_available_model_entry("qwen", &model);
+    let limit = caps.get("maxReferenceImages").and_then(Value::as_u64).unwrap_or(4) as usize;
+    if reference_images.len() > limit {
+        return Err(format!("当前模型最多支持 {limit} 张参考图片"));
+    }
+    for image in reference_images {
         content.push(json!({ "image": image }));
     }
     let mut last_error = None::<String>;
@@ -11690,7 +11705,7 @@ async fn refresh_tracked_video_task(
 }
 
 fn qwen_api_base_url() -> String {
-    "https://dashscope.aliyuncs.com/api/v1".to_string()
+    qwen_native_api_base_url(&provider_sync_base_url("qwen", &current_provider_creds()).unwrap_or_default())
 }
 
 fn qwen_video_endpoint(base_url: &str) -> String {
@@ -11729,6 +11744,8 @@ fn validate_provider_video_duration(
 ) -> Result<(), ApiError> {
     let duration = config.get("duration").and_then(Value::as_f64).unwrap_or(8.0);
     let (min_duration, max_duration) = match provider {
+        "qwen" if model_id.starts_with("wan3.0-video") => (2, 30),
+        "qwen" if model_id.starts_with("happyhorse-1.1-") => (3, 15),
         "autodl" => (1, if model_id == "minimax_h3_lightx2v" { 10 } else { 15 }),
         "volcengine" => (4, if is_seedance_25_model(model_id) { 30 } else { 15 }),
         "kling" => (4, if model_id == "kling-video-o1" { 10 } else { 15 }),
@@ -11746,7 +11763,8 @@ fn validate_provider_video_duration(
         _ => (4, 15),
     };
 
-    if !(min_duration as f64..=max_duration as f64).contains(&duration) {
+    if !duration.is_finite() || (provider == "qwen" && (model_id.starts_with("wan3.0-video") || model_id.starts_with("happyhorse-1.1-")) && duration.fract() != 0.0)
+        || !(min_duration as f64..=max_duration as f64).contains(&duration) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             format!(
@@ -11779,6 +11797,9 @@ fn validate_video_reference_counts(config: &Value, provider: &str, model_id: &st
     if provider == "autodl" && config.get("prompt").is_some() {
         validate_autodl_config(model_id, config)?;
     }
+    if provider == "qwen" {
+        validate_qwen_video_inputs(model_id, config)?;
+    }
     let (_, caps) = build_available_model_entry(provider, model_id);
     if provider == "volcengine" {
         for (count, limit, label) in [
@@ -11804,6 +11825,122 @@ fn validate_video_reference_counts(config: &Value, provider: &str, model_id: &st
     Ok(())
 }
 
+fn validate_qwen_video_inputs(model: &str, config: &Value) -> Result<(), ApiError> {
+    if !model.starts_with("wan3.0-video") && !model.starts_with("happyhorse-1.1-") {
+        return Ok(());
+    }
+    let has = |key: &str| {
+        config
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.trim().is_empty())
+    };
+    let count = |key: &str| {
+        config
+            .get(key)
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len)
+    };
+    let frames = has("firstFrame") || has("imageUrl");
+    let images = count("referenceImages");
+    let videos = count("referenceVideos");
+    let audios = config_audio_reference_urls(config).len();
+    let invalid = |message| Err(workflow_validation_error("body.config", message));
+    if let Some(resolution) = config.get("resolution").and_then(Value::as_str) {
+        if !matches!(
+            resolution.to_ascii_lowercase().as_str(),
+            "480p" | "720p" | "1080p"
+        ) {
+            return invalid("当前阿里视频模型仅支持 480p、720p、1080p 分辨率");
+        }
+    }
+    if model.starts_with("wan3.0-video") {
+        if has("lastFrame") && !frames {
+            return invalid("尾帧需要同时提供首帧");
+        }
+        if frames && (images > 0 || videos > 0 || audios > 0) {
+            return invalid("Wan 3.0 首尾帧不能与参考图片、视频或音频混用，请改用全能参考模式");
+        }
+        if images > 10 || videos > 5 || audios > 5 {
+            return invalid("Wan 3.0 最多支持 10 张参考图片、5 段参考视频和 5 段参考音频");
+        }
+    } else {
+        if has("lastFrame") || videos > 0 || audios > 0 {
+            return invalid("HappyHorse 1.1 不支持尾帧、参考视频或参考音频");
+        }
+        if model.ends_with("-t2v") && (frames || images > 0) {
+            return invalid("文生视频模型不支持图片，请选择图生视频或参考生视频模型");
+        }
+        if model.ends_with("-i2v") && (!frames && images != 1 || frames && images > 0) {
+            return invalid("HappyHorse 图生视频需要且仅支持一张首帧图片");
+        }
+        if model.ends_with("-r2v")
+            && (has("firstFrame")
+                || images + usize::from(has("imageUrl")) == 0
+                || images + usize::from(has("imageUrl")) > 9)
+        {
+            return invalid("HappyHorse 参考生视频需要 1–9 张参考图片");
+        }
+    }
+    Ok(())
+}
+
+async fn normalize_qwen_video_media(
+    state: &BackendState,
+    config: &mut Value,
+) -> Result<(), ApiError> {
+    for key in [
+        "imageUrl",
+        "firstFrame",
+        "lastFrame",
+        "referenceImages",
+        "referenceVideos",
+    ] {
+        let Some(value) = config.get(key).cloned() else {
+            continue;
+        };
+        let sources = if let Some(items) = value.as_array() {
+            items.clone()
+        } else {
+            vec![value.clone()]
+        };
+        let mut normalized = Vec::new();
+        for source in sources {
+            let Some(source) = source.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            if is_http_url(source) || source.starts_with("data:") || source.starts_with("oss://") {
+                normalized.push(json!(source));
+            } else {
+                let video = key == "referenceVideos";
+                let (bytes, mime) = resolve_source_bytes(
+                    state,
+                    source,
+                    if video {
+                        100 * 1024 * 1024
+                    } else {
+                        20 * 1024 * 1024
+                    },
+                )
+                .await?;
+                normalized.push(json!(format!(
+                    "data:{};base64,{}",
+                    mime.unwrap_or_else(
+                        || if video { "video/mp4" } else { "image/png" }.to_string()
+                    ),
+                    BASE64_STANDARD.encode(bytes)
+                )));
+            }
+        }
+        config[key] = if value.is_array() {
+            json!(normalized)
+        } else {
+            normalized.into_iter().next().unwrap_or(Value::Null)
+        };
+    }
+    Ok(())
+}
+
 fn qwen_reference_media_type(url: &str) -> &'static str {
     let normalized = url.trim().to_ascii_lowercase();
     if normalized.starts_with("data:video/")
@@ -11820,7 +11957,12 @@ fn qwen_reference_media_type(url: &str) -> &'static str {
 fn build_qwen_video_request(model_id: &str, config: &Value) -> Value {
     let prompt = json_string(config.get("prompt"), "");
     let aspect_ratio = json_string(config.get("aspectRatio"), "16:9");
-    let duration = normalize_video_duration(config.get("duration"));
+    let duration =
+        if model_id.starts_with("wan3.0-video") || model_id.starts_with("happyhorse-1.1-") {
+            config.get("duration").and_then(Value::as_i64).unwrap_or(8)
+        } else {
+            normalize_video_duration(config.get("duration"))
+        };
     let resolution = normalize_qwen_resolution(config.get("resolution"));
     let image_url = config
         .get("imageUrl")
@@ -11864,7 +12006,65 @@ fn build_qwen_video_request(model_id: &str, config: &Value) -> Value {
     parameters.insert("watermark".to_string(), json!(false));
     parameters.insert("prompt_extend".to_string(), json!(true));
 
-    if model_id.contains("wan2.7-t2v")
+    if model_id.starts_with("wan3.0-video") {
+        parameters.insert("ratio".to_string(), json!(aspect_ratio));
+        parameters.insert(
+            "audio".to_string(),
+            json!(config
+                .get("withAudio")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)),
+        );
+        let mut media = Vec::new();
+        if let Some(first) = first_frame.or(image_url) {
+            media.push(json!({ "type": "first_frame", "url": first }));
+        }
+        if let Some(last) = last_frame {
+            media.push(json!({ "type": "last_frame", "url": last }));
+        }
+        for url in &reference_images {
+            media.push(json!({ "type": "reference_image", "url": url }));
+        }
+        for url in config
+            .get("referenceVideos")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            media.push(json!({ "type": "reference_video", "url": url }));
+        }
+        for url in config_audio_reference_urls(config) {
+            media.push(json!({ "type": "reference_audio", "url": url }));
+        }
+        if !media.is_empty() {
+            input.insert("media".to_string(), json!(media));
+        }
+    } else if model_id.starts_with("happyhorse-1.1-") {
+        // HappyHorse does not accept prompt_extend, driving audio or tail frames.
+        parameters.remove("prompt_extend");
+        if model_id.ends_with("-i2v") {
+            if let Some(first) = first_frame
+                .or(image_url)
+                .or_else(|| reference_images.first().map(String::as_str))
+            {
+                input.insert(
+                    "media".to_string(),
+                    json!([{ "type": "first_frame", "url": first }]),
+                );
+            }
+        } else {
+            parameters.insert("ratio".to_string(), json!(aspect_ratio));
+            if model_id.ends_with("-r2v") {
+                let media = image_url
+                    .into_iter()
+                    .chain(reference_images.iter().map(String::as_str))
+                    .map(|url| json!({ "type": "reference_image", "url": url }))
+                    .collect::<Vec<_>>();
+                input.insert("media".to_string(), json!(media));
+            }
+        }
+    } else if model_id.contains("wan2.7-t2v")
         || (!model_id.contains("i2v")
             && !model_id.contains("r2v")
             && image_url.is_none()
@@ -11908,6 +12108,18 @@ fn build_qwen_video_request(model_id: &str, config: &Value) -> Value {
             media.push(json!({ "type": "driving_audio", "url": audio_url }));
         }
         input.insert("media".to_string(), Value::Array(media));
+    }
+
+    for (field, remote) in [
+        ("seed", "seed"),
+        ("watermark", "watermark"),
+        ("promptExtend", "prompt_extend"),
+    ] {
+        if let Some(value) = config.get(field) {
+            if remote != "prompt_extend" || !model_id.starts_with("happyhorse-") {
+                parameters.insert(remote.to_string(), value.clone());
+            }
+        }
     }
 
     json!({
@@ -11968,6 +12180,7 @@ async fn submit_qwen_video_task(model_id: &str, config: &Value) -> Result<(Strin
         );
         "未配置千问 API Key，请在设置中配置".to_string()
     })?;
+    validate_qwen_video_inputs(model_id, config).map_err(|error| error.message)?;
     let base_url = qwen_api_base_url();
     let request_body = build_qwen_video_request(model_id, config);
     let endpoint = qwen_video_endpoint(&base_url);
@@ -19029,7 +19242,8 @@ fn resolve_image_test_size(model_id: &str, provider: &str, aspect_ratio: &str) -
     ];
 
     if provider == "qwen" {
-        if normalized_model == "qwen-image-2.0-pro" || normalized_model == "qwen-image-2.0" {
+        if normalized_model.starts_with("qwen-image-3.0") || normalized_model.starts_with("qwen-image-2.1")
+            || normalized_model == "qwen-image-2.0-pro" || normalized_model == "qwen-image-2.0" {
             return image_size_for_table(aspect_ratio, QWEN_IMAGE_2, "2048*2048");
         }
         if normalized_model == "qwen-image-max"
@@ -19337,6 +19551,14 @@ fn apply_text_reasoning_effort(body: &mut Value, provider: &str, model_id: &str,
     body.as_object_mut().unwrap().remove("temperature");
 }
 
+fn apply_qwen_text_options(body: &mut Value, provider: &str, model: &str, streaming: bool) {
+    // Qwen thinking models can require streaming when thinking is enabled.
+    // Synchronous workflows only consume the final text answer.
+    if provider == "qwen" && model.starts_with("qwen3") && !streaming {
+        body["enable_thinking"] = json!(false);
+    }
+}
+
 fn openai_compatible_text_request_body(model_id: &str, prompt: &str) -> Value {
     let mut request_body = json!({
       "model": model_id,
@@ -19428,6 +19650,7 @@ async fn request_openai_compatible_text_completion(
 
     for api_key in api_keys {
         let mut request_body = openai_compatible_text_request_body(model.as_str(), prompt);
+        apply_qwen_text_options(&mut request_body, provider, model.as_str(), text_stream_enabled());
         apply_text_reasoning_effort(&mut request_body, provider, model_id, reasoning_creds);
         if provider == "openai" {
             // Reasoning models reject custom temperature; use the API defaults and
@@ -20158,6 +20381,9 @@ pub(super) async fn api_models_test(
             normalize_video_audio_reference_url(&state, &mut config).await?;
             if provider == "volcengine" {
                 normalize_volcengine_video_config_images(&state, &mut config).await?;
+            }
+            if provider == "qwen" {
+                normalize_qwen_video_media(&state, &mut config).await?;
             }
             if !is_supported_video_provider(&provider, &model_id) {
                 let error_payload =
@@ -23647,7 +23873,7 @@ pub(super) async fn api_asset_video_generate(
     }
     validate_provider_video_duration(&config, &provider, &model_id)?;
     validate_video_reference_counts(&config, &provider, &model_id)?;
-    if provider != "autodl" {
+    if provider != "autodl" && !(provider == "qwen" && (model_id.starts_with("wan3.0-video") || model_id.starts_with("happyhorse-1.1-"))) {
         config["duration"] = json!(normalize_video_duration(config.get("duration")));
     }
     apply_workflow_video_generation_options(
@@ -23673,6 +23899,9 @@ pub(super) async fn api_asset_video_generate(
     normalize_video_audio_reference_url(&state, &mut config).await?;
     if provider == "volcengine" {
         normalize_volcengine_video_config_images(&state, &mut config).await?;
+    }
+    if provider == "qwen" {
+        normalize_qwen_video_media(&state, &mut config).await?;
     }
     let prompt = {
         let conn = db_connection(&state)?;
@@ -23901,6 +24130,9 @@ pub(super) async fn api_video_generate(
     normalize_video_audio_reference_url(&state, &mut config).await?;
     if provider_name == "volcengine" {
         normalize_volcengine_video_config_images(&state, &mut config).await?;
+    }
+    if provider_name == "qwen" {
+        normalize_qwen_video_media(&state, &mut config).await?;
     }
 
     if collaboration.is_some() {
@@ -26771,4 +27003,147 @@ pub(super) async fn api_image_proxy(
         bytes,
     )
         .into_response())
+}
+
+#[cfg(test)]
+mod qwen_adaptation_tests {
+    use super::*;
+
+    #[test]
+    fn qwen_endpoints_preserve_region_and_workspace() {
+        for root in [
+            "https://dashscope.aliyuncs.com",
+            "https://dashscope-intl.aliyuncs.com",
+            "https://workspace.cn-beijing.maas.aliyuncs.com",
+        ] {
+            for suffix in ["/compatible-mode/v1/", "/api/v1", ""] {
+                let base = format!("{root}{suffix}");
+                assert_eq!(qwen_native_api_base_url(&base), format!("{root}/api/v1"));
+                assert_eq!(
+                    qwen_multimodal_generation_endpoint(&base),
+                    format!("{root}/api/v1/services/aigc/multimodal-generation/generation")
+                );
+                let creds = json!({"qwen": {"baseUrl": base}});
+                assert_eq!(
+                    provider_sync_base_url("qwen", &creds).unwrap(),
+                    format!("{root}/compatible-mode/v1")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn qwen_latest_models_have_native_capabilities() {
+        for id in ["qwen3.8-max", "qwen3.7-plus", "qwen3.8-flash"] {
+            let (kind, caps) = build_available_model_entry("qwen", id);
+            assert_eq!(kind, AvailableModelKind::Text);
+            assert_eq!(caps["supportThinking"], true);
+        }
+        for (id, limit) in [
+            ("qwen-image-3.0-pro", 3),
+            ("qwen-image-3.0", 3),
+            ("qwen-image-2.1-turbo", 10),
+        ] {
+            let (kind, caps) = build_available_model_entry("qwen", id);
+            assert_eq!(kind, AvailableModelKind::Image);
+            assert_eq!(caps["maxReferenceImages"], limit);
+            assert_eq!(qwen_image_size(id, ""), "2048*2048");
+            assert_eq!(resolve_image_test_size(id, "qwen", "16:9"), "2688*1536");
+        }
+        let (kind, caps) = build_available_model_entry("qwen", "wan3.0-video-prime");
+        assert_eq!(kind, AvailableModelKind::Video);
+        assert_eq!(caps["maxDuration"], 30);
+        assert_eq!(caps["maxReferenceVideos"], 5);
+        assert_eq!(caps["maxReferenceAudios"], 5);
+    }
+
+    #[test]
+    fn wan3_serializes_all_reference_modalities_and_audio_switch() {
+        let config = json!({"prompt": "角色行走", "duration": 2, "resolution": "1080p", "withAudio": false,
+            "referenceImages": ["https://example.com/hero.png"], "referenceVideos": ["https://example.com/move.mp4"],
+            "audioReferences": ["https://example.com/voice.mp3"], "promptExtend": false, "seed": 42});
+        assert!(validate_qwen_video_inputs("wan3.0-video", &config).is_ok());
+        assert!(validate_provider_video_duration(&config, "qwen", "wan3.0-video").is_ok());
+        let body = build_qwen_video_request("wan3.0-video", &config);
+        assert_eq!(body["parameters"]["duration"], 2);
+        assert_eq!(body["parameters"]["audio"], false);
+        assert_eq!(body["parameters"]["prompt_extend"], false);
+        assert_eq!(body["parameters"]["resolution"], "1080P");
+        assert_eq!(body["input"]["media"][0]["type"], "reference_image");
+        assert_eq!(body["input"]["media"][1]["type"], "reference_video");
+        assert_eq!(body["input"]["media"][2]["type"], "reference_audio");
+        let frames = json!({"firstFrame": "first.png", "lastFrame": "last.png", "duration": 30});
+        assert!(validate_qwen_video_inputs("wan3.0-video-prime", &frames).is_ok());
+        assert_eq!(
+            build_qwen_video_request("wan3.0-video-prime", &frames)["input"]["media"][1]["type"],
+            "last_frame"
+        );
+    }
+
+    #[test]
+    fn qwen_rejects_invalid_media_combinations_and_duration() {
+        for config in [
+            json!({"lastFrame": "last.png"}),
+            json!({"firstFrame": "first.png", "audioUrl": "voice.mp3"}),
+            json!({"referenceImages": vec!["x.png"; 11]}),
+            json!({"referenceVideos": vec!["x.mp4"; 6]}),
+            json!({"resolution": "4k"}),
+        ] {
+            assert!(validate_qwen_video_inputs("wan3.0-video", &config).is_err());
+        }
+        for duration in [1.0, 31.0, 2.5] {
+            assert!(validate_provider_video_duration(
+                &json!({"duration": duration}),
+                "qwen",
+                "wan3.0-video"
+            )
+            .is_err());
+        }
+        assert!(validate_qwen_video_inputs("happyhorse-1.1-i2v", &json!({})).is_err());
+        assert!(validate_qwen_video_inputs(
+            "happyhorse-1.1-r2v",
+            &json!({"referenceImages": vec!["x.png"; 10]})
+        )
+        .is_err());
+        assert!(validate_qwen_video_inputs(
+            "happyhorse-1.1-t2v",
+            &json!({"audioReferences": ["x.mp3"]})
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn qwen_text_supports_synchronous_and_streamed_workflows() {
+        for model in ["qwen3.8-max", "qwen3.7-plus", "qwen3.8-flash"] {
+            let mut body = openai_compatible_text_request_body(model, "生成剧本");
+            apply_qwen_text_options(&mut body, "qwen", model, false);
+            assert_eq!(body["enable_thinking"], false);
+            let mut stream = openai_compatible_text_request_body(model, "生成剧本");
+            apply_qwen_text_options(&mut stream, "qwen", model, true);
+            assert!(stream.get("enable_thinking").is_none());
+        }
+    }
+
+    #[test]
+    fn happyhorse_uses_its_own_generation_modes() {
+        let t2v = build_qwen_video_request("happyhorse-1.1-t2v", &json!({"duration": 3}));
+        assert_eq!(t2v["parameters"]["duration"], 3);
+        assert!(t2v["parameters"].get("prompt_extend").is_none());
+        assert!(t2v["input"].get("media").is_none());
+        let i2v = build_qwen_video_request(
+            "happyhorse-1.1-i2v",
+            &json!({"referenceImages": ["hero.png"]}),
+        );
+        assert_eq!(
+            i2v["input"]["media"],
+            json!([{"type": "first_frame", "url": "hero.png"}])
+        );
+        assert!(i2v["parameters"].get("ratio").is_none());
+        let r2v = build_qwen_video_request(
+            "happyhorse-1.1-r2v",
+            &json!({"referenceImages": vec!["hero.png"; 9]}),
+        );
+        assert_eq!(r2v["input"]["media"].as_array().unwrap().len(), 9);
+        assert_eq!(r2v["input"]["media"][0]["type"], "reference_image");
+    }
 }

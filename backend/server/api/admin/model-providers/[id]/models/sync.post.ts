@@ -77,7 +77,12 @@ export default defineEventHandler(async (event) => {
   const timestamp = nowIso()
 
   try {
-    const availableModels = await fetchProviderModels(baseUrl, apiKey)
+    const remoteModels = await fetchProviderModels(baseUrl, apiKey)
+    const availableModels = resolveProviderModelState({
+      providerKey: provider.provider_key,
+      availableModelsJson: JSON.stringify(remoteModels),
+      syncedAt: timestamp
+    }).availableModels
     const nextModels = retainEnabledModels(current.models, availableModels)
     if (provider.source === 'custom_openai_extra') {
       db.prepare(`

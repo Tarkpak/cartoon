@@ -376,7 +376,7 @@ fn insert_optional_string(
 }
 
 fn constraint_lookup_model_id(normalized_model_id: &str) -> &str {
-    if normalized_model_id.contains("image-2") {
+    if normalized_model_id.contains("image-2") && !normalized_model_id.starts_with("qwen-image-") {
         return "gpt-image-2";
     }
     normalized_model_id
@@ -541,7 +541,7 @@ pub(super) fn build_available_model_entry(
             {
                 object.insert("sizeConstraints".to_string(), size_constraints.clone());
             }
-            if matches!(provider, "openai" | "custom_openai") && normalized_model_id.contains("image-2") {
+            if matches!(provider, "openai" | "custom_openai") && normalized_model_id.contains("image-2") && !normalized_model_id.starts_with("qwen-image-") {
                 object.insert("supportedResolutions".to_string(), json!(["2K", "4K"]));
                 object.insert("supportedAspectRatios".to_string(), json!(["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "3:1", "1:3"]));
             }

@@ -77,6 +77,18 @@ export function manualProviderSeedAvailableModels(providerKey: string): string[]
       return ['ganim-1', 'prob-4']
     case 'qwen':
       return [
+        'qwen3.8-max',
+        'qwen3.7-plus',
+        'qwen3.8-flash',
+        'qwen-image-3.0-pro',
+        'qwen-image-3.0',
+        'qwen-image-2.1-pro',
+        'qwen-image-2.1-turbo',
+        'wan3.0-video',
+        'wan3.0-video-prime',
+        'happyhorse-1.1-t2v',
+        'happyhorse-1.1-i2v',
+        'happyhorse-1.1-r2v',
         'qwen3.6-plus',
         'qwen3-max-2026-01-23',
         'qwen-image-2.0-pro',
@@ -140,9 +152,7 @@ export function providerSyncBaseUrl(providerKey: string, configuredBaseUrl: stri
   const baseUrl = configuredBaseUrl?.trim().replace(/\/+$/, '') || ''
   switch (normalizeProviderKey(providerKey)) {
     case 'qwen':
-      return !baseUrl || baseUrl === 'https://dashscope.aliyuncs.com/api/v1'
-        ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-        : baseUrl
+      return `${(baseUrl || 'https://dashscope.aliyuncs.com').split('/compatible-mode')[0]!.split('/api/v1')[0]}/compatible-mode/v1`
     case 'volcengine':
       return baseUrl || 'https://ark.cn-beijing.volces.com/api/v3'
     case 'deepseek':
@@ -212,6 +222,11 @@ export function resolveProviderModelState(input: ProviderModelStateInput): Provi
 
   if (availableModels.length === 0) {
     availableModels = models.length > 0 ? [...models] : manualProviderSeedAvailableModels(input.providerKey)
+  }
+
+  // DashScope's compatible /models may omit native image and video models.
+  if (normalizeProviderKey(input.providerKey) === 'qwen') {
+    availableModels = normalizeModelList([...availableModels, ...models, ...manualProviderSeedAvailableModels('qwen')])
   }
 
   // Old installs already have a short default list stored in the database.

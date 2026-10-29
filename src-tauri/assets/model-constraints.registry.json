@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-31",
+  "updatedAt": "2026-10-29",
   "notes": "Static model capability registry. Capability constraints come only from local rules.",
   "sources": [
     {
@@ -16,7 +16,7 @@
     {
       "provider": "qwen",
       "url": "https://help.aliyun.com/zh/model-studio/models",
-      "updatedAt": "2026-05-30"
+      "updatedAt": "2026-10-29"
     },
     {
       "provider": "gemini",
@@ -162,6 +162,162 @@
         "supportReferenceImage": true,
         "supportReferenceImages": true,
         "maxReferenceImages": 4
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": {
+        "type": "prefix",
+        "value": "qwen-image-3.0"
+      },
+      "modelKind": "image",
+      "displayName": "千问 qwen-image-3.0",
+      "description": "千问图像生成与编辑",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference",
+      "image": {
+        "supportedAspectRatios": [
+          "1:1",
+          "16:9",
+          "9:16",
+          "4:3",
+          "3:4"
+        ],
+        "supportedSizes": [
+          "2048*2048",
+          "2688*1536",
+          "1536*2688",
+          "2368*1728",
+          "1728*2368"
+        ],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 3
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": {
+        "type": "prefix",
+        "value": "qwen-image-2.1"
+      },
+      "modelKind": "image",
+      "displayName": "千问 qwen-image-2.1",
+      "description": "千问图像生成与编辑",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference",
+      "image": {
+        "supportedAspectRatios": [
+          "1:1",
+          "16:9",
+          "9:16",
+          "4:3",
+          "3:4"
+        ],
+        "supportedSizes": [
+          "2048*2048",
+          "2688*1536",
+          "1536*2688",
+          "2368*1728",
+          "1728*2368"
+        ],
+        "supportTextToImage": true,
+        "supportImageToImage": true,
+        "supportReferenceImage": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 10
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": {
+        "type": "prefix",
+        "value": "wan3.0-video"
+      },
+      "modelKind": "video",
+      "displayName": "万相 Wan 3.0",
+      "description": "文生视频、首帧/首尾帧与全能参考，2–30 秒",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/wan3-video-generation-api-reference",
+      "video": {
+        "maxDuration": 30,
+        "supportTextToVideo": true,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": true,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 10,
+        "supportVideoReference": true,
+        "maxReferenceVideos": 5,
+        "supportAudioReference": true,
+        "maxReferenceAudios": 5
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": {
+        "type": "prefix",
+        "value": "happyhorse-1.1-t2v"
+      },
+      "modelKind": "video",
+      "displayName": "HappyHorse 1.1 t2v",
+      "description": "HappyHorse 有声视频，3–15 秒",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/happyhorse-text-to-video-api-reference",
+      "video": {
+        "maxDuration": 15,
+        "supportTextToVideo": true,
+        "supportImageToVideo": false,
+        "supportFirstLastFrame": false,
+        "supportReferenceImages": false,
+        "maxReferenceImages": 1,
+        "supportVideoReference": false,
+        "maxReferenceVideos": 0,
+        "supportAudioReference": false,
+        "maxReferenceAudios": 0
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": {
+        "type": "prefix",
+        "value": "happyhorse-1.1-i2v"
+      },
+      "modelKind": "video",
+      "displayName": "HappyHorse 1.1 i2v",
+      "description": "HappyHorse 有声视频，3–15 秒",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/happyhorse-image-to-video-api-reference",
+      "video": {
+        "maxDuration": 15,
+        "supportTextToVideo": false,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": false,
+        "supportReferenceImages": false,
+        "maxReferenceImages": 1,
+        "supportVideoReference": false,
+        "maxReferenceVideos": 0,
+        "supportAudioReference": false,
+        "maxReferenceAudios": 0
+      }
+    },
+    {
+      "provider": "qwen",
+      "match": {
+        "type": "prefix",
+        "value": "happyhorse-1.1-r2v"
+      },
+      "modelKind": "video",
+      "displayName": "HappyHorse 1.1 r2v",
+      "description": "HappyHorse 有声视频，3–15 秒",
+      "docUrl": "https://help.aliyun.com/zh/model-studio/happyhorse-reference-to-video-api-reference",
+      "video": {
+        "maxDuration": 15,
+        "supportTextToVideo": false,
+        "supportImageToVideo": true,
+        "supportFirstLastFrame": false,
+        "supportReferenceImages": true,
+        "maxReferenceImages": 9,
+        "supportVideoReference": false,
+        "maxReferenceVideos": 0,
+        "supportAudioReference": false,
+        "maxReferenceAudios": 0
       }
     },
     {

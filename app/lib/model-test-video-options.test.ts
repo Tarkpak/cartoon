@@ -20,3 +20,17 @@ describe('videoTestOptions', () => {
     expect(videoTestOptions(model)).toEqual({ minDuration: 1, maxDuration: 10, resolutions: ['480p', '768p'], seedance: false })
   })
 })
+
+describe('Aliyun video test options', () => {
+  it('offers Wan 3.0 duration and resolution limits', () => {
+    const model = VideoModelConfigSchema.parse({ provider: 'qwen', model: 'wan3.0-video-prime', displayName: 'Wan 3.0' })
+    expect(videoTestOptions(model)).toEqual({ minDuration: 2, maxDuration: 30, resolutions: ['480p', '720p', '1080p'], seedance: false })
+  })
+
+  it('keeps HappyHorse and previous Wan limits separate', () => {
+    const model = VideoModelConfigSchema.parse({ provider: 'qwen', model: 'happyhorse-1.1-i2v', displayName: 'HappyHorse' })
+    expect(videoTestOptions(model).minDuration).toBe(3)
+    expect(videoTestOptions(model).resolutions).not.toContain('4k')
+    expect(videoTestOptions({ ...model, model: 'wan2.7-t2v' }).resolutions).toEqual(['720p', '1080p'])
+  })
+})
