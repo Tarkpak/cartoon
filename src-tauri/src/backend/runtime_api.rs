@@ -12,6 +12,10 @@ mod text_stream;
 use text_stream::*;
 #[path = "script_parse_pipeline.rs"]
 mod script_parse_pipeline;
+#[path = "character_registry.rs"]
+mod character_registry;
+#[path = "script_offsets.rs"]
+mod script_offsets;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::convert::Infallible;
@@ -6493,7 +6497,8 @@ fn build_script_parse_prompt(
         return Ok(append_video_planning_rules(append_environment_capture_mode_rule(rendered), &video_model));
     }
 
-    let episode_context_brief = format!("{}\n{}", build_episode_context_brief(&episode_plan), project_character_baseline_brief(body));
+    let episode_context = character_registry::compact_episode_context(&episode_plan, body);
+    let episode_context_brief = build_episode_context_brief(&episode_context);
     let contract_variant = get_prompt_contract_variant(conn)?;
     let director_preferences = get_prompt_director_preferences(conn)?;
     let director_prompt = if director_preferences.trim().is_empty() {
@@ -6523,7 +6528,7 @@ fn build_script_parse_prompt(
             // Render user-editable text last so placeholders inside it stay literal.
             ("directorPrompt", director_prompt),
         ],
-    ), &video_model))
+    ), &video_model) + "\n\n" + &character_registry::prompt(body))
 }
 
 fn append_video_planning_rules(prompt: String, model_id: &str) -> String {
@@ -6749,6 +6754,10 @@ fn normalize_episode_asset_character(item: &Value) -> Option<Value> {
     )?;
     let mut object = serde_json::Map::new();
     object.insert("name".to_string(), json!(name));
+    insert_episode_asset_field(&mut object, "id", episode_asset_field(item, &["id"]));
+    if let Some(aliases) = item.get("aliases").and_then(Value::as_array) {
+        object.insert("aliases".to_string(), json!(aliases));
+    }
     insert_episode_asset_field(
         &mut object,
         "description",
@@ -7061,19 +7070,17 @@ fn merge_chunked_episode_plans(
     episodes
 }
 
-fn project_character_baseline_brief(body: &Value) -> String {
-    let Some(characters) = body.get("characterBaselines").and_then(Value::as_array) else {
-        return String::new();
-    };
-    if characters.is_empty() { return String::new(); }
-    format!("【项目已有角色视觉设定】\n{}\n上述角色的名称、稳定外观和性别必须原样复用，不得重新设计；仅补充未登记的新角色。", json!(characters))
-}
-
 fn preserve_project_character_baselines(characters: &mut [Value], body: &Value) {
     let Some(baselines) = body.get("characterBaselines").and_then(Value::as_array) else { return; };
     for character in characters {
         let name = character.get("name").and_then(Value::as_str).unwrap_or("").trim();
-        if let Some(baseline) = baselines.iter().find(|item| item.get("name").and_then(Value::as_str).is_some_and(|value| value.trim() == name)) {
+        let id = character.get("id").and_then(Value::as_str);
+        let baseline = id.and_then(|id| baselines.iter().find(|item| item.get("id").and_then(Value::as_str) == Some(id)))
+            .or_else(|| baselines.iter().find(|item| {
+                (id.is_none() || item.get("id").and_then(Value::as_str).is_none())
+                    && item.get("name").and_then(Value::as_str).is_some_and(|value| value.trim() == name)
+            }));
+        if let Some(baseline) = baseline {
             for field in ["description", "gender"] {
                 if baseline.get(field).and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty()) {
                     character[field] = baseline[field].clone();
@@ -7088,7 +7095,7 @@ fn normalize_episode_character_baselines(episodes: &mut [Value], body: &Value) {
     if let Some(characters) = body.get("characterBaselines").and_then(Value::as_array) {
         for character in characters {
             if let Some(name) = character.get("name").and_then(Value::as_str) {
-                baselines.insert(name.trim().to_string(), character.clone());
+                baselines.insert(character.get("id").and_then(Value::as_str).map(|id| format!("id:{id}")).unwrap_or_else(|| format!("name:{}", name.trim())), character.clone());
             }
         }
     }
@@ -7096,7 +7103,9 @@ fn normalize_episode_character_baselines(episodes: &mut [Value], body: &Value) {
         if let Some(characters) = episode.pointer_mut("/episodeAssets/characters").and_then(Value::as_array_mut) {
             for character in characters {
                 let name = character.get("name").and_then(Value::as_str).unwrap_or("").trim().to_string();
-                let baseline = baselines.entry(name).or_insert_with(|| character.clone());
+                let key = character.get("id").and_then(Value::as_str).map(|id| format!("id:{id}")).unwrap_or_else(|| format!("name:{name}"));
+                let legacy = baselines.get(&format!("name:{name}")).cloned();
+                let baseline = baselines.entry(key).or_insert_with(|| legacy.unwrap_or_else(|| character.clone()));
                 for field in ["description", "gender"] {
                     if baseline.get(field).and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty()) {
                         character[field] = baseline[field].clone();
@@ -7130,11 +7139,21 @@ mod project_character_baseline_tests {
     }
 
     #[test]
+    fn same_name_saved_people_keep_their_own_visual_settings() {
+        let body = json!({"characterBaselines":[{"id":"young","name":"甲","description":"少年"},{"id":"old","name":"甲","description":"老年"}]});
+        let mut characters = vec![json!({"id":"old","name":"甲","description":"错误外观"})];
+        preserve_project_character_baselines(&mut characters, &body);
+        assert_eq!(characters[0]["description"], "老年");
+        let mut episodes = vec![json!({"episodeAssets":{"characters":characters}})];
+        normalize_episode_character_baselines(&mut episodes, &body);
+        assert_eq!(episodes[0]["episodeAssets"]["characters"][0]["description"], "老年");
+    }
+
+    #[test]
     fn older_clients_without_baselines_keep_their_parse_results() {
         let mut characters = vec![json!({"name":"甲","description":"首次设计"})];
         preserve_project_character_baselines(&mut characters, &json!({}));
         assert_eq!(characters[0]["description"], "首次设计");
-        assert!(project_character_baseline_brief(&json!({"characterBaselines":[]})).is_empty());
     }
 }
 
@@ -7174,10 +7193,10 @@ async fn build_model_episode_plan(
             build_episode_plan_prompt_text(&conn, &normalized_text, script_parse_mode, None, None)
                 .map_err(|error| error.message)?
         };
-        let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}", json_string(body.get("style"), "遵循原文时代与题材"), project_character_baseline_brief(body));
+        let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}", json_string(body.get("style"), "遵循原文时代与题材"), character_registry::prompt(body));
         let (model_text, provider, model_id) =
             run_workflow_text_model(state, "script_parsing", &prompt).await?;
-        let value = extract_json_from_text(&model_text)?;
+        let value = character_registry::expand(extract_json_from_text(&model_text)?, body)?;
         let mut episodes = build_episode_plan_from_model_output(&normalized_text, value);
         normalize_episode_character_baselines(&mut episodes, body);
         return Ok((episodes, provider, model_id, false));
@@ -7188,6 +7207,7 @@ async fn build_model_episode_plan(
     let mut chunk_results = Vec::new();
     let mut provider_name = String::new();
     let mut model_name = String::new();
+    let mut segment_body = body.clone();
     for chunk in chunks {
         let prompt = {
             let conn = db_connection(state).map_err(|error| error.message)?;
@@ -7200,15 +7220,16 @@ async fn build_model_episode_plan(
             )
             .map_err(|error| error.message)?
         };
-        let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}", json_string(body.get("style"), "遵循原文时代与题材"), project_character_baseline_brief(body));
+        let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}", json_string(body.get("style"), "遵循原文时代与题材"), character_registry::prompt(&segment_body));
         let (model_text, provider, model_id) =
             run_workflow_text_model(state, "script_parsing", &prompt).await?;
         if provider_name.is_empty() {
             provider_name = provider;
             model_name = model_id;
         }
-        let value = extract_json_from_text(&model_text)?;
+        let value = character_registry::expand(extract_json_from_text(&model_text)?, &segment_body)?;
         let episodes = build_episode_plan_from_model_output(&chunk.text, value);
+        character_registry::carry_forward(&mut segment_body, &episodes);
         chunk_results.push((chunk, episodes));
     }
     let mut episodes = merge_chunked_episode_plans(&normalized_text, chunk_results);
@@ -21269,7 +21290,8 @@ pub(super) async fn api_script_episode_plan(
     CURRENT_MODEL_LOG_CONTEXT
         .scope(context, async {
             match build_model_episode_plan(&state, text, &script_parse_mode, &body).await {
-                Ok((episodes, provider, model_id, segmented)) => {
+                Ok((mut episodes, provider, model_id, segmented)) => {
+                    script_offsets::episode_offsets_to_utf16(&normalize_script_input_text(text), &mut episodes);
                     if episodes.is_empty() {
                         return Err(ApiError::new(
                             StatusCode::BAD_GATEWAY,
@@ -21327,6 +21349,8 @@ pub(super) async fn api_script_parse(
             format!("剧本解析模型 JSON 解析失败: {}", error),
         )
     })?;
+    let value = character_registry::expand(value, &body)
+        .map_err(|message| ApiError::new(StatusCode::BAD_GATEWAY, message))?;
     let mut payload = normalize_model_script_result(value, &body);
     if let Some(object) = payload.as_object_mut() {
         object.insert(

@@ -1,3 +1,5 @@
+import { applyScopedEntityIds, buildLoadedCharacters, buildLoadedScenes, buildSaveCharactersPayload, buildSaveScenesPayload } from '~/lib/asset-workbench-project-serialization'
+import { resolveSceneVideoReferenceAssets } from '~/lib/asset-workbench-scene-references'
 import { effectScope, nextTick, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_SCRIPT_PARSE_MODE } from '#shared/types/script'
@@ -98,6 +100,49 @@ describe('useAssetWorkbenchGeneration', () => {
     generateCharacterMock.mockReset()
   })
 
+  it('keeps character references through parsing, save/load and media selection', async () => {
+    const { generation, characters, scenes, episodePlan } = createGeneration()
+    episodePlan.value = [createEpisode(1)]
+    characters.value = [{ id: 'saved', name: '主角', appearance: '用户外观', baseImage: 'saved.png', role: '主角', generating: false, generatingViews: false }]
+    parseScriptMock.mockResolvedValue({ success: true, data: {
+      characters: [{ id: 'legacy_alias', name: '主角', description: '模型外观' }],
+      scenes: [{ id: 's1', description: '主角走进房间', duration: 8, characters: [{ name: '主角', assetId: 'char:legacy_alias' }] }]
+    } })
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_001' })).toBe(true)
+    expect(scenes.value[0]!.characters[0]!.assetId).toBe('char:saved')
+    applyScopedEntityIds('project_a', scenes.value, characters.value)
+    const loadedScenes = buildLoadedScenes(buildSaveScenesPayload(scenes.value))
+    const loadedCharacters = buildLoadedCharacters(buildSaveCharactersPayload(characters.value))
+    const references = resolveSceneVideoReferenceAssets({ scene: loadedScenes[0]!, characters: loadedCharacters, propAssets: [], sceneConfigs: {} })
+    expect(references).toEqual(expect.arrayContaining([expect.objectContaining({ image: 'saved.png' })]))
+    expect(loadedCharacters[0]!.appearance).toBe('用户外观')
+  })
+
+  it('gives replacement scenes fresh IDs while preserving model order and other episodes', async () => {
+    const { generation, scenes, episodePlan } = createGeneration()
+    episodePlan.value = [createEpisode(1), createEpisode(2)]
+    const other = { id: 'scene_other', episodeId: 'episode_002', episodeIndex: 2, title: '另一集', description: '保留镜头', duration: 8, characters: [] }
+    scenes.value = buildLoadedScenes([{ id: 'scene_1', episodeId: 'episode_001', description: '旧镜头', duration: 8 }, other])
+    parseScriptMock.mockResolvedValue({ success: true, data: {
+      characters: [], scenes: ['先', '后'].map((description, index) => ({ id: `s${index}`, description, duration: 8, characters: [] }))
+    } })
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_001' })).toBe(true)
+    const firstIds = scenes.value.slice(0, 2).map(scene => scene.id)
+    expect(scenes.value.slice(0, 2).map(scene => scene.description)).toEqual(['先', '后'])
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_001' })).toBe(true)
+    expect(scenes.value.slice(0, 2).every(scene => scene.id !== 'scene_1' && !firstIds.includes(scene.id))).toBe(true)
+    expect(scenes.value.slice(0, 2).map(scene => scene.description)).toEqual(['先', '后'])
+    expect(scenes.value[2]).toMatchObject(other)
+  })
+
+  it('slices normalized episode text using browser UTF-16 offsets', async () => {
+    const { generation, episodePlan } = createGeneration('  甲😀乙\r\n𠮷丙丁  ')
+    episodePlan.value = [{ ...createEpisode(2), startOffset: 5, endOffset: 9 }]
+    parseScriptMock.mockResolvedValue({ success: true, data: { characters: [], scenes: [{ description: '分镜', duration: 8, characters: [] }] } })
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_002' })).toBe(true)
+    expect(parseScriptMock.mock.calls[0]![0].text).toBe('𠮷丙丁')
+  })
+
   it.each([
     ['具体外观', '深蓝工装，短发', undefined, '深蓝工装，短发'],
     ['已有角色图', '成年男性，原文未明确', 'saved.png', '成年男性，原文未明确'],
@@ -114,7 +159,59 @@ describe('useAssetWorkbenchGeneration', () => {
     expect(characters.value[0]!.appearance).toBe(expected)
     expect(characters.value[0]!.baseImage).toBe(baseImage)
     const baselines = parseScriptMock.mock.calls.at(-1)![0].characterBaselines as unknown[]
-    expect(baselines).toHaveLength(baseImage || appearance === '深蓝工装，短发' ? 1 : 0)
+    expect(baselines).toHaveLength(1)
+    expect(baselines[0]).toMatchObject({
+      id: 'char_plan_1',
+      name: '主人公',
+      description: baseImage || appearance === '深蓝工装，短发' ? appearance : ''
+    })
+  })
+
+  it('reuses directory identities across episodes and subsequent parsing', async () => {
+    const { generation, characters, episodePlan } = createGeneration('测试剧本正文')
+    const knownId = 'char_plan_known'
+    const addedId = 'char_parse_12345678-1234-4234-8234-123456789abc'
+    characters.value = [{ id: knownId, name: '田小花', appearance: '用户蓝衣', baseImage: 'saved.png', role: '配角', generating: false, generatingViews: false }]
+    const assets = {
+      characters: [
+        { id: knownId, name: '田小花', description: '模型重新设计' },
+        { id: addedId, name: '福林', description: '灰衣少年' }
+      ], props: [], environments: []
+    }
+    prepareEpisodePlanMock.mockResolvedValue([
+      { ...createEpisode(1), episodeAssets: assets },
+      { ...createEpisode(2), episodeAssets: assets }
+    ])
+    expect(await generation.prepareEpisodePlan()).toBe(true)
+    expect(characters.value.map(character => character.id)).toEqual([knownId, addedId])
+    expect(characters.value[0]).toMatchObject({ name: '田小花', appearance: '用户蓝衣', baseImage: 'saved.png' })
+    episodePlan.value = [{ ...createEpisode(1), startOffset: 0, endOffset: 6, episodeAssets: assets }]
+    parseScriptMock.mockResolvedValue({ success: true, data: {
+      characters: assets.characters,
+      scenes: [{ id: 's1', description: '两人对话', duration: 8, characters: [{ name: '田小花' }, { name: '福林' }] }]
+    } })
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_001' })).toBe(true)
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_001' })).toBe(true)
+    expect(characters.value).toHaveLength(2)
+    expect(characters.value[0]!.baseImage).toBe('saved.png')
+    expect(characters.value[1]!.id).toBe(addedId)
+    expect(parseScriptMock.mock.calls.at(-1)![0].characterBaselines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: knownId, name: '田小花', description: '用户蓝衣' }),
+      expect.objectContaining({ id: addedId, name: '福林' })
+    ]))
+  })
+
+  it('does not confuse a legacy name-only result with an existing sequential ID', async () => {
+    const { generation, characters, episodePlan } = createGeneration('测试剧本正文')
+    episodePlan.value = [createEpisode(1)]
+    characters.value = [{ id: 'char_1', name: '甲', appearance: '蓝衣', role: '配角', generating: false, generatingViews: false }]
+    parseScriptMock.mockResolvedValue({ success: true, data: {
+      characters: [{ name: '乙', description: '灰衣' }],
+      scenes: [{ id: 's1', description: '乙出门', duration: 8, characters: [{ name: '乙' }] }]
+    } })
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_001' })).toBe(true)
+    expect(characters.value.map(character => character.name)).toEqual(['甲', '乙'])
+    expect(characters.value[1]!.id).not.toBe('char_1')
   })
 
   it('notifies completion after generating episode plan', async () => {
@@ -381,6 +478,25 @@ describe('useAssetWorkbenchGeneration', () => {
     expect(added).toHaveLength(2)
     expect(added.every(character => /^char_parse_[0-9a-f-]{36}$/u.test(character.id))).toBe(true)
     expect(new Set(added.map(character => character.id)).size).toBe(2)
+  })
+
+  it('rejects an old character image after switching projects and stops the batch', async () => {
+    const { generation, projectId, characters, saveProject, onModelTaskCompleted } = createGeneration()
+    const original: CharacterData = { id: 'shared_id', name: '旧项目角色', appearance: '蓝衣', role: '配角', generating: false, generatingViews: false }
+    const current: CharacterData = { ...original, name: '新项目角色', generating: true }
+    characters.value = [original, { ...original, id: 'second' }]
+    generateCharacterMock.mockImplementation(async () => {
+      projectId.value = 'project_b'
+      characters.value = [current]
+      return { success: true, asset: { baseImage: 'old-project.png' } }
+    })
+    const result = await generation.batchGenerateCharacters()
+    expect(result).toMatchObject({ generated: 0, failed: 1 })
+    expect(generateAssetWorkbenchCharacter).toHaveBeenCalledTimes(1)
+    expect(current.baseImage).toBeUndefined()
+    expect(current.generating).toBe(true)
+    expect(saveProject).not.toHaveBeenCalled()
+    expect(onModelTaskCompleted).not.toHaveBeenCalled()
   })
 
   it('writes a generated image to the current character after re-hydration', async () => {

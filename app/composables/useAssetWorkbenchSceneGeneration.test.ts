@@ -43,6 +43,8 @@ vi.mock('~/lib/asset-workbench-video-tasks', async (importOriginal) => {
   }
 })
 
+const scenePayloadLanguages = vi.hoisted(() => vi.fn())
+
 vi.mock('~/lib/asset-workbench-scene-generation', async () => {
   return {
     isRetryableVideoImageDownloadError: (error: unknown) => {
@@ -56,8 +58,10 @@ vi.mock('~/lib/asset-workbench-scene-generation', async () => {
       scene: SceneData
       scenes: SceneData[]
       referenceAssetNames?: string[]
+      characterLanguages?: Array<{ name: string, language: string, note?: string }>
       resolveSceneDescriptionWithoutAssetMentions: (raw?: string) => string
     }) => {
+      scenePayloadLanguages(options.characterLanguages)
       const referenceAssetNames = Array.isArray(options.referenceAssetNames)
         ? options.referenceAssetNames.map(name => name.trim()).filter(Boolean)
         : undefined
@@ -182,6 +186,7 @@ describe('useAssetWorkbenchSceneGeneration', () => {
   beforeEach(() => {
     requestSceneBaselineGenerationMock.mockReset()
     requestSceneBaselineGenerationMock.mockImplementation(async () => 'https://example.com/generated-env.png')
+    scenePayloadLanguages.mockClear()
     requestSceneVideoTaskMock.mockReset()
     requestSceneVideoTaskMock.mockImplementation(async () => 'video_task_1')
     pollSceneVideoTaskMock.mockReset()
@@ -1171,6 +1176,17 @@ describe('useAssetWorkbenchSceneGeneration', () => {
       expect(harness.onModelTaskFailed).toHaveBeenCalledWith(expect.objectContaining({
         title: '分镜视频结果未采用'
       }))
+    })
+
+    it('uses the explicitly bound identity for dialogue language when names match', async () => {
+      const scene = createReadyScene('scene_language', { characters: [{ name: '小明', assetId: 'char:older' }] })
+      const harness = createHarness([scene], { characters: [
+        { id: 'young', name: '小明', appearance: '少年', baseImage: 'young.png', role: '主角', language: 'mandarin', generating: false, generatingViews: false },
+        { id: 'older', name: '小明', appearance: '老年', baseImage: 'older.png', role: '主角', language: 'cantonese', generating: false, generatingViews: false }
+      ] })
+      await harness.sceneGeneration.retryScene(scene.id)
+      expect(requestSceneVideoTaskMock).toHaveBeenCalledTimes(1)
+      expect(scenePayloadLanguages).toHaveBeenCalledWith([{ name: '小明', language: '粤语', note: undefined }])
     })
 
     it('shows preparation failures on the scene', async () => {

@@ -213,7 +213,10 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
   }
 
   function buildNormalizedProjectSaveSnapshot(projectId: string): string {
-    const scopedScenes = options.scenes.value.map(scene => ({ ...scene }))
+    const scopedScenes = options.scenes.value.map(scene => ({
+      ...scene,
+      characters: scene.characters.map(character => ({ ...character }))
+    }))
     const scopedCharacters = options.characters.value.map(character => ({ ...character }))
     if (!editSession.value.collaboration) applyScopedEntityIds(projectId, scopedScenes, scopedCharacters)
 

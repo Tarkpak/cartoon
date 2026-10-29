@@ -128,7 +128,7 @@ interface ParsedScriptScene {
   environmentCaptureMode?: unknown
   dramatic?: unknown
   description: string
-  characters?: Array<string | { name?: string, appearance?: string, emotion?: string }>
+  characters?: Array<string | { name?: string, assetId?: string, appearance?: string, emotion?: string }>
   props?: Array<string | { name?: string, description?: string }>
   dialogues?: Array<{ character?: string, speaker?: string, text?: string, emotion?: string }>
   narration?: unknown
@@ -139,6 +139,7 @@ interface ParsedScriptScene {
 }
 
 interface ParsedScriptCharacter {
+  id?: string
   name: string
   description?: string
   role?: string
@@ -411,6 +412,7 @@ function normalizeParsedSceneCharacters(
 
       return {
         name: character?.name?.trim() || '',
+        ...(character?.assetId?.trim() ? { assetId: character.assetId.trim() } : {}),
         appearance: character?.appearance,
         emotion: normalizeParsedEmotion(character?.emotion)
       }
@@ -582,7 +584,7 @@ export function buildParsedCharacters(
           || sceneCharacterNames.has(normalizeToken(character.name))
       })
       .map((character, index) => ({
-        id: `char_${index + 1}`,
+        id: character.id || `char_unresolved_${index + 1}`,
         name: character.name,
         appearance: character.description || '',
         role: normalizeCharacterRoleText(character.role) || '配角',
@@ -598,7 +600,7 @@ export function buildParsedCharacters(
       .find(character => normalizeToken(character.name) === name)
 
     return {
-      id: `char_${index + 1}`,
+      id: `char_unresolved_${index + 1}`,
       name: sceneCharacter?.name || name,
       appearance: sceneCharacter?.appearance || '',
       role: '配角',

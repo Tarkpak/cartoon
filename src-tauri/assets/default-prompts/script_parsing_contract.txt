@@ -35,7 +35,7 @@
 8. scenes[i].setting.timeOfDay 使用准确的中文自然语言描述场景时段与光照状态，可参考黎明、早晨、白天、中午、下午、傍晚、夜晚，但不限制于这些值。
 9. scenes[i].setting.era 使用准确的中文时代描述，可参考古代、民国、现代、近未来、架空；原文有明确朝代或世界观时直接使用更具体的描述。
 10. scenes[i].characters[].emotion 使用符合当前表演状态的中文情绪描述，不限制固定词表。
-11. 顶层 characters[].role 使用简洁中文描述角色在故事中的定位，可参考主角、反派、配角、龙套，但不限制固定词表；gender 使用符合原文设定的简洁中文描述，不限制固定词表。
+11. 顶层 newCharacters[].role 使用简洁中文描述角色在故事中的定位，可参考主角、反派、配角、龙套，但不限制固定词表；gender 使用符合原文设定的简洁中文描述，不限制固定词表。
 12. scenes[i].dramatic.function 使用简洁中文概括本场戏剧功能，不限制固定词表。
 13. 每个 duration 必须是整数并处于规定时长范围；禁止输出小数；totalDuration 必须严格等于所有 duration 之和。若 description 内也展示时长，两处必须一致。
 14. 第一场 usePreviousLastFrameAsFirstFrame 必须为 false；只有时空、人物和动作连续时才可为 true。为 true 时填写 continuityLinkReason，否则使用空字符串。
@@ -48,7 +48,7 @@
 - 输出紧凑 JSON，省略缩进和无意义空白；不要删减对白、动作、镜头时长或用户要求的逐镜格式。
 - 全局视觉风格与导演节奏在内部统一规划，不要逐镜重复输出全局分析；description 只写当前镜头的完整执行内容。
 - dramatic 默认只输出 function；仅在当前镜头确有冲突、反转或结尾钩子时补充相关字段，不要为普通镜头凑齐十项分析。
-- 角色稳定外观放在顶层 characters；逐镜 appearance 只描述本镜发生的外观变化，无变化用空字符串。
+- 已有角色仅引用身份表 id，新增角色稳定外观只在顶层 newCharacters 定义一次；逐镜 appearance 只描述本镜发生的外观变化，无变化用空字符串。
 - 台词必须按原文顺序完整保留，不得为减少输出而概括、改写或省略。
 
 严格使用以下 JSON 结构：
@@ -72,7 +72,7 @@
       },
       "characters": [
         {
-          "name": "角色名",
+          "characterId": "已有角色id或new_1",
           "appearance": "本场外观说明",
           "emotion": "中性"
         }
@@ -89,9 +89,12 @@
       "duration": 8
     }
   ],
-  "characters": [
+  "characterIds": ["已有角色id或new_1"],
+  "newCharacters": [
     {
-      "name": "角色名",
+      "id": "new_1",
+      "name": "新增角色名",
+      "aliases": [],
       "description": "稳定可复用的角色资产描述",
       "role": "主角",
       "gender": "男"

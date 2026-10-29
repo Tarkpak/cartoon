@@ -242,36 +242,10 @@ where
     Ok(results)
 }
 
-fn merge_batches(mut batches: Vec<(usize, Value)>, plan: &Value) -> Result<Value, String> {
+fn merge_batches(mut batches: Vec<(usize, Value)>, plan: &Value, body: &Value) -> Result<Value, String> {
     batches.sort_by_key(|(index, _)| *index);
     let mut scenes = Vec::new();
-    let mut characters = Vec::new();
-    let mut names = HashSet::new();
-    // The global plan supplies stable appearance; batch results can add previously unlisted roles.
-    for item in plan
-        .get("characters")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .chain(batches.iter().flat_map(|(_, batch)| {
-            batch
-                .get("characters")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-        }))
-    {
-        if let Some(name) = item
-            .get("name")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            if names.insert(name.to_string()) {
-                characters.push(item.clone());
-            }
-        }
-    }
+    let characters = character_registry::merge_batch_characters(plan, &mut batches, body)?;
     for (_, batch) in batches {
         let batch_scenes = batch
             .get("scenes")
@@ -323,7 +297,7 @@ async fn parse_inner(
         let planning_prompt = format!(
             "{template}\n\n【本次调用任务覆盖】\n本次只做整集轻量规划，不生成详细分镜。\n\
              按上面的原文、角色/环境/道具锚点、画风和用户导演要求，制定统一视觉方案和节奏。\n\
-             只输出紧凑 JSON：{{\"title\":\"集标题\",\"visualStyle\":\"全局视觉方案，不超过150字\",\"directing\":\"导演节奏，不超过150字\",\"characters\":[{{\"name\":\"角色名\",\"description\":\"稳定外观\",\"role\":\"角色定位\",\"gender\":\"性别\"}}]}}。\n\
+             只输出紧凑 JSON：{{\"title\":\"集标题\",\"visualStyle\":\"全局视觉方案，不超过150字\",\"directing\":\"导演节奏，不超过150字\",\"characterIds\":[\"已有或新增角色id\"],\"newCharacters\":[{{\"id\":\"new_1\",\"name\":\"新增角色名\",\"aliases\":[],\"description\":\"稳定外观\",\"role\":\"角色定位\",\"gender\":\"性别\"}}]}}。已有角色只引用 id；没有新增角色时 newCharacters 为 []。\n\
              不输出 scenes，不复述原文，不扩写剧情。后续各批详细分镜会共享本方案。"
         );
         let prompts = chunks
@@ -351,6 +325,7 @@ async fn parse_inner(
         .generate(&planning_prompt)
         .await
         .map_err(|e| format!("全局规划失败：{e}"))?;
+    plan = character_registry::expand(plan, body)?;
     let planning_ms = planning_started.elapsed().as_millis() as u64;
     if let Some(characters) = plan.get_mut("characters").and_then(Value::as_array_mut) {
         preserve_project_character_baselines(characters, body);
@@ -377,10 +352,28 @@ async fn parse_inner(
                  全局方案（只用于保持一致，不得原样写进 description）：{plan}\n\
                  前文衔接参考（不得生成）：{before}\n后文衔接参考（不得生成）：{after}\n\
                  本批首镜不引用上一批末帧。镜头编号从 scene_001 开始，后端统一重编号；description 不再写镜头编号。\n\
-                 角色稳定外观沿用全局方案，顶层 characters 只补充全局方案没有的新角色。\n\
+                 角色稳定外观沿用全局方案，scenes[].characters 使用 characterId 引用全局方案或项目身份表中的 id。\n\
+                 顶层 newCharacters 只补充全局方案和项目身份表均未登记的新角色，不再输出顶层 characters；没有新增角色用 []。\n\
                  不输出全局风格分析和导演思路，直接输出本批完整分镜的紧凑 JSON。",
                 index + 1, chunks.len(),
             );
+            let mut batch_context = body.clone();
+            let mut baselines = body.get("characterBaselines").and_then(Value::as_array).cloned().unwrap_or_default();
+            if let Some(characters) = plan.get("characters").and_then(Value::as_array) {
+                for character in characters {
+                    if let Some(existing) = baselines.iter_mut().find(|existing| {
+                        existing.get("id").is_some_and(|id| Some(id) == character.get("id"))
+                            || (existing.get("id").is_none() && existing.get("name") == character.get("name"))
+                    }) {
+                        // The expanded plan supplies IDs for old clients and fills empty placeholders.
+                        *existing = character.clone();
+                    } else {
+                        baselines.push(character.clone());
+                    }
+                }
+            }
+            batch_context["characterBaselines"] = json!(baselines);
+            let batch_context = &batch_context;
             let mut attempt = 0;
             let value = retry_batch(&prompt, &chunks[index], max_duration, |request| {
                 attempt += 1;
@@ -392,7 +385,10 @@ async fn parse_inner(
                         sender.send_replace(event);
                     });
                 }
-                async move { model.generate(&request).await }
+                async move {
+                    let output = model.generate(&request).await?;
+                    character_registry::expand(output, batch_context)
+                }
             }).await.map_err(|failure| format!("第 {} 批分镜生成失败（已重试）：{failure}", index + 1))?;
             Ok((index, value))
         }
@@ -405,7 +401,7 @@ async fn parse_inner(
         chunks.len(),
         chunks.len(),
     );
-    let merged = merge_batches(results, &plan)?;
+    let merged = merge_batches(results, &plan, body)?;
     let mut payload = normalize_model_script_result(merged, body);
     payload["parseStrategy"] =
         json!({ "segmented": true, "chunkCount": chunks.len(), "episodeCount": 1 });
@@ -584,7 +580,7 @@ mod tests {
     fn merge_orders_results_assigns_unique_ids_and_resets_batch_continuity() {
         let batch = |title: &str| json!({"scenes":[{"id":"scene_001", "title":title,"description":"画面", "duration":8,"usePreviousLastFrameAsFirstFrame":true}],"characters":[{"name":"甲","description":"临时描述"},{"name":"乙"}]});
         let plan = json!({"title":"本集","characters":[{"name":"甲","description":"稳定外观"}]});
-        let result = merge_batches(vec![(1, batch("后")), (0, batch("前"))], &plan).unwrap();
+        let result = merge_batches(vec![(1, batch("后")), (0, batch("前"))], &plan, &json!({})).unwrap();
         assert_eq!(result["scenes"][0]["title"], "前");
         assert_eq!(result["scenes"][1]["id"], "scene_002");
         assert_eq!(

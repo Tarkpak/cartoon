@@ -14,6 +14,7 @@ import { observedFetch } from '~/lib/observability'
 
 export interface ScriptEpisodeAssetSummary {
   characters: Array<{
+    id?: string
     name: string
     description?: string
     role?: string
@@ -64,13 +65,13 @@ export interface ParseScriptResponse {
       environmentCaptureMode?: SceneData['environmentCaptureMode']
       description: string
       dramatic?: SceneDramatic
-      characters: Array<{ name: string, appearance?: string, emotion?: string }>
+      characters: Array<{ name: string, assetId?: string, appearance?: string, emotion?: string }>
       props?: Array<{ name: string, description?: string }>
       narration?: string | null
       duration: number
       setting?: { location: string, timeOfDay: string, era?: string, mood?: string, weather?: string }
     }>
-    characters?: Array<{ name: string, description?: string, role?: string, gender?: string }>
+    characters?: Array<{ id?: string, name: string, description?: string, role?: string, gender?: string }>
   }
   formattedTimeline?: {
     lines?: string[]
@@ -204,7 +205,7 @@ export async function parseAssetWorkbenchScript(options: {
   targetEpisodeId: string
   scriptParseMode?: ScriptParseMode
   style?: string
-  characterBaselines?: Array<{ name: string, description: string, role?: string, gender?: string }>
+  characterBaselines?: Array<{ id?: string, name: string, description: string, role?: string, gender?: string }>
   episodePlan: Array<Pick<ScriptEpisodePlanItem, 'id' | 'title' | 'index' | 'startOffset' | 'endOffset' | 'episodeHook' | 'humiliationOrThreat' | 'reversalPoint' | 'emotionalCurve' | 'cliffhanger' | 'payoffType' | 'episodeAssets'>>
   onProgress?: (event: ParseScriptProgressEvent) => void
   signal?: AbortSignal
@@ -370,7 +371,7 @@ export async function prepareAssetWorkbenchEpisodePlan(
     onProgress?: (event: ParseScriptProgressEvent) => void
     signal?: AbortSignal
     style?: string
-    characterBaselines?: Array<{ name: string, description: string, role?: string, gender?: string }>
+    characterBaselines?: Array<{ id?: string, name: string, description: string, role?: string, gender?: string }>
   } = {}
 ): Promise<ScriptEpisodePlanItem[]> {
   const body = {

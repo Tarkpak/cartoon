@@ -254,6 +254,19 @@ describe('useAssetWorkbenchProjectIO', () => {
     expect(putCalls).toHaveLength(0)
   })
 
+  it('does not mutate live character references while comparing save snapshots', async () => {
+    collaborationMock.editable = false
+    fetchMock.mockImplementation(async (_url: string, options?: FetchOptions) => options?.method === 'PUT'
+      ? { success: true, cloudSync: { status: 'synced' } } : createLoadResponse())
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    state.characters.value = [createCharacter('new_character')]
+    state.scenes.value[0]!.characters = [{ name: '主角', assetId: 'char:new_character' }]
+    expect(await io.saveProject()).toBe(false)
+    expect(state.characters.value[0]!.id).toBe('new_character')
+    expect(state.scenes.value[0]!.characters[0]!.assetId).toBe('char:new_character')
+  })
+
   it('sends PUT when user edits project content', async () => {
     fetchMock.mockImplementation(async (url: string, options?: FetchOptions) => {
       if (url === projectRoute && options?.method === 'PUT') {

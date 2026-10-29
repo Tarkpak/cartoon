@@ -169,10 +169,6 @@ export function useAssetWorkbenchGeneration(
     return (value || '').trim().toLowerCase()
   }
 
-  function toSceneId(index: number): string {
-    return `scene_${String(index + 1).padStart(3, '0')}`
-  }
-
   function resolveEpisodeOrderMap(): Map<string, number> {
     const orderMap = new Map<string, number>()
     options.episodePlan.value.forEach((episode, index) => {
@@ -199,53 +195,36 @@ export function useAssetWorkbenchGeneration(
     return Number.MAX_SAFE_INTEGER
   }
 
-  function createSceneIdAllocator(existingScenes: SceneData[]) {
-    const usedIds = new Set<string>()
-    existingScenes.forEach((scene) => {
-      usedIds.add(scene.id)
-      const sequentialId = scene.id.match(/scene_\d{3}$/u)?.[0]
-      if (sequentialId) {
-        usedIds.add(sequentialId)
-      }
-    })
-    let nextIndex = 0
-
-    return () => {
-      let id = toSceneId(nextIndex)
-      while (usedIds.has(id)) {
-        nextIndex += 1
-        id = toSceneId(nextIndex)
-      }
-      usedIds.add(id)
-      nextIndex += 1
-      return id
-    }
-  }
-
   function mergeScenesForEpisode(
     episodeId: string,
     parsedEpisodeScenes: SceneData[]
   ): SceneData[] {
     const normalizedEpisodeId = episodeId.trim()
     const untouchedScenes = options.scenes.value.filter(scene => (scene.episodeId?.trim() || '') !== normalizedEpisodeId)
-    const allocateSceneId = createSceneIdAllocator(untouchedScenes)
+    const usedIds = new Set(options.scenes.value.map(scene => scene.id))
     const targetEpisode = options.episodePlan.value.find(episode => episode.id?.trim() === normalizedEpisodeId)
-    const replacementScenes = parsedEpisodeScenes.map(scene => ({
-      ...scene,
-      id: allocateSceneId(),
-      episodeId: normalizedEpisodeId,
-      episodeTitle: targetEpisode?.title || scene.episodeTitle,
-      episodeIndex: typeof targetEpisode?.index === 'number' && Number.isFinite(targetEpisode.index)
-        ? targetEpisode.index
-        : scene.episodeIndex
-    }))
+    const replacementScenes = parsedEpisodeScenes.map((scene) => {
+      let id = `scene_parse_${crypto.randomUUID()}`
+      while (usedIds.has(id)) id = `scene_parse_${crypto.randomUUID()}`
+      usedIds.add(id)
+      return {
+        ...scene,
+        id,
+        episodeId: normalizedEpisodeId,
+        episodeTitle: targetEpisode?.title || scene.episodeTitle,
+        episodeIndex: typeof targetEpisode?.index === 'number' && Number.isFinite(targetEpisode.index)
+          ? targetEpisode.index
+          : scene.episodeIndex
+      }
+    })
     const mergedScenes = [...untouchedScenes, ...replacementScenes]
+    const sceneOrder = new Map(mergedScenes.map((scene, index) => [scene.id, index]))
     const episodeOrderMap = resolveEpisodeOrderMap()
 
     mergedScenes.sort((left, right) => {
       const orderDiff = resolveSceneEpisodeOrder(left, episodeOrderMap) - resolveSceneEpisodeOrder(right, episodeOrderMap)
       if (orderDiff !== 0) return orderDiff
-      return left.id.localeCompare(right.id, 'zh-CN')
+      return (sceneOrder.get(left.id) || 0) - (sceneOrder.get(right.id) || 0)
     })
 
     return mergedScenes.map((scene, index) => ({
@@ -255,14 +234,20 @@ export function useAssetWorkbenchGeneration(
   }
 
   function isIncompletePlanCharacter(character: CharacterData): boolean {
-    return character.id.startsWith('char_plan_') && !character.baseImage
+    return (character.id.startsWith('char_plan_') || character.id.startsWith('char_parse_')) && !character.baseImage
       && /原文未明确|原文未提及|保持与剧本设定一致/u.test(character.appearance || '')
   }
 
   function characterBaselines() {
     return options.characters.value
-      .filter(character => character.appearance?.trim() && !isIncompletePlanCharacter(character))
-      .map(character => ({ name: character.name, description: character.appearance, role: character.role, gender: character.gender }))
+      .filter(character => character.name.trim())
+      .map(character => ({
+        id: character.id,
+        name: character.name,
+        description: isIncompletePlanCharacter(character) ? '' : character.appearance,
+        role: character.role,
+        gender: character.gender
+      }))
   }
 
   function mergeCharactersFromPartialParse(parsedCharacters: CharacterData[]): CharacterData[] {
@@ -271,6 +256,7 @@ export function useAssetWorkbenchGeneration(
       role: normalizeCharacterRoleText(character.role) || '配角'
     }))
     const nameMap = new Map<string, CharacterData>()
+    const existingById = new Map(merged.map(character => [character.id, character]))
     const idSet = new Set<string>(merged.map(character => character.id))
     const createUniqueCharacterId = (): string => {
       // Deleted collaboration resources retain their IDs permanently. The
@@ -291,7 +277,7 @@ export function useAssetWorkbenchGeneration(
       const key = normalizeNameKey(incoming.name)
       if (!key) continue
 
-      const existing = nameMap.get(key)
+      const existing = existingById.get(incoming.id) || nameMap.get(key)
       if (existing) {
         const incomingAppearance = incoming.appearance?.trim() || ''
         const existingAppearance = existing.appearance?.trim() || ''
@@ -320,11 +306,14 @@ export function useAssetWorkbenchGeneration(
       const nextCharacter: CharacterData = {
         ...incoming,
         role: normalizeCharacterRoleText(incoming.role) || '配角',
-        id: createUniqueCharacterId(),
+        id: /^char_parse_[0-9a-f-]{36}$/i.test(incoming.id) && !idSet.has(incoming.id)
+          ? incoming.id : createUniqueCharacterId(),
         generating: false,
         generatingViews: false
       }
       merged.push(nextCharacter)
+      idSet.add(nextCharacter.id)
+      existingById.set(nextCharacter.id, nextCharacter)
       nameMap.set(key, nextCharacter)
     }
 
@@ -374,8 +363,9 @@ export function useAssetWorkbenchGeneration(
 
   function mergeCharactersFromEpisodeAssets(episodes: ScriptEpisodePlanItem[]) {
     const existingNameMap = new Map<string, CharacterData>(
-      options.characters.value.map(character => [character.name.trim(), character] as const)
+      options.characters.value.map(character => [normalizeNameKey(character.name), character] as const)
     )
+    const existingIdMap = new Map(options.characters.value.map(character => [character.id, character]))
     let changed = false
 
     for (const episode of episodes) {
@@ -384,7 +374,7 @@ export function useAssetWorkbenchGeneration(
         if (!name) continue
         if (isNarrativePronounCharacterName(name)) continue
 
-        const existing = existingNameMap.get(name)
+        const existing = (item.id ? existingIdMap.get(item.id) : undefined) || existingNameMap.get(normalizeNameKey(name))
         const description = item.description?.trim() || ''
         const role = normalizeCharacterRoleText(item.role) || '配角'
         const gender = normalizeCharacterGenderText(item.gender)
@@ -406,7 +396,8 @@ export function useAssetWorkbenchGeneration(
         }
 
         const nextCharacter: CharacterData = {
-          id: `char_plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          id: item.id && /^char_parse_[0-9a-f-]{36}$/i.test(item.id)
+            ? item.id : `char_plan_${crypto.randomUUID()}`,
           name,
           appearance: description || `${name}，保持与剧本设定一致`,
           role,
@@ -415,7 +406,8 @@ export function useAssetWorkbenchGeneration(
           generatingViews: false
         }
         options.characters.value.push(nextCharacter)
-        existingNameMap.set(name, nextCharacter)
+        existingNameMap.set(normalizeNameKey(name), nextCharacter)
+        existingIdMap.set(nextCharacter.id, nextCharacter)
         changed = true
       }
     }
@@ -648,9 +640,22 @@ export function useAssetWorkbenchGeneration(
       })
       const parsedCharacters = buildParsedCharacters(response.data.characters, parsedScenes)
 
-      options.scenes.value = mergeScenesForEpisode(parsePayload.targetEpisodeId, parsedScenes)
       const previousCharacterCount = options.characters.value.length
-      options.characters.value = mergeCharactersFromPartialParse(parsedCharacters)
+      const mergedCharacters = mergeCharactersFromPartialParse(parsedCharacters)
+      const characterIdMap = new Map(parsedCharacters.map((parsed) => {
+        const retained = mergedCharacters.find(character => character.id === parsed.id)
+          || mergedCharacters.find(character => normalizeNameKey(character.name) === normalizeNameKey(parsed.name))
+        return [parsed.id, retained?.id] as const
+      }))
+      for (const scene of parsedScenes) {
+        for (const character of scene.characters) {
+          const rawId = character.assetId?.replace(/^char:/, '')
+          const retainedId = rawId ? characterIdMap.get(rawId) : undefined
+          if (retainedId) character.assetId = `char:${retainedId}`
+        }
+      }
+      options.scenes.value = mergeScenesForEpisode(parsePayload.targetEpisodeId, parsedScenes)
+      options.characters.value = mergedCharacters
       const newCharacterCount = options.characters.value.length - previousCharacterCount
 
       await saveProjectOrThrow(`${parsePayload.targetEpisodeTitle || '当前分集'}解析完成`, operation.projectId)
@@ -694,6 +699,7 @@ export function useAssetWorkbenchGeneration(
       skipCompletionNotice?: boolean
     }
   ) {
+    const generationProjectId = options.projectId?.value
     const regenerationPrompt = input?.regenerationPrompt?.trim()
     const referenceImage = input?.referenceImage?.trim() || char.baseImage?.trim()
     const previousImage = char.baseImage?.trim() || ''
@@ -707,12 +713,15 @@ export function useAssetWorkbenchGeneration(
     try {
       const response = await generateAssetWorkbenchCharacter({
         character: char,
-        projectId: options.projectId?.value,
+        projectId: generationProjectId,
         style: options.currentStylePrompt.value,
         regenerationPrompt,
         referenceImage
       })
 
+      if (options.projectId?.value !== generationProjectId) {
+        throw new Error('项目已切换，角色生成结果未写入当前项目')
+      }
       if (!response.success || !response.asset?.baseImage) {
         throw new Error(response.error || '角色图生成失败')
       }
@@ -722,10 +731,10 @@ export function useAssetWorkbenchGeneration(
         throw new Error('角色图已生成，但项目中的角色资产已不存在')
       }
       currentCharacter.baseImage = response.asset.baseImage
-      await saveProjectOrThrow(`角色 ${currentCharacter.name} 生成完成`)
+      await saveProjectOrThrow(`角色 ${currentCharacter.name} 生成完成`, generationProjectId)
 
       const generatedImage = currentCharacter.baseImage?.trim() || ''
-      if (generatedImage && generatedImage !== previousImage && !input?.skipCompletionNotice) {
+      if (options.projectId?.value === generationProjectId && generatedImage && generatedImage !== previousImage && !input?.skipCompletionNotice) {
         await notifyModelTaskCompleted({
           title: regenerationPrompt ? '角色二次生成完成' : '角色图生成完成',
           body: `角色：${currentCharacter.name}`
@@ -733,7 +742,7 @@ export function useAssetWorkbenchGeneration(
       }
     } catch (error) {
       console.error('[useAssetWorkbench] 角色生成失败:', error)
-      if (!input?.skipCompletionNotice) {
+      if (options.projectId?.value === generationProjectId && !input?.skipCompletionNotice) {
         const message = error instanceof Error ? error.message : '角色图生成失败'
         await notifyModelTaskFailed({
           title: regenerationPrompt ? '角色二次生成失败' : '角色图生成失败',
@@ -744,13 +753,14 @@ export function useAssetWorkbenchGeneration(
     } finally {
       char.generating = false
       const currentCharacter = options.characters.value.find(item => item.id === char.id)
-      if (currentCharacter) currentCharacter.generating = false
+      if (options.projectId?.value === generationProjectId && currentCharacter) currentCharacter.generating = false
     }
   }
 
   async function batchGenerateCharacters(
     onProgress?: (current: number, total: number, name: string) => void
   ) {
+    const batchProjectId = options.projectId?.value
     const pendingCharacters = options.characters.value.filter(character => !character.baseImage)
     const total = pendingCharacters.length
 
@@ -762,6 +772,7 @@ export function useAssetWorkbenchGeneration(
     let failed = 0
 
     for (let index = 0; index < pendingCharacters.length; index += 1) {
+      if (options.projectId?.value !== batchProjectId) break
       const character = pendingCharacters[index]
       if (!character) continue
 
@@ -778,7 +789,7 @@ export function useAssetWorkbenchGeneration(
       }
     }
 
-    await notifyModelTaskCompleted({
+    if (options.projectId?.value === batchProjectId) await notifyModelTaskCompleted({
       title: '角色批量生成完成',
       body: `成功 ${generated} / ${total}${failed > 0 ? `，失败 ${failed}` : ''}`
     })
