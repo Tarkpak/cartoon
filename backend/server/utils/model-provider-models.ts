@@ -10,7 +10,16 @@ export interface ProviderModelCatalogEntry {
   capabilities: string[]
 }
 
+export interface NativeProviderModel {
+  model: string
+  name?: string
+  description?: string
+  capabilities?: string[]
+  inference_metadata?: { response_modality?: string[] }
+}
+
 export interface ProviderModelStateInput {
+  nativeModelsJson?: string | null
   providerKey: string
   modelsJson?: string | null
   availableModelsJson?: string | null
@@ -19,6 +28,7 @@ export interface ProviderModelStateInput {
 }
 
 export interface ProviderModelState {
+  nativeModels: NativeProviderModel[]
   models: string[]
   availableModels: string[]
   availableModelCatalog: ProviderModelCatalogEntry[]
@@ -207,22 +217,50 @@ function providerModelCategory(providerKey: string, model: string): ModelCategor
   return 'text'
 }
 
-export function buildAvailableModelCatalog(providerKey: string, models: string[]): ProviderModelCatalogEntry[] {
+export function parseNativeProviderModels(value: string | null | undefined): NativeProviderModel[] {
+  try {
+    const items: unknown = JSON.parse(value || '[]')
+    if (!Array.isArray(items)) return []
+    return items.filter((item): item is NativeProviderModel => item && typeof item === 'object' && typeof item.model === 'string')
+      .map(item => ({ model: item.model, name: typeof item.name === 'string' ? item.name : undefined,
+        description: typeof item.description === 'string' ? item.description : undefined,
+        capabilities: normalizeModelList(item.capabilities),
+        inference_metadata: { response_modality: normalizeModelList(item.inference_metadata?.response_modality) } }))
+  } catch {
+    return []
+  }
+}
+
+function nativeModelCategory(model?: NativeProviderModel): ModelCategory {
+  const caps = new Set(model?.capabilities || [])
+  const outputs = new Set(model?.inference_metadata?.response_modality?.map(value => value.toLowerCase()) || [])
+  if (caps.has('3D-generation') || outputs.has('3d')) return 'three_d'
+  if (caps.has('VG') || outputs.has('video')) return 'video'
+  if (caps.has('IG') || outputs.has('image')) return 'image'
+  if (['ASR', 'TTS', 'Realtime-ASR', 'Realtime-Audio-Translate', 'Realtime-Text-to-Speech', 'Realtime-Chatting', 'Realtime-Omni', 'Multimodal-Omni'].some(cap => caps.has(cap)) || outputs.has('audio')) return 'voice'
+  if (['TG', 'Reasoning', 'VU', 'TR', 'ME'].some(cap => caps.has(cap)) || outputs.has('text')) return 'text'
+  return 'other'
+}
+
+export function buildAvailableModelCatalog(providerKey: string, models: string[], nativeModels: NativeProviderModel[] = []): ProviderModelCatalogEntry[] {
+  const nativeById = new Map(nativeModels.map(item => [item.model, item]))
   return normalizeModelList(models).map((model) => {
-    const category = providerModelCategory(providerKey, model)
+    const native = nativeById.get(model)
+    const category = normalizeProviderKey(providerKey) === 'qwen' ? nativeModelCategory(native) : providerModelCategory(providerKey, model)
     return {
       model,
-      kind: category === 'voice' ? 'voice_tts' : category,
+      kind: category === 'voice' ? (native?.capabilities?.includes('ASR') || native?.capabilities?.includes('Realtime-ASR') ? 'voice_asr' : 'voice_tts') : category,
       category,
-      displayName: model,
-      description: '',
+      displayName: native?.name || model,
+      description: native?.description || '',
       docUrl: null,
-      capabilities: []
+      capabilities: native?.capabilities || []
     }
   })
 }
 
 export function resolveProviderModelState(input: ProviderModelStateInput): ProviderModelState {
+  const nativeModels = parseNativeProviderModels(input.nativeModelsJson)
   const models = parseModelListText(input.modelsJson)
   let availableModels = parseModelListText(input.availableModelsJson)
 
@@ -244,8 +282,9 @@ export function resolveProviderModelState(input: ProviderModelStateInput): Provi
 
   return {
     models,
+    nativeModels,
     availableModels,
-    availableModelCatalog: buildAvailableModelCatalog(input.providerKey, availableModels),
+    availableModelCatalog: buildAvailableModelCatalog(input.providerKey, availableModels, nativeModels),
     syncedAt: input.syncedAt || null,
     syncError: input.syncError || null
   }

@@ -14,10 +14,12 @@ describe('Qwen native model catalog', () => {
       pages.push(url.searchParams.get('page_no')!)
       expect(init.headers).toEqual({ accept: 'application/json', authorization: 'Bearer test-key' })
       const model = pages.length === 1 ? 'qwen3.8-max' : 'wan3.0-video'
-      return Response.json({ success: true, output: { total: 2, models: [{ model }] } })
+      return Response.json({ success: true, output: { total: 2, models: [{ model, name: 'Official name', description: 'Official description', capabilities: ['VG'], inference_metadata: { response_modality: ['Video'] } }] } })
     })
     expect(pages).toEqual(['1', '2'])
-    expect(models).toEqual(['qwen3.8-max', 'wan3.0-video'])
+    expect(models.map(item => item.model)).toEqual(['qwen3.8-max', 'wan3.0-video'])
+    expect(models[1]).toEqual({ model: 'wan3.0-video', name: 'Official name', description: 'Official description',
+      capabilities: ['VG'], inference_metadata: { response_modality: ['Video'] } })
   })
 
   it('rejects upstream HTTP and application errors', async () => {

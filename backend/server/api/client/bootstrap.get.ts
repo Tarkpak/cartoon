@@ -22,6 +22,7 @@ export default defineEventHandler((event) => {
     const modelState = resolveProviderModelState({
       providerKey: provider.provider_key,
       modelsJson: provider.models_json,
+      nativeModelsJson: provider.native_models_json,
       availableModelsJson: provider.available_models_json,
       syncedAt: provider.synced_at,
       syncError: provider.sync_error

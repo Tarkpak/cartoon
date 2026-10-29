@@ -19,6 +19,7 @@ export interface AdminProviderRow {
   encrypted_secret_key?: string | null
   encrypted_security_token?: string | null
   credentials_updated_at?: string | null
+  native_models_json?: string | null
   models_json?: string | null
   available_models_json?: string | null
   synced_at?: string | null
@@ -61,7 +62,7 @@ export function listCoreProviderRows(db: Database): AdminProviderRow[] {
              c.encrypted_api_key, c.encrypted_speech_api_key, c.encrypted_mediakit_api_key, c.encrypted_ark_access_key, c.encrypted_ark_secret_key,
              c.encrypted_access_key, c.encrypted_secret_key,
              c.encrypted_security_token, c.updated_at AS credentials_updated_at,
-             m.models_json, m.available_models_json, m.synced_at, m.sync_error
+             m.models_json, m.available_models_json, m.native_models_json, m.synced_at, m.sync_error
       FROM model_providers p
       LEFT JOIN provider_credentials c ON c.provider_id = p.id
       LEFT JOIN model_provider_models m ON m.provider_id = p.id
@@ -99,6 +100,7 @@ export function providerRowToApi(row: AdminProviderRow): ProviderApiShape {
   const modelState = resolveProviderModelState({
     providerKey,
     modelsJson: row.models_json,
+    nativeModelsJson: row.native_models_json,
     availableModelsJson: row.available_models_json,
     syncedAt: row.synced_at,
     syncError: row.sync_error

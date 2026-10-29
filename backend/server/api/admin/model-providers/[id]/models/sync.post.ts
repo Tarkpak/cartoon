@@ -71,6 +71,7 @@ export default defineEventHandler(async (event) => {
   const current = resolveProviderModelState({
     providerKey: provider.provider_key,
     modelsJson: provider.models_json,
+    nativeModelsJson: provider.native_models_json,
     availableModelsJson: provider.available_models_json,
     syncedAt: provider.synced_at,
     syncError: provider.sync_error
@@ -78,12 +79,14 @@ export default defineEventHandler(async (event) => {
   const timestamp = nowIso()
 
   try {
+    const nativeModels = provider.provider_key === 'qwen' ? await fetchQwenNativeModels(baseUrl, apiKey) : []
     const remoteModels = provider.provider_key === 'qwen'
-      ? await fetchQwenNativeModels(baseUrl, apiKey)
+      ? nativeModels.map(item => item.model)
       : await fetchProviderModels(baseUrl, apiKey)
     const availableModels = resolveProviderModelState({
       providerKey: provider.provider_key,
       availableModelsJson: JSON.stringify(remoteModels),
+      nativeModelsJson: jsonText(nativeModels),
       syncedAt: timestamp
     }).availableModels
     const nextModels = retainEnabledModels(current.models, availableModels)
@@ -102,11 +105,12 @@ export default defineEventHandler(async (event) => {
     } else {
     db.prepare(`
       INSERT INTO model_provider_models
-        (provider_id, models_json, available_models_json, synced_at, sync_error, updated_at)
-      VALUES (?, ?, ?, ?, NULL, ?)
+        (provider_id, models_json, available_models_json, native_models_json, synced_at, sync_error, updated_at)
+      VALUES (?, ?, ?, ?, ?, NULL, ?)
       ON CONFLICT(provider_id) DO UPDATE SET
         models_json = excluded.models_json,
         available_models_json = excluded.available_models_json,
+        native_models_json = excluded.native_models_json,
         synced_at = excluded.synced_at,
         sync_error = excluded.sync_error,
         updated_at = excluded.updated_at
@@ -114,6 +118,7 @@ export default defineEventHandler(async (event) => {
       provider.id,
       jsonText(nextModels),
       jsonText(availableModels),
+      jsonText(nativeModels),
       timestamp,
       timestamp
     )
@@ -123,6 +128,7 @@ export default defineEventHandler(async (event) => {
       providerKey: provider.provider_key,
       modelsJson: jsonText(nextModels),
       availableModelsJson: jsonText(availableModels),
+      nativeModelsJson: jsonText(nativeModels),
       syncedAt: timestamp,
       syncError: null
     })

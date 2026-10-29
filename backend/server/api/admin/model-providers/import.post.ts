@@ -4,7 +4,7 @@ import { getDb, jsonText, nowIso } from '../../../utils/db'
 import { encryptText } from '../../../utils/crypto'
 import { readJsonBody, requireAdmin } from '../../../utils/auth'
 import { writeAudit } from '../../../utils/audit'
-import { manualProviderSeedAvailableModels, normalizeModelList } from '../../../utils/model-provider-models'
+import { manualProviderSeedAvailableModels, normalizeModelList, parseNativeProviderModels, type NativeProviderModel } from '../../../utils/model-provider-models'
 
 const EXPORT_TYPE = 'playlet.model_providers'
 const EXPORT_VERSION = 1
@@ -27,6 +27,7 @@ interface NormalizedCredentials {
 }
 
 interface NormalizedProviderModels {
+  nativeModels: NativeProviderModel[]
   models: string[]
   availableModels: string[]
   syncedAt: string | null
@@ -80,6 +81,7 @@ function normalizeProviderModels(provider: Record<string, unknown>, providerKey:
 
   return {
     models,
+    nativeModels: parseNativeProviderModels(JSON.stringify(provider.nativeModels)),
     availableModels,
     syncedAt: stringValue(provider.syncedAt ?? provider.synced_at, 128) || null,
     syncError: stringValue(provider.syncError ?? provider.sync_error, 1024) || null
@@ -170,11 +172,12 @@ export default defineEventHandler(async (event) => {
   `)
   const upsertModels = db.prepare(`
     INSERT INTO model_provider_models
-      (provider_id, models_json, available_models_json, synced_at, sync_error, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+      (provider_id, models_json, available_models_json, native_models_json, synced_at, sync_error, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(provider_id) DO UPDATE SET
       models_json = excluded.models_json,
       available_models_json = excluded.available_models_json,
+      native_models_json = excluded.native_models_json,
       synced_at = excluded.synced_at,
       sync_error = excluded.sync_error,
       updated_at = excluded.updated_at
@@ -337,6 +340,7 @@ export default defineEventHandler(async (event) => {
           providerId,
           jsonText(provider.modelConfig.models),
           jsonText(provider.modelConfig.availableModels),
+          jsonText(provider.modelConfig.nativeModels),
           provider.modelConfig.syncedAt,
           provider.modelConfig.syncError,
           timestamp

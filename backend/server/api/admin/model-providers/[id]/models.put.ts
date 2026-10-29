@@ -31,6 +31,7 @@ export default defineEventHandler(async (event) => {
   const current = resolveProviderModelState({
     providerKey: provider.provider_key,
     modelsJson: provider.models_json,
+    nativeModelsJson: provider.native_models_json,
     availableModelsJson: provider.available_models_json,
     syncedAt: provider.synced_at,
     syncError: provider.sync_error
@@ -80,6 +81,7 @@ export default defineEventHandler(async (event) => {
     providerKey: provider.provider_key,
     modelsJson: jsonText(requestedModels),
     availableModelsJson: jsonText(current.availableModels),
+    nativeModelsJson: jsonText(current.nativeModels),
     syncedAt: current.syncedAt,
     syncError: current.syncError
   })

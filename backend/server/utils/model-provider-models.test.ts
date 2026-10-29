@@ -61,7 +61,11 @@ describe('OpenAI offline catalog', () => {
 
 describe('Aliyun current model catalog', () => {
   it('classifies current text, image and video models', () => {
-    const catalog = buildAvailableModelCatalog('qwen', manualProviderSeedAvailableModels('qwen'))
+    const catalog = buildAvailableModelCatalog('qwen', manualProviderSeedAvailableModels('qwen'), [
+      ...['qwen3.8-max', 'qwen3.7-plus', 'qwen3.8-flash'].map(model => ({ model, capabilities: ['TG'] })),
+      ...['qwen-image-3.0-pro', 'qwen-image-2.1-turbo'].map(model => ({ model, capabilities: ['IG'] })),
+      ...['wan3.0-video-prime', 'happyhorse-1.1-r2v'].map(model => ({ model, capabilities: ['VG'] }))
+    ])
     for (const [model, kind] of [['qwen3.8-max', 'text'], ['qwen3.7-plus', 'text'], ['qwen3.8-flash', 'text'], ['qwen-image-3.0-pro', 'image'], ['qwen-image-2.1-turbo', 'image'], ['wan3.0-video-prime', 'video'], ['happyhorse-1.1-r2v', 'video']]) {
       expect(catalog.find(entry => entry.model === model)?.kind).toBe(kind)
     }
@@ -78,12 +82,41 @@ describe('Aliyun current model catalog', () => {
 })
 
 describe('Aliyun native synced catalog', () => {
+  it('uses upstream capabilities even when model names suggest a different category', () => {
+    const nativeModels = [
+      { model: 'video-in-name', name: 'Speech', capabilities: ['TTS'] },
+      { model: 'plain-video-model', capabilities: ['TG'] },
+      { model: 'plain-model', capabilities: ['VG'] },
+      { model: 'transcriber', capabilities: ['ASR'], inference_metadata: { response_modality: ['Text'] } },
+      { model: 'image-in-name', capabilities: ['3D-generation'] },
+      { model: 'unknown-video', capabilities: ['new-capability'] },
+      { model: 'plain-image', inference_metadata: { response_modality: ['Audio'] } }
+    ]
+    const state = resolveProviderModelState({ providerKey: 'qwen', syncedAt: '2026-10-30',
+      availableModelsJson: JSON.stringify(nativeModels.map(item => item.model)), nativeModelsJson: JSON.stringify(nativeModels) })
+    expect(state.availableModelCatalog.map(item => item.category)).toEqual(['voice', 'text', 'video', 'voice', 'three_d', 'other', 'voice'])
+    expect(state.availableModelCatalog[0]?.displayName).toBe('Speech')
+    expect(state.availableModelCatalog[0]?.capabilities).toEqual(['TTS'])
+    expect(state.availableModelCatalog[3]?.kind).toBe('voice_asr')
+    const reloaded = resolveProviderModelState({ providerKey: 'qwen', syncedAt: '2026-10-30',
+      availableModelsJson: JSON.stringify(state.availableModels), nativeModelsJson: JSON.stringify(state.nativeModels) })
+    expect(reloaded.availableModelCatalog).toEqual(state.availableModelCatalog)
+  })
+
+  it('keeps legacy or malformed metadata in other instead of guessing by name', () => {
+    for (const nativeModelsJson of [undefined, 'invalid', '{}']) {
+      const state = resolveProviderModelState({ providerKey: 'qwen', syncedAt: '2026-10-30',
+        availableModelsJson: '["wan3.0-video"]', nativeModelsJson })
+      expect(state.availableModelCatalog[0]?.category).toBe('other')
+    }
+  })
+
   it('keeps a successful upstream catalog authoritative without injecting models', () => {
     const state = resolveProviderModelState({ providerKey: 'qwen',
       modelsJson: '["qwen3.6-plus"]', availableModelsJson: '["wan3.0-video"]', syncedAt: '2026-10-30' })
     expect(state.availableModels).toEqual(['wan3.0-video'])
     expect(state.models).toEqual(['qwen3.6-plus'])
-    expect(state.availableModelCatalog[0]?.category).toBe('video')
+    expect(state.availableModelCatalog[0]?.category).toBe('other')
   })
 })
 

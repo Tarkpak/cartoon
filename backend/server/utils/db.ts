@@ -477,6 +477,7 @@ function initSchema(conn: Database) {
   `)
   ensureProjectEditLeaseSchema(conn)
   ensureProjectCollaborationSchema(conn)
+  addColumnIfMissing(conn, 'model_provider_models', "native_models_json TEXT NOT NULL DEFAULT '[]'")
   addColumnIfMissing(conn, 'user_projects', 'deleted_at TEXT')
 
   addColumnIfMissing(conn, 'model_call_logs', 'credits_charged REAL NOT NULL DEFAULT 0')

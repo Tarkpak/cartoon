@@ -1,4 +1,4 @@
-import { normalizeModelList } from './model-provider-models'
+import { normalizeModelList, type NativeProviderModel } from './model-provider-models'
 
 export function qwenNativeModelsEndpoint(baseUrl: string) {
   const url = new URL(baseUrl)
@@ -9,8 +9,8 @@ export function qwenNativeModelsEndpoint(baseUrl: string) {
 }
 
 // The OpenAI-compatible catalog omits native models such as Wan video.
-export async function fetchQwenNativeModels(baseUrl: string, apiKey: string, request: (url: URL, init: RequestInit) => Promise<Response> = fetch): Promise<string[]> {
-  const models: string[] = []
+export async function fetchQwenNativeModels(baseUrl: string, apiKey: string, request: (url: URL, init: RequestInit) => Promise<Response> = fetch): Promise<NativeProviderModel[]> {
+  const models: NativeProviderModel[] = []
   let received = 0
   const pageSize = 100
   for (let page = 1; page <= 1000; page++) {
@@ -32,11 +32,17 @@ export async function fetchQwenNativeModels(baseUrl: string, apiKey: string, req
     }
     const ids = normalizeModelList(output.models.map((item: { model?: unknown } | null) => item?.model))
     if (ids.length !== output.models.length) throw new Error('Invalid native model catalog entries')
-    const next = normalizeModelList([...models, ...ids])
+    const next = normalizeModelList([...models.map(item => item.model), ...ids])
     if (ids.length === 0 || next.length === models.length) {
       throw new Error('Native model catalog returned an empty or repeated page')
     }
-    models.splice(0, models.length, ...next)
+    for (const item of output.models) {
+      if (models.some(existing => existing.model === item.model)) continue
+      models.push({ model: item.model, name: typeof item.name === 'string' ? item.name : undefined,
+        description: typeof item.description === 'string' ? item.description : undefined,
+        capabilities: normalizeModelList(item.capabilities),
+        inference_metadata: { response_modality: normalizeModelList(item.inference_metadata?.response_modality) } })
+    }
     received += output.models.length
     if (received >= output.total) return models
   }
