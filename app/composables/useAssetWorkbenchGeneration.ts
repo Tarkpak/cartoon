@@ -33,6 +33,9 @@ export interface AssetWorkbenchParseProgressLogItem {
 }
 
 export interface AssetWorkbenchParseProgressState {
+  streamState?: ParseScriptProgressEvent['streamState']
+  outputChars?: number
+  lastModelActivityAt?: number
   active: boolean
   step: string
   message: string
@@ -437,6 +440,12 @@ export function useAssetWorkbenchGeneration(
       appendProgressLog(event.message, event.source)
       return
     }
+    const previousStreamState = options.parseProgress.value.streamState
+    options.parseProgress.value.streamState = event.streamState
+    if (event.streamState) {
+      options.parseProgress.value.outputChars = event.outputChars
+      options.parseProgress.value.lastModelActivityAt = Date.now()
+    }
     options.parseProgress.value.step = event.step
     options.parseProgress.value.message = event.message
     if (typeof event.progress === 'number' && Number.isFinite(event.progress)) {
@@ -447,7 +456,10 @@ export function useAssetWorkbenchGeneration(
     }
     if (typeof event.chunkIndex === 'number') options.parseProgress.value.chunkIndex = event.chunkIndex
     if (typeof event.chunkCount === 'number') options.parseProgress.value.chunkCount = event.chunkCount
-    appendProgressLog(event.message, event.source)
+    // Keep the log readable while the live counter updates with every streamed chunk.
+    if (!event.streamState || event.streamState !== previousStreamState) {
+      appendProgressLog(event.message, event.source)
+    }
   }
 
   async function prepareEpisodePlan(): Promise<boolean> {
@@ -504,7 +516,10 @@ export function useAssetWorkbenchGeneration(
           projectId: options.projectId?.value,
           signal: operation.signal,
           style: options.currentStylePrompt.value,
-          characterBaselines: characterBaselines()
+          characterBaselines: characterBaselines(),
+          onProgress: (event) => {
+            if (isCurrentParseOperation(operation)) applyProgressEvent(event)
+          }
         }
       )
       if (!isCurrentParseOperation(operation)) return false

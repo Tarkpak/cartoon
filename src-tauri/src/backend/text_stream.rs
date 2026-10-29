@@ -1,12 +1,19 @@
 use super::*;
 
-// Scoped to the parse response; other model workflows retain their current protocol.
+// Optional UI progress sink. Upstream text streaming also works outside this scope.
 tokio::task_local! {
     pub(super) static TEXT_STREAM_PROGRESS: tokio::sync::watch::Sender<Value>;
 }
 
-pub(super) fn text_stream_enabled() -> bool {
-    TEXT_STREAM_PROGRESS.try_with(|_| ()).is_ok()
+pub(super) fn text_stream_connecting() {
+    let _ = TEXT_STREAM_PROGRESS.try_with(|sender| {
+        sender.send_replace(json!({
+            "type": "progress", "payload": {
+                "step": "generating", "streamState": "connecting", "outputChars": 0,
+                "message": "正在连接模型，准备生成结果"
+            }
+        }))
+    });
 }
 
 #[derive(Default)]
@@ -137,14 +144,21 @@ impl TextStreamFeedback {
 pub(super) async fn read_text_model_response(
     mut response: reqwest::Response,
 ) -> Result<String, String> {
-    if !text_stream_enabled() || !response.status().is_success() {
-        return response.text().await.map_err(|error| error.to_string());
+    if !response.status().is_success() {
+        return response
+            .text()
+            .await
+            .map_err(|error| build_llm_transport_error_message(&error));
     }
     let mut raw = Vec::new();
     let mut line_start = 0;
     let mut feedback = TextStreamFeedback::default();
     let mut last_feedback = std::time::Instant::now() - Duration::from_secs(1);
-    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| build_llm_transport_error_message(&error))?
+    {
         raw.extend_from_slice(&chunk);
         // Split on bytes so UTF-8 characters spanning network chunks remain intact.
         while let Some(end) = raw[line_start..].iter().position(|byte| *byte == b'\n') {
@@ -156,7 +170,10 @@ pub(super) async fn read_text_model_response(
             let _ = TEXT_STREAM_PROGRESS.try_with(|sender| {
                 sender.send_replace(json!({
                     "type": "progress", "payload": {
-                        "step": "generating", "message": feedback.message()
+                        "step": "generating", "message": feedback.message(),
+                        "outputChars": feedback.output_chars,
+                        "streamState": if feedback.output_chars > 0 { "receiving" }
+                            else if feedback.thinking { "thinking" } else { "waiting" }
                     }
                 }))
             });
@@ -259,7 +276,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_early_eof_but_accepts_completed_sse_and_json_fallback() {
+    async fn validates_stream_without_progress_subscriber_and_accepts_json_fallback() {
         for (raw, success) in [
             ("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n", false),
             ("data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n", true),
@@ -267,10 +284,32 @@ mod tests {
             ("data: {\"choices\":[{\"delta\":{\"content\":\"cut off\"},\"finish_reason\":\"length\"}]}\n\n", false),
         ] {
             let response = reqwest::Response::from(axum::http::Response::new(reqwest::Body::from(raw)));
-            let (sender, _) = tokio::sync::watch::channel(Value::Null);
-            let result = TEXT_STREAM_PROGRESS.scope(sender, read_text_model_response(response)).await;
+            let result = read_text_model_response(response).await;
             assert_eq!(result.is_ok(), success, "{result:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn preserves_error_body_and_reports_interrupted_transport_without_progress() {
+        let response = reqwest::Response::from(
+            axum::http::Response::builder()
+                .status(429)
+                .body(reqwest::Body::from(r#"{"error":{"message":"rate limited"}}"#))
+                .unwrap(),
+        );
+        assert_eq!(
+            read_text_model_response(response).await.unwrap(),
+            r#"{"error":{"message":"rate limited"}}"#
+        );
+        let chunks = stream::iter(vec![
+            Ok(Bytes::from_static(b"data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n")),
+            Err(std::io::Error::new(std::io::ErrorKind::ConnectionReset, "connection reset")),
+        ]);
+        let response = reqwest::Response::from(axum::http::Response::new(
+            reqwest::Body::wrap_stream(chunks),
+        ));
+        let error = read_text_model_response(response).await.unwrap_err();
+        assert!(error.contains("connection reset"), "{error}");
     }
 
     #[test]

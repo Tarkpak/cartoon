@@ -63,7 +63,6 @@ struct Model {
 impl Model {
     async fn generate(&self, prompt: &str) -> Result<Value, String> {
         // Keep token feedback local so concurrent calls cannot overwrite aggregate batch progress.
-        // This also enables upstream streaming for non-streaming callers, with the same cancellation.
         let (sender, _receiver) = tokio::sync::watch::channel(Value::Null);
         let text = TEXT_STREAM_PROGRESS
             .scope(

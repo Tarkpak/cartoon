@@ -89,6 +89,35 @@ describe('asset-workbench-api', () => {
       chunkCount: undefined
     })
   })
+  it('streams directory progress and returns the complete episode plan', async () => {
+    const { prepareAssetWorkbenchEpisodePlan } = await import('./asset-workbench-api')
+    const episodes = [{ id: 'ep1', title: '第一集', index: 1, startOffset: 0, endOffset: 6 }]
+    observedFetchMock.mockResolvedValue(new Response(createJsonLineStream([
+      JSON.stringify({ type: 'progress', payload: {
+        step: 'generating', message: '正在接收内容', streamState: 'receiving', outputChars: 128
+      } }),
+      JSON.stringify({ type: 'result', payload: { success: true, data: { episodes } } })
+    ])))
+    const onProgress = vi.fn()
+    const signal = new AbortController().signal
+    await expect(prepareAssetWorkbenchEpisodePlan('source', 'premium_drama', { onProgress, signal }))
+      .resolves.toEqual(episodes)
+    expect(observedFetchMock.mock.calls[0][0]).toBe('/api/script/episode-plan-stream')
+    expect(observedFetchMock.mock.calls[0][1]?.signal).toBe(signal)
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({
+      streamState: 'receiving', outputChars: 128
+    }))
+  })
+
+  it('rejects directory streams that end before returning a complete result', async () => {
+    const { prepareAssetWorkbenchEpisodePlan } = await import('./asset-workbench-api')
+    observedFetchMock.mockResolvedValue(new Response(createJsonLineStream([
+      JSON.stringify({ type: 'progress', payload: { step: 'generating', message: '等待模型输出' } })
+    ])))
+    await expect(prepareAssetWorkbenchEpisodePlan('source', 'premium_drama', { onProgress: vi.fn() }))
+      .rejects.toThrow('未收到结果')
+  })
+
   function requestOptions() {
     return { text: 'source', targetEpisodeId: 'episode_001', episodePlan: [], onProgress: vi.fn() }
   }

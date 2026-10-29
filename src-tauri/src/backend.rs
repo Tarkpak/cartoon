@@ -901,13 +901,25 @@ fn clear_cloud_runtime_config() {
 }
 
 fn build_llm_transport_error_message(error: &reqwest::Error) -> String {
-    if error.is_timeout() {
-        return format!("模型服务请求超时: {}", error);
+    let category = if error.is_timeout() {
+        "模型服务请求超时"
+    } else if error.is_connect() {
+        "模型服务连接失败"
+    } else if error.is_body() || error.is_decode() {
+        "模型服务响应读取失败"
+    } else {
+        "模型服务请求失败"
+    };
+    let mut details = vec![error.to_string()];
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        let message = cause.to_string();
+        if details.last() != Some(&message) {
+            details.push(message);
+        }
+        source = cause.source();
     }
-    if error.is_connect() {
-        return format!("模型服务连接失败: {}", error);
-    }
-    error.to_string()
+    format!("{}: {}", category, details.join(" -> "))
 }
 
 fn build_cloud_transport_error_message(error: &reqwest::Error) -> String {
@@ -5313,6 +5325,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/cloud/update-check", post(api_cloud_update_check))
         .route("/api/script/write", post(api_script_write))
         .route("/api/script/episode-plan", post(api_script_episode_plan))
+        .route("/api/script/episode-plan-stream", post(api_script_episode_plan_stream))
         .route("/api/script/parse", post(api_script_parse))
         .route("/api/script/parse-stream", post(api_script_parse_stream))
         .route("/api/script/export-docx", post(api_script_export_docx))

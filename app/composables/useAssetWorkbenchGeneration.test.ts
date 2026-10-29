@@ -249,6 +249,23 @@ describe('useAssetWorkbenchGeneration', () => {
     await generation.parseScript({ targetEpisodeId: 'episode_001', scriptParseMode: DEFAULT_SCRIPT_PARSE_MODE })
   })
 
+  it('updates directory streaming feedback without flooding logs or replacing it with heartbeats', async () => {
+    const { generation, parseProgress } = createGeneration('测试剧本正文')
+    vi.mocked(prepareAssetWorkbenchEpisodePlan).mockImplementationOnce(async (_text, _mode, options) => {
+      options?.onProgress?.({ source: 'progress', step: 'generating', message: '模型思考中', streamState: 'thinking', outputChars: 0 })
+      options?.onProgress?.({ source: 'progress', step: 'generating', message: '已接收 120 字', streamState: 'receiving', outputChars: 120 })
+      const logCount = parseProgress.value.logs.length
+      options?.onProgress?.({ source: 'progress', step: 'generating', message: '已接收 240 字', streamState: 'receiving', outputChars: 240 })
+      expect(parseProgress.value.logs).toHaveLength(logCount)
+      options?.onProgress?.({ source: 'heartbeat', step: 'heartbeat', message: '连接保持中' })
+      expect(parseProgress.value).toMatchObject({ streamState: 'receiving', outputChars: 240, message: '已接收 240 字' })
+      expect(parseProgress.value.lastModelActivityAt).toEqual(expect.any(Number))
+      return [createEpisode(1)]
+    })
+    expect(await generation.prepareEpisodePlan()).toBe(true)
+    expect(parseProgress.value).toMatchObject({ active: false, step: 'episode-plan-completed' })
+  })
+
   it('retains batch counts during retries and freezes timing after a failure', async () => {
     const { generation, episodePlan, parseProgress } = createGeneration('当前分集剧本内容')
     episodePlan.value = [createEpisode(1)]

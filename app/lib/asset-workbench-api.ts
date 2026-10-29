@@ -86,6 +86,8 @@ export interface ParseScriptResponse {
 }
 
 export interface ParseScriptProgressEvent {
+  streamState?: 'connecting' | 'waiting' | 'thinking' | 'receiving'
+  outputChars?: number
   source: 'progress' | 'heartbeat'
   step: string
   message: string
@@ -225,9 +227,20 @@ export async function parseAssetWorkbenchScript(options: {
     })
   }
 
-  const response = await observedFetch('/api/script/parse-stream', {
+  return readScriptWorkflowStream<ParseScriptResponse>(
+    '/api/script/parse-stream', requestBody, options.onProgress, options.signal
+  )
+}
+
+async function readScriptWorkflowStream<T>(
+  endpoint: string,
+  requestBody: unknown,
+  onProgress: (event: ParseScriptProgressEvent) => void,
+  signal?: AbortSignal
+): Promise<T> {
+  const response = await observedFetch(endpoint, {
     method: 'POST',
-    signal: options.signal,
+    signal,
     headers: {
       'Content-Type': 'application/json'
     },
@@ -258,10 +271,10 @@ export async function parseAssetWorkbenchScript(options: {
 
   const decoder = new TextDecoder()
   let buffer = ''
-  let finalResult: ParseScriptResponse | null = null
+  let finalResult: T | null = null
 
   const emitProgress = (event: ParseScriptProgressEvent) => {
-    options.onProgress?.(event)
+    onProgress(event)
   }
 
   const handleLine = (line: string) => {
@@ -280,7 +293,10 @@ export async function parseAssetWorkbenchScript(options: {
         message: String(event.payload?.message || '解析中'),
         progress: typeof event.payload?.progress === 'number' ? event.payload.progress : undefined,
         chunkIndex: typeof event.payload?.chunkIndex === 'number' ? event.payload.chunkIndex : undefined,
-        chunkCount: typeof event.payload?.chunkCount === 'number' ? event.payload.chunkCount : undefined
+        chunkCount: typeof event.payload?.chunkCount === 'number' ? event.payload.chunkCount : undefined,
+        ...(['connecting', 'waiting', 'thinking', 'receiving'].includes(String(event.payload?.streamState))
+          ? { streamState: event.payload?.streamState as ParseScriptProgressEvent['streamState'] } : {}),
+        ...(typeof event.payload?.outputChars === 'number' ? { outputChars: event.payload.outputChars } : {})
       })
       return
     }
@@ -309,7 +325,7 @@ export async function parseAssetWorkbenchScript(options: {
     }
 
     if (event.type === 'result') {
-      finalResult = event.payload as unknown as ParseScriptResponse
+      finalResult = event.payload as unknown as T
     }
   }
 
@@ -351,22 +367,26 @@ export async function prepareAssetWorkbenchEpisodePlan(
   scriptParseMode: ScriptParseMode = DEFAULT_SCRIPT_PARSE_MODE,
   options: {
     projectId?: string
+    onProgress?: (event: ParseScriptProgressEvent) => void
     signal?: AbortSignal
     style?: string
     characterBaselines?: Array<{ name: string, description: string, role?: string, gender?: string }>
   } = {}
 ): Promise<ScriptEpisodePlanItem[]> {
-  const response = await $fetch<EpisodePlanResponse>('/api/script/episode-plan', {
-    method: 'POST',
-    signal: options.signal,
-    body: {
-      text,
-      projectId: options.projectId || undefined,
-      style: options.style,
-      characterBaselines: options.characterBaselines,
-      scriptParseMode
-    }
-  })
+  const body = {
+    text,
+    projectId: options.projectId || undefined,
+    style: options.style,
+    characterBaselines: options.characterBaselines,
+    scriptParseMode
+  }
+  const response = options.onProgress
+    ? await readScriptWorkflowStream<EpisodePlanResponse>(
+        '/api/script/episode-plan-stream', body, options.onProgress, options.signal
+      )
+    : await $fetch<EpisodePlanResponse>('/api/script/episode-plan', {
+        method: 'POST', signal: options.signal, body
+      })
 
   if (!response.success || !Array.isArray(response.data?.episodes)) {
     throw new Error('分集目录生成失败')

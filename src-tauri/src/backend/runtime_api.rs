@@ -19702,18 +19702,17 @@ async fn request_openai_compatible_text_completion(
                 body.remove("max_completion_tokens");
             }
         }
-        if text_stream_enabled() {
-            request_body["stream"] = json!(true);
-        }
+        request_body["stream"] = json!(true);
+        text_stream_connecting();
         let response = llm_http_client()
             .post(&endpoint)
             .bearer_auth(api_key)
-            .header(reqwest::header::ACCEPT, if text_stream_enabled() { "text/event-stream" } else { "application/json" })
+            .header(reqwest::header::ACCEPT, "text/event-stream")
             .json(&request_body)
             .send()
             .await
             .map_err(|error| {
-                let message = error.to_string();
+                let message = build_llm_transport_error_message(&error);
                 llm_dev_write_db_log(
                     provider,
                     model_id,
@@ -19878,11 +19877,10 @@ async fn request_gemini_text_completion(
     let base_url =
         provider_sync_base_url("gemini", creds).ok_or_else(|| "未配置 Base URL".to_string())?;
     let endpoint = provider_gemini_generate_endpoint(&base_url, model_id);
-    let endpoint = if text_stream_enabled() {
-        format!("{}?alt=sse", endpoint.replace(":generateContent", ":streamGenerateContent"))
-    } else {
-        endpoint
-    };
+    let endpoint = format!(
+        "{}?alt=sse",
+        endpoint.replace(":generateContent", ":streamGenerateContent")
+    );
     let mut last_error = None::<String>;
     let _log_started_at = Utc::now().timestamp_millis();
 
@@ -19906,15 +19904,16 @@ async fn request_gemini_text_completion(
             }
           ]
         });
+        text_stream_connecting();
         let response = llm_http_client()
             .post(&endpoint)
             .query(&[("key", api_key.as_str())])
-            .header(reqwest::header::ACCEPT, if text_stream_enabled() { "text/event-stream" } else { "application/json" })
+            .header(reqwest::header::ACCEPT, "text/event-stream")
             .json(&request_body)
             .send()
             .await
             .map_err(|error| {
-                let message = error.to_string();
+                let message = build_llm_transport_error_message(&error);
                 llm_dev_write_db_log(
                     "gemini",
                     model_id,
@@ -21585,6 +21584,22 @@ pub(super) async fn api_script_parse_stream(
     Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
     validate_script_parse_request(&body)?;
+    script_workflow_stream(state, body, false)
+}
+
+pub(super) async fn api_script_episode_plan_stream(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Response, ApiError> {
+    validate_episode_plan_request(&body)?;
+    script_workflow_stream(state, body, true)
+}
+
+fn script_workflow_stream(
+    state: BackendState,
+    body: Value,
+    directory: bool,
+) -> Result<Response, ApiError> {
     let request_id = current_request_id();
     // Response bodies are polled after the middleware's task-local scope ends.
     let edit_session = CURRENT_EDIT_SESSION.try_with(Clone::clone).ok().flatten();
@@ -21595,7 +21610,13 @@ pub(super) async fn api_script_parse_stream(
     }));
     // Keep the model future inside the response stream: disconnecting drops it too.
     let parse = Box::pin(scope_script_parse_stream_context(edit_session, request_id,
-        TEXT_STREAM_PROGRESS.scope(progress_tx, api_script_parse(State(state), Json(body)))));
+        TEXT_STREAM_PROGRESS.scope(progress_tx, async move {
+            if directory {
+                api_script_episode_plan(State(state), Json(body)).await
+            } else {
+                api_script_parse(State(state), Json(body)).await
+            }
+        })));
     let started = std::time::Instant::now();
     progress_rx.mark_changed();
     let heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + Duration::from_secs(10), Duration::from_secs(10));

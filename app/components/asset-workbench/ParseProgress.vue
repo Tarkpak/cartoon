@@ -28,6 +28,16 @@ const elapsed = computed(() => formatParseElapsed(props.state?.startedAt, props.
 const batchSummary = computed(() => parseBatchSummary(props.state || {}))
 const logs = computed(() => (props.state?.logs || []).slice(-20).reverse())
 const failed = computed(() => props.state?.step === 'error')
+const streamLabel = computed(() => ({
+  connecting: '连接模型中',
+  waiting: '等待模型输出',
+  thinking: '模型思考中',
+  receiving: '正在接收内容'
+})[props.state?.streamState || 'waiting'])
+const sinceLastOutput = computed(() => Math.max(0, Math.floor(
+  (now.value - (props.state?.lastModelActivityAt ?? now.value)) / 1000
+)))
+
 </script>
 
 <template>
@@ -72,6 +82,25 @@ const failed = computed(() => props.state?.step === 'error')
     >
       {{ state?.message || '任务已创建，等待模型响应…' }}
     </p>
+
+    <div v-if="running" class="mt-3 rounded-lg border border-primary/15 bg-primary/5 p-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span class="flex items-center gap-2 font-medium text-foreground">
+          <span class="relative flex size-2" aria-hidden="true">
+            <span class="absolute inline-flex size-full animate-ping rounded-full bg-primary/40 motion-reduce:animate-none" />
+            <span class="relative inline-flex size-2 rounded-full bg-primary" />
+          </span>
+          {{ state?.streamState ? streamLabel : '任务进行中' }}
+        </span>
+        <span v-if="state?.streamState && state.outputChars" class="tabular-nums text-primary">
+          已接收 {{ state.outputChars.toLocaleString() }} 字
+        </span>
+      </div>
+      <p class="mt-1.5 leading-relaxed text-muted-foreground">
+        {{ state?.streamState === 'receiving' ? '内容接收完成后将自动校验并保存。' : '长文本生成可能需要几分钟，请保持当前页面打开。' }}
+        <span v-if="state?.streamState && sinceLastOutput >= 15">正在等待模型继续输出，距上次更新 {{ sinceLastOutput }} 秒。</span>
+      </p>
+    </div>
 
     <details v-if="logs.length" class="group mt-2">
       <summary class="flex min-h-7 cursor-pointer list-none items-center gap-1 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
