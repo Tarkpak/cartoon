@@ -47,6 +47,20 @@ describe('original workbench resource adapter', () => {
     const remote = [{ id: 'b', text: 'remote' }, { id: 'new', text: 'new' }, { id: 'a', text: 'A' }]
     expect(patchWorkbenchFields(remote, before, after)).toEqual([{ id: 'b', text: 'remote' }, { id: 'new', text: 'new' }, { id: 'a', text: 'local' }])
   })
+  it('does not resurrect an untouched deleted character when parsing adds another character', () => {
+    const resources = splitProjectSnapshot(snapshot)
+    const character = resources.find(item => item.type === 'character')!
+    character.deleted = true
+    character.body = null
+    character.revision++
+    const before = view()
+    const after = { ...view(), characters: [...view().characters, { id: 'new', name: '新角色' }] }
+    expect(buildWorkbenchMutations(resources, before, after)).toEqual([
+      { type: 'character', id: 'new', expectedRevision: 0, body: { id: 'new', name: '新角色' } }
+    ])
+    after.characters[0]!.name = '本地修改的旧角色'
+    expect(() => buildWorkbenchMutations(resources, before, after)).toThrow('编辑对象已删除')
+  })
   it('persists hydrated video history when editing invalidates the active video', () => {
     const before = { ...view(), scenes: view().scenes.map(scene => ({ ...scene, videoHistory: [{ videoUrl: scene.videoUrl, source: 'legacy' }] })) }
     expect(buildWorkbenchMutations(splitProjectSnapshot(snapshot), before, structuredClone(before))).toEqual([])

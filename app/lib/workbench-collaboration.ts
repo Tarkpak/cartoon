@@ -16,8 +16,13 @@ export function patchWorkbenchFields(original: unknown, before: unknown, after: 
     // Preserve remote insertions and ordering when local membership is unchanged.
     const localOrderChanged = !equal(before.map(item => record(item).id), after.map(item => record(item).id))
     const order = localOrderChanged ? [...next.keys(), ...[...source.keys()].filter(id => !previous.has(id) && !next.has(id))] : [...source.keys(), ...[...next.keys()].filter(id => !source.has(id) && !previous.has(id))]
-    return order.filter(id => next.has(id) || !previous.has(id)).map(id => next.has(id)
-      ? patchWorkbenchFields(source.get(id), previous.get(id), next.get(id))
+    return order.filter(id => {
+      if (!next.has(id)) return !previous.has(id)
+      // A local membership change must not resurrect untouched entries deleted
+      // remotely. Keep locally edited entries so the resource conflict is reported.
+      return source.has(id) || !previous.has(id) || !equal(previous.get(id), next.get(id))
+    }).map(id => next.has(id)
+      ? source.has(id) ? patchWorkbenchFields(source.get(id), previous.get(id), next.get(id)) : copy(next.get(id))
       : copy(source.get(id)))
   }
   if (after && typeof after === 'object' && !Array.isArray(after)) {

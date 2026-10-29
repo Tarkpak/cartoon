@@ -350,6 +350,22 @@ describe('useAssetWorkbenchGeneration', () => {
     expect(scenes.value[0]?.description).toContain('生成结果')
   })
 
+  it('allocates fresh IDs for parsed characters instead of reusing deleted sequential IDs', async () => {
+    const { generation, episodePlan, characters } = createGeneration('当前分集剧本')
+    episodePlan.value = [createEpisode(1)]
+    characters.value = [{ id: 'char_1', name: '已有角色', appearance: '原设定', role: '配角', generating: false, generatingViews: false }]
+    parseScriptMock.mockResolvedValue({ success: true, data: {
+      scenes: [{ id: 'scene_001', description: '生成结果', duration: 8 }],
+      characters: [{ id: 'char_2', name: '新角色甲' }, { id: 'char_3', name: '新角色乙' }]
+    } })
+    expect(await generation.parseScript({ targetEpisodeId: 'episode_001' })).toBe(true)
+    expect(characters.value[0]!.id).toBe('char_1')
+    const added = characters.value.filter(character => character.id !== 'char_1')
+    expect(added).toHaveLength(2)
+    expect(added.every(character => /^char_parse_[0-9a-f-]{36}$/u.test(character.id))).toBe(true)
+    expect(new Set(added.map(character => character.id)).size).toBe(2)
+  })
+
   it('writes a generated image to the current character after re-hydration', async () => {
     const originalCharacter: CharacterData = {
       id: 'char_1',

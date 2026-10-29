@@ -170,10 +170,6 @@ export function useAssetWorkbenchGeneration(
     return `scene_${String(index + 1).padStart(3, '0')}`
   }
 
-  function toCharacterId(index: number): string {
-    return `char_${index + 1}`
-  }
-
   function resolveEpisodeOrderMap(): Map<string, number> {
     const orderMap = new Map<string, number>()
     options.episodePlan.value.forEach((episode, index) => {
@@ -273,15 +269,12 @@ export function useAssetWorkbenchGeneration(
     }))
     const nameMap = new Map<string, CharacterData>()
     const idSet = new Set<string>(merged.map(character => character.id))
-    let nextCharacterIndex = merged.length + 1
-
     const createUniqueCharacterId = (): string => {
-      while (idSet.has(toCharacterId(nextCharacterIndex - 1))) {
-        nextCharacterIndex += 1
-      }
-      const id = toCharacterId(nextCharacterIndex - 1)
+      // Deleted collaboration resources retain their IDs permanently. The
+      // visible character count cannot tell us which historical IDs are taken.
+      let id = `char_parse_${crypto.randomUUID()}`
+      while (idSet.has(id)) id = `char_parse_${crypto.randomUUID()}`
       idSet.add(id)
-      nextCharacterIndex += 1
       return id
     }
 
