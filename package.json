@@ -31,6 +31,8 @@
     "styles:sync": "bun scripts/sync-style-presets.mjs --write",
     "desktop:sync-env": "bash ./scripts/desktop-sync-env.sh",
     "desktop:install": "bash ./scripts/desktop-build-install.sh",
+    "desktop:build:windows": "bun run desktop:check-version && tauri build --config scripts/tauri.windows-local-install.json --bundles nsis --ci",
+    "desktop:install:windows": "bun scripts/desktop-build-install-windows.mjs",
     "release": "bun run scripts/release.ts",
     "release:version": "bun run release patch --yes",
     "release:version:minor": "bun run release minor --yes",

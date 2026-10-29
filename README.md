@@ -66,6 +66,8 @@ bun desktop:dev            # 启动 Tauri 本地客户端（开发模式）
 bun desktop:build          # 构建 Tauri 本地客户端安装包
 bun desktop:sync-env        # 同步项目 .env 到桌面客户端数据目录
 bun desktop:install        # 一键构建 + 安装 + 启动桌面客户端
+bun run desktop:build:windows   # Windows 本地构建 NSIS 安装包（不生成更新签名）
+bun run desktop:install:windows # Windows 一键构建 + 安装 + 启动
 
 # 代码质量
 bun lint                   # 运行 ESLint
@@ -84,6 +86,8 @@ bun typecheck              # TypeScript 类型检查
 - 打包时会将前端静态资源 `.output/public` 写入应用资源目录 `web/public`。
 - 可用 `PLAYLET_INSTALL_DIR` 指定安装目录，例如：`PLAYLET_INSTALL_DIR="$HOME/Applications" bun desktop:install`
 - `desktop:install` 默认会自动同步 `.env`；如不希望自动同步可设置 `PLAYLET_SYNC_ENV=0`。
+- Windows 使用 `bun run desktop:install:windows`：构建完成后关闭现有客户端，静默安装到当前用户目录并启动，请先保存工作。安装保留现有用户数据。可加 `--dry-run` 预览执行步骤。
+- `desktop:build:windows` 使用本地 GNU 工具链配置，将构建生成的 64 位 `WebView2Loader.dll` 一并打包，安装包位于 `src-tauri/target/release/bundle/nsis/`。
 
 ### 打包版环境变量加载说明（重要）
 
