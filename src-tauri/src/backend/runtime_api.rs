@@ -13884,6 +13884,13 @@ fn apply_workflow_video_generation_options(
     provider: &str,
     model_id: &str,
 ) {
+    if provider == "qwen" {
+        let quality = workflow_model_options.pointer("/video_generation/qwen/quality")
+            .and_then(Value::as_str).filter(|value| matches!(*value, "480p" | "720p" | "1080p")).unwrap_or("720p");
+        let supports_480p = model_id.starts_with("wan3.0-video") || model_id.starts_with("happyhorse-1.1-");
+        config["resolution"] = json!(if quality == "480p" && !supports_480p { "720p" } else { quality });
+        return;
+    }
     if provider == "autodl" {
         let quality = workflow_model_options.pointer("/video_generation/autodl/quality")
             .and_then(Value::as_str).filter(|value| matches!(*value, "480p" | "768p")).unwrap_or("768p");
@@ -18373,6 +18380,24 @@ mod tests {
         assert!(bound.contains("陈泽抬头"));
         assert_eq!(bound.matches("陈泽（图片2）").count(), 1);
         assert!(!bound.contains("陈泽（图片2）（图片2）"));
+    }
+
+    #[test]
+    fn workflow_qwen_quality_reaches_video_request() {
+        for model in ["wan3.0-video", "wan3.0-video-prime", "wan2.7-t2v"] {
+            for quality in ["480p", "720p", "1080p"] {
+                let options = json!({"video_generation": {"qwen": {"quality": quality}}});
+                let mut config = json!({"prompt": "test", "resolution": "720p"});
+                apply_workflow_video_generation_options(&mut config, &options, "qwen", model);
+                let expected = if quality == "480p" && model.starts_with("wan2.") { "720P" } else { match quality { "480p" => "480P", "1080p" => "1080P", _ => "720P" } };
+                assert_eq!(build_qwen_video_request(model, &config)["parameters"]["resolution"], expected);
+                assert!(validate_workflow_model_options("video_generation", &options["video_generation"]).is_ok());
+            }
+        }
+        let mut config = json!({});
+        apply_workflow_video_generation_options(&mut config, &json!({}), "qwen", "wan3.0-video");
+        assert_eq!(config["resolution"], "720p");
+        assert!(validate_workflow_model_options("video_generation", &json!({"qwen":{"quality":"4k"}})).is_err());
     }
 
     #[test]

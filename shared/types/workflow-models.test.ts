@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { WorkflowImageGenerationModelOptionsSchema, WorkflowModelsSchema, WorkflowStepSchema, WORKFLOW_STEP_CONFIGS } from './workflow-models'
+import { WorkflowImageGenerationModelOptionsSchema, WorkflowVideoGenerationModelOptionsSchema, WorkflowModelsSchema, WorkflowStepSchema, WORKFLOW_STEP_CONFIGS } from './workflow-models'
+
+describe('Wan video quality settings', () => {
+  it('preserves each supported resolution through settings serialization', () => {
+    for (const quality of ['480p', '720p', '1080p']) {
+      const options = WorkflowVideoGenerationModelOptionsSchema.parse({ qwen: { quality } })
+      expect(WorkflowVideoGenerationModelOptionsSchema.parse(JSON.parse(JSON.stringify(options))).qwen?.quality).toBe(quality)
+    }
+  })
+
+  it('accepts legacy settings and rejects unsupported resolutions', () => {
+    expect(WorkflowVideoGenerationModelOptionsSchema.safeParse({}).success).toBe(true)
+    for (const quality of ['4k', '768p', '', null]) {
+      expect(WorkflowVideoGenerationModelOptionsSchema.safeParse({ qwen: { quality } }).success).toBe(false)
+    }
+  })
+})
 
 describe('OpenAI image quality settings', () => {
   it('preserves extended quality settings when saving image options', () => {

@@ -120,6 +120,7 @@ export const WorkflowVideoAudioDefaultsSchema = z.object({
 export type WorkflowVideoAudioDefaults = z.infer<typeof WorkflowVideoAudioDefaultsSchema>
 
 export const WorkflowVideoGenerationModelOptionsSchema = z.object({
+  qwen: z.object({ quality: z.enum(['480p', '720p', '1080p']).default('720p') }).optional(),
   autodl: z.object({ quality: z.enum(['480p', '768p']).default('768p') }).default({ quality: '768p' }),
   klingV3Omni: KlingV3OmniVideoOptionsSchema.default({
     sound: 'off',

@@ -30,6 +30,8 @@ const props = defineProps<{
   workflowSaving: boolean
   klingV3OmniOptions: KlingV3OmniVideoOptions
   seedanceVideoOptions: SeedanceVideoOptions
+  qwenVideoQuality: '480p' | '720p' | '1080p'
+  updateWorkflowQwenVideoQuality: (value: unknown) => Promise<void>
   autodlVideoQuality: '480p' | '768p'
   updateWorkflowAutodlVideoQuality: (value: unknown) => Promise<void>
   videoAudioDefaults: WorkflowVideoAudioDefaults
@@ -101,6 +103,15 @@ const hasSeedanceInUse = computed(() => {
   const isSeedance = (id: string) => id.includes('seedance')
   return isSeedance(props.selectedModels.video)
     || props.workflows.some(w => w.selectedModel && isSeedance(w.selectedModel))
+})
+
+const qwenVideoResolutions = computed(() => {
+  if (props.activeCategory !== 'video') return []
+  const selected = new Set([props.selectedModels.video, ...props.workflows.map(workflow => workflow.selectedModel)])
+  const qwenModels = props.models.video.filter(model => model.provider === 'qwen' && selected.has(model.model))
+  if (!qwenModels.length) return []
+  const supports480p = qwenModels.every(model => model.model.startsWith('wan3.0-video') || model.model.startsWith('happyhorse-1.1-'))
+  return supports480p ? ['480p', '720p', '1080p'] : ['720p', '1080p']
 })
 
 const hasAutodlInUse = computed(() => {
@@ -436,6 +447,26 @@ function toCheckedBoolean(value: unknown): boolean {
           <SelectContent>
             <SelectItem value="480p">480p</SelectItem>
             <SelectItem value="768p">768p</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+
+    <div v-if="qwenVideoResolutions.length" class="space-y-3 rounded-xl bg-muted/25 p-3">
+      <div>
+        <h5 class="text-xs font-medium">万相视频画质</h5>
+        <p class="mt-1 text-xs text-muted-foreground">用于通义千问视频流程；Wan 3.0 支持最高 1080p。</p>
+      </div>
+      <div class="space-y-1.5">
+        <label for="qwen-video-quality" class="text-xs text-muted-foreground">分辨率</label>
+        <Select
+          :model-value="qwenVideoResolutions.includes(props.qwenVideoQuality) ? props.qwenVideoQuality : '720p'"
+          :disabled="props.workflowSaving"
+          @update:model-value="props.updateWorkflowQwenVideoQuality"
+        >
+          <SelectTrigger id="qwen-video-quality" class="h-9 w-full text-sm"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="quality in qwenVideoResolutions" :key="quality" :value="quality">{{ quality }}</SelectItem>
           </SelectContent>
         </Select>
       </div>

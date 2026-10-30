@@ -289,6 +289,29 @@ export function useSettingsWorkflowModels() {
     return getVideoGenerationModelOptions().seedance
   })
 
+  const qwenVideoQuality = computed(() => getVideoGenerationModelOptions().qwen?.quality || '720p')
+
+  async function updateWorkflowQwenVideoQuality(value: unknown) {
+    if (!workflowData.value || !['480p', '720p', '1080p'].includes(String(value))) return
+    workflowSaving.value = true
+    workflowError.value = ''
+    try {
+      const response = await $fetch<{ success: boolean }>('/api/models/workflow', {
+        method: 'POST',
+        body: {
+          step: 'video_generation',
+          modelOptions: { ...getVideoGenerationModelOptions(), qwen: { quality: value } }
+        }
+      })
+      if (!response.success) throw new Error('保存万相画质失败')
+      await loadWorkflowModels()
+    } catch (error) {
+      workflowError.value = error instanceof Error ? error.message : '保存万相画质失败'
+    } finally {
+      workflowSaving.value = false
+    }
+  }
+
   const autodlVideoQuality = computed(() => getVideoGenerationModelOptions().autodl?.quality || '768p')
 
   async function updateWorkflowAutodlVideoQuality(value: unknown) {
@@ -652,6 +675,8 @@ export function useSettingsWorkflowModels() {
     activeCategoryWorkflows,
     klingV3OmniOptions,
     seedanceVideoOptions,
+    qwenVideoQuality,
+    updateWorkflowQwenVideoQuality,
     autodlVideoQuality,
     updateWorkflowAutodlVideoQuality,
     videoAudioDefaults,
