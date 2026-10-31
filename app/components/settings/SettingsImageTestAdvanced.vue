@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ChevronDown, SlidersHorizontal, Upload, X } from 'lucide-vue-next'
 import type { ImageTestOptions } from '@/lib/model-test-image-options'
-import { imageTestCapabilities } from '@/lib/model-test-image-options'
+import { imageTestCapabilities, resolveImageTestPixelSize } from '@/lib/model-test-image-options'
 const options = defineModel<ImageTestOptions>({ required: true })
 const aspectRatio = defineModel<string>('aspectRatio', { required: true })
 const resolution = defineModel<string>('resolution', { required: true })
@@ -41,6 +41,17 @@ const advancedSummary = computed(() => [
 ].filter(Boolean).join(' · '))
 const attachmentNames = ref({ mask: '', markup: '' })
 const capabilities = computed(() => imageTestCapabilities(props.provider, props.model))
+const pixelSizePreview = computed(() => {
+  try {
+    const plan = resolveImageTestPixelSize(options.value.size)
+    const output = plan.outputSize.replace('x', ' × ')
+    return { error: false, text: plan.outputSize === plan.generationSize
+      ? `输出 ${output}`
+      : `输出 ${output}；模型先生成 ${plan.generationSize.replace('x', ' × ')}，再等比适配并居中裁切。` }
+  } catch (error) {
+    return { error: true, text: error instanceof Error ? error.message : '请输入有效尺寸' }
+  }
+})
 const fidelity = computed({
   get: () => options.value.input_fidelity || 'default',
   set: (value: string) => { options.value.input_fidelity = value === 'default' ? '' : value }
@@ -113,7 +124,7 @@ async function upload(event: Event, key: 'mask' | 'markup') {
       <label v-if="options.sizeMode === 'size'" class="col-span-2 space-y-1.5 lg:col-span-2">
         <span class="text-xs text-muted-foreground">像素尺寸 · 宽 × 高</span>
         <Input v-model="options.size" class="h-9" placeholder="例如 1536x864" aria-label="像素尺寸" />
-        <p class="text-[11px] leading-relaxed text-muted-foreground">边长为 16 的倍数，长短边比不超过 3:1。</p>
+        <p class="text-[11px] leading-relaxed" :class="pixelSizePreview.error ? 'text-destructive' : 'text-muted-foreground'" aria-live="polite">{{ pixelSizePreview.text }}</p>
       </label>
       <label v-if="showResolution" class="space-y-1.5">
         <span class="text-xs text-muted-foreground">分辨率</span>

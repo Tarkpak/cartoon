@@ -47,6 +47,11 @@ async function copyErrorMessage() {
 }
 
 const imageResultUrls = computed(() => imageTestResultUrls(props.testResults.image.result))
+const imageOutputSize = computed(() => {
+  const result = props.testResults.image.result as { size?: string, generationSize?: string } | undefined
+  if (!result?.size || !result.generationSize || result.size === result.generationSize) return null
+  return { output: result.size.replace('x', ' × '), generation: result.generationSize.replace('x', ' × ') }
+})
 const imagePreviewUrls = computed(() => {
   const result = props.testResults.image.result as { previewUrls?: string[] } | undefined
   return result?.previewUrls || []
@@ -133,6 +138,9 @@ const videoResultMeta = computed(() => {
           <img :src="url" :alt="`生成图片 ${index + 1}`" class="max-h-[500px] w-full object-contain">
         </a>
       </div>
+      <p v-if="props.activeTab === 'image' && imageOutputSize" class="text-xs text-muted-foreground">
+        输出 {{ imageOutputSize.output }} · 模型生成 {{ imageOutputSize.generation }}，已适配至目标尺寸
+      </p>
       <details v-if="props.activeTab === 'image' && imagePreviewUrls.length" class="rounded-lg border p-3 text-xs">
         <summary class="cursor-pointer">流式中间预览（{{ imagePreviewUrls.length }}）</summary>
         <div class="mt-3 grid gap-3 sm:grid-cols-3"><img v-for="(url, index) in imagePreviewUrls" :key="url" :src="url" :alt="`中间预览 ${index + 1}`" class="w-full rounded-md"></div>

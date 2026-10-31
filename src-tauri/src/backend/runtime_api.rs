@@ -2,6 +2,9 @@ use super::*;
 #[path = "image_test_options.rs"]
 mod image_test_options;
 use image_test_options::*;
+#[path = "image_test_output.rs"]
+mod image_test_output;
+use image_test_output::*;
 #[path = "scene_character_presence.rs"]
 mod scene_character_presence;
 #[path = "autodl.rs"]
@@ -17139,6 +17142,7 @@ fn validate_models_test_payload(body: &Value) -> Result<(), ApiError> {
         "imageSize",
         "imageQuality",
         "imageResolution",
+        "imageOutputSize",
     ] {
         if let Some(value) = body.get(key).filter(|value| !value.is_null()) {
             if !value.is_string() {
@@ -17206,6 +17210,7 @@ fn models_test_sanitized_payload(body: &Value) -> Value {
         "imageSize",
         "imageQuality",
         "imageResolution",
+        "imageOutputSize",
         "imageOptions",
         "referenceImages",
     ] {
@@ -20448,7 +20453,7 @@ pub(super) async fn api_models_test(
         }
         "image" => {
             let aspect_ratio = normalize_image_aspect_ratio(body.get("imageAspectRatio").and_then(Value::as_str));
-            let size = resolve_model_test_image_size(&body, &model_id, &provider)
+            let (size, output_size) = resolve_model_test_image_sizes(&body, &model_id, &provider)
                 .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error))?;
             let image_quality = body
                 .get("imageQuality")
@@ -20547,7 +20552,11 @@ pub(super) async fn api_models_test(
             let has_image_data = generated.images.iter().any(|(source, _)| !(is_http_url(source) || source.starts_with("data:")));
             for (is_preview, (source, mime_type)) in generated.images.into_iter().map(|image| (false, image))
                 .chain(generated.previews.into_iter().map(|image| (true, image))) {
-                let image_url = if is_http_url(&source) || source.starts_with("data:") {
+                let image_url = if !is_preview && output_size.is_some() {
+                    persist_image_test_exact_output(&state, &source, mime_type.as_deref(), output_size.as_deref().unwrap_or(&size),
+                        image_options.get("output_format").and_then(Value::as_str).unwrap_or("png"),
+                        image_options.get("output_compression").and_then(Value::as_u64).unwrap_or(100) as u8).await?
+                } else if is_http_url(&source) || source.starts_with("data:") {
                     persist_image_source(&state, &source, "model_test_image").await?
                 } else {
                     let bytes = BASE64_STANDARD
@@ -20575,8 +20584,9 @@ pub(super) async fn api_models_test(
               "previewUrls": preview_urls,
               "hasImageData": has_image_data,
               "mimeType": first_mime,
-              "aspectRatio": image_test_output_aspect_ratio(&size, &aspect_ratio),
-              "size": size
+              "aspectRatio": image_test_output_aspect_ratio(output_size.as_deref().unwrap_or(&size), &aspect_ratio),
+              "size": output_size.as_deref().unwrap_or(&size),
+              "generationSize": size
             })
         }
         "video" => {

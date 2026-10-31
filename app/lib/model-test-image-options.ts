@@ -83,16 +83,10 @@ export function buildImageTestSizeParameters(options: ImageTestOptions, selectio
     if (options.sizeMode === 'auto') return { imageSize: 'auto' }
     if (options.sizeMode === 'size') {
       if (!capabilities.customSize) throw new Error('当前模型不支持自定义像素尺寸')
-      const size = options.size.toLowerCase().replace(/[×*]/g, 'x').replace(/\s/g, '')
-      const match = size.match(/^(\d+)x(\d+)$/)
-      const width = Number(match?.[1])
-      const height = Number(match?.[2])
-      if (!width || !height || width % 16 || height % 16 || Math.max(width, height) > 3840
-        || Math.max(width, height) > Math.min(width, height) * 3
-        || width * height < 655360 || width * height > 8294400) {
-        throw new Error('尺寸需为 16 的倍数，长短边比不超过 3:1，最长边不超过 3840，总像素在 655360–8294400 之间')
-      }
-      return { imageSize: size }
+      const plan = resolveImageTestPixelSize(options.size)
+      return plan.outputSize === plan.generationSize
+        ? { imageSize: plan.generationSize }
+        : { imageSize: plan.generationSize, imageOutputSize: plan.outputSize }
     }
     if (options.sizeMode === 'ratio') {
       if (!capabilities.customSize) throw new Error('当前模型不支持自定义比例')
@@ -117,4 +111,23 @@ export function imageTestResultUrls(result: unknown): string[] {
     ? image.imageUrls.filter((url): url is string => typeof url === 'string' && !!url.trim())
     : []
   return urls.length ? urls : typeof image.imageUrl === 'string' && image.imageUrl.trim() ? [image.imageUrl] : []
+}
+
+export function resolveImageTestPixelSize(value: string): { outputSize: string, generationSize: string } {
+  const size = value.toLowerCase().replace(/[×*]/g, 'x').replace(/\s/g, '')
+  const match = size.match(/^(\d+)x(\d+)$/)
+  const width = Number(match?.[1])
+  const height = Number(match?.[2])
+  if (!width || !height || Math.max(width, height) > 3840
+    || Math.max(width, height) > Math.min(width, height) * 3
+    || width * height < 655360 || width * height > 8294400) {
+    throw new Error('尺寸需为正整数，长短边比不超过 3:1，最长边不超过 3840，总像素在 655360–8294400 之间')
+  }
+  let generationWidth = Math.ceil(width / 16) * 16
+  let generationHeight = Math.ceil(height / 16) * 16
+  if (generationWidth * generationHeight > 8294400) {
+    generationWidth = Math.floor(width / 16) * 16
+    generationHeight = Math.floor(height / 16) * 16
+  }
+  return { outputSize: `${width}x${height}`, generationSize: `${generationWidth}x${generationHeight}` }
 }

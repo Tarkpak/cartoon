@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { buildImageTestOptions, defaultImageTestOptions, imageTestCapabilities, normalizeImageTestRatio, buildImageTestSizeParameters, resolveImageTestResolution, imageTestResultUrls } from './model-test-image-options'
+import { buildImageTestOptions, defaultImageTestOptions, imageTestCapabilities, normalizeImageTestRatio, buildImageTestSizeParameters, resolveImageTestResolution, imageTestResultUrls, resolveImageTestPixelSize } from './model-test-image-options'
 
 describe('image test options', () => {
+  it('accepts common output dimensions and adapts the model request', () => {
+    expect(resolveImageTestPixelSize('1920*1080')).toEqual({ outputSize: '1920x1080', generationSize: '1920x1088' })
+    expect(resolveImageTestPixelSize('1080 × 1920')).toEqual({ outputSize: '1080x1920', generationSize: '1088x1920' })
+    expect(resolveImageTestPixelSize('2048x1152')).toEqual({ outputSize: '2048x1152', generationSize: '2048x1152' })
+    expect(resolveImageTestPixelSize('2881x2879')).toEqual({ outputSize: '2881x2879', generationSize: '2880x2864' })
+    const selection = { provider: 'openai', model: 'gpt-image-2', aspectRatio: '1:1', resolution: '4K', size: '', hasResolution: true, hasSize: false }
+    expect(buildImageTestSizeParameters({ ...defaultImageTestOptions(), sizeMode: 'size', size: '1920*1080' }, selection)).toEqual({ imageSize: '1920x1088', imageOutputSize: '1920x1080' })
+  })
   it('handles multiple results and falls back to the single image URL', () => {
     expect(imageTestResultUrls({ imageUrls: ['one', 'two', null, ''] })).toEqual(['one', 'two'])
     expect(imageTestResultUrls({ imageUrls: [], imageUrl: 'fallback' })).toEqual(['fallback'])
@@ -21,7 +29,7 @@ describe('image test options', () => {
     options.ratio = '2.39:1'
     expect(buildImageTestSizeParameters(options, selection)).toEqual({ imageAspectRatio: '239:100', imageResolution: '4K' })
     options.sizeMode = 'size'
-    for (const size of ['0x1024', '1537x864', '4096x2048', '2048x512', '16x16']) {
+    for (const size of ['0x1024', '4096x2048', '2048x512', '16x16']) {
       options.size = size
       expect(() => buildImageTestSizeParameters(options, selection)).toThrow('尺寸')
     }
