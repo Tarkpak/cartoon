@@ -1,4 +1,4 @@
-import { defaultImageTestOptions, buildImageTestOptions, imageTestCapabilities, normalizeImageTestRatio } from '@/lib/model-test-image-options'
+import { defaultImageTestOptions, buildImageTestOptions, buildImageTestSizeParameters, resolveImageTestResolution, imageTestResultUrls } from '@/lib/model-test-image-options'
 import { OPENAI_IMAGE_RESOLUTIONS } from '#shared/types/workflow-models'
 import type { ImageModelConfig, VideoModelConfig } from '#shared/types/provider'
 import { resolveApiErrorMessage } from '@/lib/api-error'
@@ -178,6 +178,8 @@ export function useSettingsModelTest() {
 
   const {
     fileInputRef,
+    referenceImagesUploading,
+    referenceUploadError,
     promptEditorRef,
     imagePromptIsEmpty,
     imageMentionOpen,
@@ -307,6 +309,7 @@ export function useSettingsModelTest() {
 
   const canRunImageTest = computed(() => {
     if (activeTab.value !== 'image') return true
+    if (referenceImagesUploading.value) return false
     if (!currentImageModelRequiresReference.value) return true
     return referenceImages.value.length > 0
   })
@@ -600,6 +603,8 @@ export function useSettingsModelTest() {
       imageSize.value = sizeOptions[0] || ''
     }
 
+    imageResolution.value = resolveImageTestResolution(imageResolution.value, currentImageModelResolutionOptions.value)
+
     const qualityOptions = currentImageModelQualityOptions.value
     if (qualityOptions.length === 0) {
       imageQuality.value = DEFAULT_IMAGE_QUALITY
@@ -703,35 +708,20 @@ export function useSettingsModelTest() {
       }
 
       if (modelType === 'image') {
-        if (currentImageModelAspectRatioOptions.value.length > 0) {
-          body.imageAspectRatio = imageAspectRatio.value
-        }
-        if (currentImageModelResolutionOptions.value.length > 0) {
-          body.imageResolution = imageResolution.value
-        } else if (currentImageModelSizeOptions.value.length > 0) {
-          body.imageSize = imageSize.value
-        }
-        if (currentImageModelQualityOptions.value.length > 0) {
-          body.imageQuality = imageQuality.value
-        }
         const model = currentImageModel.value
         if (model) {
-          const advanced = imageAdvancedOptions.value
-          body.imageOptions = buildImageTestOptions(advanced, model.provider, model.model, referenceImages.value.length)
-          if (imageTestCapabilities(model.provider, model.model).gpt) {
-            if (advanced.sizeMode === 'auto') {
-              delete body.imageResolution
-              body.imageSize = 'auto'
-            } else if (advanced.sizeMode === 'size') {
-              delete body.imageResolution
-              body.imageSize = advanced.size
-            } else if (advanced.sizeMode === 'ratio') {
-              delete body.imageSize
-              body.imageAspectRatio = normalizeImageTestRatio(advanced.ratio)
-              body.imageResolution = imageResolution.value
-            }
-          }
+          Object.assign(body, buildImageTestSizeParameters(imageAdvancedOptions.value, {
+            provider: model.provider,
+            model: model.model,
+            aspectRatio: imageAspectRatio.value,
+            resolution: imageResolution.value,
+            size: imageSize.value,
+            hasResolution: currentImageModelResolutionOptions.value.length > 0,
+            hasSize: currentImageModelSizeOptions.value.length > 0
+          }))
+          body.imageOptions = buildImageTestOptions(imageAdvancedOptions.value, model.provider, model.model, (body.referenceImages as string[] | undefined)?.length || 0)
         }
+        if (currentImageModelQualityOptions.value.length > 0) body.imageQuality = imageQuality.value
       }
 
       const response = await $fetch<{
@@ -769,6 +759,7 @@ export function useSettingsModelTest() {
         }
 
         if (testRunIds[modelType] !== runId) return
+        if (modelType === 'image' && !imageTestResultUrls(result).length) throw new Error('图片测试未返回可展示的图片')
         testResults.value[modelType] = {
           status: 'success',
           message: `测试成功 (${latencyMs}ms)`,
@@ -812,6 +803,10 @@ export function useSettingsModelTest() {
     syncImageGenerationOptions()
   }, { immediate: true })
 
+  watch(currentImageModelResolutionOptions, (options) => {
+    imageResolution.value = resolveImageTestResolution(imageResolution.value, options)
+  }, { immediate: true })
+
   watch(currentImageModelQualityOptions, (options) => {
     if (options.length > 0 && options.includes(imageQuality.value)) return
     syncImageGenerationOptions()
@@ -821,6 +816,12 @@ export function useSettingsModelTest() {
     imageAdvancedOptions.value = defaultImageTestOptions()
     syncImageGenerationOptions(true)
   }, { immediate: true })
+
+  watch(() => referenceImages.value[0], (current, previous) => {
+    if (current === previous) return
+    imageAdvancedOptions.value.mask = ''
+    imageAdvancedOptions.value.markup = ''
+  }, { flush: 'sync' })
 
   watch(() => referenceImages.value.length, (count) => {
     if (count > 0) return
@@ -928,6 +929,8 @@ export function useSettingsModelTest() {
     canRunImageTest,
     canRunVideoTest,
     fileInputRef,
+    referenceImagesUploading,
+    referenceUploadError,
     promptEditorRef,
     imagePromptIsEmpty,
     imageMentionOpen,

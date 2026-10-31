@@ -11,6 +11,7 @@ const props = defineProps<{
   provider?: string
   model?: string
   hasReferences: boolean
+  referenceImage?: string
   aspectRatioOptions: string[]
   resolutionOptions: string[]
   qualityOptions: string[]
@@ -45,6 +46,11 @@ const fidelity = computed({
   set: (value: string) => { options.value.input_fidelity = value === 'default' ? '' : value }
 })
 const uploadError = ref('')
+watch(() => [options.value.mask, options.value.markup], () => {
+  if (!options.value.mask) attachmentNames.value.mask = ''
+  if (!options.value.markup) attachmentNames.value.markup = ''
+})
+watch(() => [props.model, props.referenceImage], () => { uploadError.value = '' })
 async function upload(event: Event, key: 'mask' | 'markup') {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -55,13 +61,17 @@ async function upload(event: Event, key: 'mask' | 'markup') {
     uploadError.value = '请上传不超过 4 MB 的透明 PNG，尺寸需与第一张参考图一致'
     return
   }
+  const target = options.value
+  const reference = props.referenceImage
   try {
-    options.value[key] = await new Promise<string>((resolve, reject) => {
+    const data = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = () => resolve(String(reader.result))
       reader.onerror = () => reject(new Error('图片读取失败'))
       reader.readAsDataURL(file)
     })
+    if (options.value !== target || !props.hasReferences || props.referenceImage !== reference) return
+    options.value[key] = data
     attachmentNames.value[key] = file.name
   } catch { uploadError.value = '图片读取失败，请重试' }
 }

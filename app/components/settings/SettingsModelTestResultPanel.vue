@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { imageTestResultUrls } from '@/lib/model-test-image-options'
 import {
   CheckCircle2,
   Loader2,
@@ -45,10 +46,7 @@ async function copyErrorMessage() {
   }
 }
 
-const imageResultUrls = computed(() => {
-  const result = props.testResults.image.result as { imageUrl?: string, imageUrls?: string[] } | undefined
-  return result?.imageUrls || (result?.imageUrl ? [result.imageUrl] : [])
-})
+const imageResultUrls = computed(() => imageTestResultUrls(props.testResults.image.result))
 const imagePreviewUrls = computed(() => {
   const result = props.testResults.image.result as { previewUrls?: string[] } | undefined
   return result?.previewUrls || []

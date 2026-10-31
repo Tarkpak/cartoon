@@ -47,25 +47,44 @@ export function useImagePromptReferenceEditor(options: UseImagePromptReferenceEd
     referenceImages: options.referenceImages
   })
 
-  function handleReferenceImageUpload(event: Event) {
+  const pendingUploads = ref(0)
+  const referenceImagesUploading = computed(() => pendingUploads.value > 0)
+  const referenceUploadError = ref('')
+  let uploadQueue = Promise.resolve()
+
+  async function handleReferenceImageUpload(event: Event) {
     const input = event.target as HTMLInputElement
-    const files = input.files
-    if (!files || files.length === 0) return
-
-    const remainingSlots = maxReferenceCount.value - options.referenceImages.value.length
-    for (const file of Array.from(files).slice(0, remainingSlots)) {
-      if (!file.type.startsWith('image/')) continue
-
-      const reader = new FileReader()
-      reader.onload = (loadEvent) => {
-        const base64 = loadEvent.target?.result as string
-        if (!base64 || options.referenceImages.value.length >= maxReferenceCount.value) return
-        options.referenceImages.value.push(base64)
-      }
-      reader.readAsDataURL(file)
-    }
-
+    const files = Array.from(input.files || [])
     input.value = ''
+    if (!files.length) return
+    const target = options.referenceImages.value
+    const selected = files.filter(file => file.type.startsWith('image/'))
+      .slice(0, Math.max(0, maxReferenceCount.value - target.length))
+    referenceUploadError.value = selected.length < files.length ? '部分文件不是图片或超出参考图数量上限' : ''
+    if (!selected.length) return
+    pendingUploads.value += 1
+    const previous = uploadQueue
+    let complete!: () => void
+    uploadQueue = new Promise<void>(resolve => { complete = resolve })
+    try {
+      const images = await Promise.all(selected.map(file => new Promise<string | null>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+        reader.onerror = () => resolve(null)
+        reader.onabort = () => resolve(null)
+        try { reader.readAsDataURL(file) } catch { resolve(null) }
+      })))
+      await previous
+      // Replacing the array starts a new model/project context. Ignore old reads.
+      if (options.referenceImages.value !== target) return
+      if (images.some(image => !image)) referenceUploadError.value = '部分图片读取失败，请重试'
+      for (const image of images) {
+        if (image && target.length < maxReferenceCount.value) target.push(image)
+      }
+    } finally {
+      pendingUploads.value -= 1
+      complete()
+    }
   }
 
   function removeReferenceImage(index: number) {
@@ -85,6 +104,8 @@ export function useImagePromptReferenceEditor(options: UseImagePromptReferenceEd
 
   return {
     fileInputRef,
+    referenceImagesUploading,
+    referenceUploadError,
     promptEditorRef,
     imagePromptIsEmpty,
     imageMentionOpen,

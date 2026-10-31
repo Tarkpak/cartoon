@@ -88,6 +88,15 @@ pub(super) fn validate_image_test_options(
     if options["background"] == "transparent" && options["output_format"] == "jpeg" {
         return Err("透明背景不支持 JPEG，请选择 PNG 或 WebP".into());
     }
+    if options.get("output_compression").is_some()
+        && options
+            .get("output_format")
+            .and_then(Value::as_str)
+            .unwrap_or("png")
+            == "png"
+    {
+        return Err("PNG 不支持 output_compression，请选择 JPEG 或 WebP".into());
+    }
     if options.get("partial_images").is_some() && options["stream"] != true {
         return Err("中间预览需要启用流式响应".into());
     }
@@ -120,22 +129,77 @@ pub(super) fn validate_image_test_size(size: &str, model: &str) -> Result<(), St
     Ok(())
 }
 
+pub(super) fn image_test_output_aspect_ratio(size: &str, fallback: &str) -> String {
+    if size == "auto" {
+        return "auto".into();
+    }
+    if let Some((w, h)) = parse_image_dimensions(size) {
+        let divisor = gcd_u32(w, h);
+        return format!("{}:{}", w / divisor, h / divisor);
+    }
+    fallback.to_string()
+}
+
+pub(super) fn build_gemini_image_request(
+    imagen: bool,
+    prompt: &str,
+    parts: Vec<Value>,
+    image_size: Option<&str>,
+    aspect_ratio: Option<&str>,
+) -> Value {
+    let ratio = aspect_ratio.filter(|ratio| !ratio.is_empty() && *ratio != "auto");
+    if imagen {
+        let mut body = json!({"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1}});
+        if let Some(ratio) = ratio {
+            body["parameters"]["aspectRatio"] = json!(ratio);
+        }
+        if let Some(size) = image_size {
+            body["parameters"]["sampleImageSize"] = json!(size);
+        }
+        return body;
+    }
+    let mut body = json!({"contents": [{"role":"user", "parts":parts}], "generationConfig":{"responseModalities":["TEXT", "IMAGE"]}});
+    if let Some(ratio) = ratio {
+        body["generationConfig"]["imageConfig"]["aspectRatio"] = json!(ratio);
+    }
+    if let Some(size) = image_size {
+        body["generationConfig"]["imageConfig"]["imageSize"] = json!(size);
+    }
+    body
+}
+
 // Normalize both JSON and SSE image responses. Keep previews separate from final images.
 pub(super) fn parse_image_test_response(body: &str, streaming: bool) -> Result<Value, String> {
     if !streaming {
         return serde_json::from_str(body).map_err(|e| format!("解析图片响应失败: {e}"));
     }
+    if body.trim_start().starts_with('{') {
+        let payload: Value =
+            serde_json::from_str(body).map_err(|e| format!("解析图片响应失败: {e}"))?;
+        if let Some(error) = payload.get("error") {
+            return Err(error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("图片接口返回错误")
+                .into());
+        }
+        return Ok(payload);
+    }
     let mut images = vec![];
     let mut previews = vec![];
-    for line in body.lines() {
-        let Some(data) = line.strip_prefix("data:") else {
-            continue;
-        };
-        if data.trim() == "[DONE]" {
+    let normalized = body.replace("\r\n", "\n");
+    for frame in normalized.split("\n\n") {
+        let data = frame
+            .lines()
+            .filter_map(|line| line.strip_prefix("data:"))
+            .map(str::trim_start)
+            .collect::<Vec<_>>()
+            .join("\n");
+        if data.is_empty() || data.trim() == "[DONE]" {
             continue;
         }
         let event: Value =
-            serde_json::from_str(data.trim()).map_err(|e| format!("解析图片流失败: {e}"))?;
+            serde_json::from_str(&data).map_err(|e| format!("解析图片流失败: {e}"))?;
         let kind = event["type"].as_str().unwrap_or("");
         if kind == "error" || event.get("error").is_some() {
             return Err(event["error"]["message"]
@@ -166,6 +230,80 @@ pub(super) fn parse_image_test_response(body: &str, streaming: bool) -> Result<V
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preserves_native_provider_size_formats() {
+        for (provider, model, size) in [
+            ("qwen", "qwen-image", "1328*1328"),
+            ("qwen", "wan2.7-image", "2K"),
+            ("volcengine", "seedream", "2048*2048"),
+        ] {
+            assert_eq!(
+                resolve_model_test_image_size(&json!({"imageSize":size}), model, provider).unwrap(),
+                size
+            );
+        }
+    }
+
+    #[test]
+    fn gemini_and_imagen_receive_the_selected_ratio() {
+        let request = build_gemini_image_request(
+            false,
+            "prompt",
+            vec![json!({"text":"prompt"})],
+            Some("2K"),
+            Some("16:9"),
+        );
+        assert_eq!(
+            request["generationConfig"]["imageConfig"],
+            json!({"aspectRatio":"16:9", "imageSize":"2K"})
+        );
+        assert!(request["generationConfig"].get("image_size").is_none());
+        let automatic = build_gemini_image_request(false, "prompt", vec![], None, Some("auto"));
+        assert!(automatic["generationConfig"].get("imageConfig").is_none());
+        let imagen = build_gemini_image_request(true, "prompt", vec![], None, Some("9:16"));
+        assert_eq!(imagen["instances"][0]["prompt"], "prompt");
+        assert_eq!(
+            imagen["parameters"],
+            json!({"aspectRatio":"9:16", "sampleCount":1})
+        );
+        assert!(imagen.get("contents").is_none());
+        let response =
+            json!({"predictions":[{"bytesBase64Encoded":"image", "mimeType":"image/jpeg"}]});
+        assert_eq!(
+            parse_gemini_image_result(&response),
+            Some(("image".into(), Some("image/jpeg".into())))
+        );
+    }
+
+    #[test]
+    fn output_ratio_matches_explicit_dimensions() {
+        assert_eq!(image_test_output_aspect_ratio("1536x864", "1:1"), "16:9");
+        assert_eq!(image_test_output_aspect_ratio("auto", "1:1"), "auto");
+    }
+
+    #[test]
+    fn streaming_handles_multiline_events_and_json_compatible_services() {
+        let body = "data: {\r\ndata: \"type\":\"image_generation.completed\",\r\ndata: \"b64_json\":\"final\"}\r\n\r\n";
+        assert_eq!(
+            parse_image_test_response(body, true).unwrap()["data"][0]["b64_json"],
+            "final"
+        );
+        let json_body = "{\"data\":[{\"b64_json\":\"final\"}]}";
+        assert_eq!(
+            parse_image_test_response(json_body, true).unwrap()["data"][0]["b64_json"],
+            "final"
+        );
+        assert!(
+            parse_image_test_response("{\"error\":{\"message\":\"unsupported\"}}", true)
+                .unwrap_err()
+                .contains("unsupported")
+        );
+        assert!(
+            validate_image_test_options(&json!({"output_compression":100}), "gpt-image-2", 0)
+                .is_err()
+        );
+    }
+
     #[test]
     fn validates_model_specific_options() {
         assert!(validate_image_test_options(

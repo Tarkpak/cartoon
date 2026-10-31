@@ -8427,6 +8427,14 @@ fn parse_qwen_multimodal_image_result(payload: &Value) -> Option<(String, Option
 }
 
 fn parse_gemini_image_result(payload: &Value) -> Option<(String, Option<String>)> {
+    if let Some(predictions) = payload.get("predictions").and_then(Value::as_array) {
+        for prediction in predictions {
+            if let Some(data) = prediction.get("bytesBase64Encoded").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+                return Some((data.to_string(), Some(prediction.get("mimeType").and_then(Value::as_str).unwrap_or("image/png").to_string())));
+            }
+        }
+    }
+
     let candidates = payload.get("candidates").and_then(Value::as_array)?;
     for candidate in candidates {
         let Some(parts) = candidate
@@ -8945,6 +8953,17 @@ async fn request_gemini_image_generation(
     reference_images: &[String],
     creds: &Value,
 ) -> Result<(String, Option<String>), String> {
+    request_gemini_image_generation_with_aspect_ratio(model_id, prompt, image_size, None, reference_images, creds).await
+}
+
+async fn request_gemini_image_generation_with_aspect_ratio(
+    model_id: &str,
+    prompt: &str,
+    image_size: Option<&str>,
+    aspect_ratio: Option<&str>,
+    reference_images: &[String],
+    creds: &Value,
+) -> Result<(String, Option<String>), String> {
     let api_keys = provider_sync_api_keys("gemini", creds);
     if api_keys.is_empty() {
         llm_dev_log!(
@@ -8959,7 +8978,11 @@ async fn request_gemini_image_generation(
     }
     let base_url =
         provider_sync_base_url("gemini", creds).ok_or_else(|| "未配置 Base URL".to_string())?;
-    let endpoint = provider_gemini_generate_endpoint(&base_url, model_id);
+    let imagen = normalize_model_id_for_remote(model_id).to_ascii_lowercase().starts_with("imagen");
+    if imagen && !reference_images.is_empty() { return Err("Imagen 文生图模型不支持参考图片".into()); }
+    let endpoint = if imagen {
+        format!("{}:predict", provider_gemini_generate_endpoint(&base_url, model_id).trim_end_matches(":generateContent"))
+    } else { provider_gemini_generate_endpoint(&base_url, model_id) };
     let mut last_error = None::<String>;
     let _log_started_at = Utc::now().timestamp_millis();
 
@@ -8999,20 +9022,7 @@ async fn request_gemini_image_generation(
             }
         }
 
-        let mut request_body = json!({
-          "contents": [
-            {
-              "role": "user",
-              "parts": parts
-            }
-          ],
-          "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"]
-          }
-        });
-        if let Some(image_size) = image_size {
-            request_body["generationConfig"]["image_size"] = json!(image_size);
-        }
+        let request_body = build_gemini_image_request(imagen, prompt, parts, image_size, aspect_ratio);
         let response = llm_http_client()
             .post(&endpoint)
             .query(&[("key", api_key.as_str())])
@@ -17128,6 +17138,7 @@ fn validate_models_test_payload(body: &Value) -> Result<(), ApiError> {
         "imageAspectRatio",
         "imageSize",
         "imageQuality",
+        "imageResolution",
     ] {
         if let Some(value) = body.get(key).filter(|value| !value.is_null()) {
             if !value.is_string() {
@@ -19360,7 +19371,9 @@ async fn assert_generated_environment_image_size(
 fn resolve_model_test_image_size(body: &Value, model_id: &str, provider: &str) -> Result<String, String> {
     let aspect_ratio = normalize_image_aspect_ratio(body.get("imageAspectRatio").and_then(Value::as_str));
     if let Some(size) = body.get("imageSize").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
-        return Ok(size.replace('*', "x").replace('×', "x").replace(char::is_whitespace, "").to_ascii_lowercase());
+        return Ok(if matches!(provider, "openai" | "custom_openai") {
+            size.replace('*', "x").replace('×', "x").replace(char::is_whitespace, "").to_ascii_lowercase()
+        } else { size.to_string() });
     }
     if aspect_ratio == "auto" && matches!(provider, "openai" | "custom_openai") {
         return Ok("auto".into());
@@ -20490,10 +20503,11 @@ pub(super) async fn api_models_test(
                         .await
                     }
                     "gemini" => {
-                        request_gemini_image_generation(
+                        request_gemini_image_generation_with_aspect_ratio(
                             &model_id,
                             &prompt,
                             None,
+                            Some(&aspect_ratio),
                             &reference_images,
                             &creds,
                         )
@@ -20561,7 +20575,7 @@ pub(super) async fn api_models_test(
               "previewUrls": preview_urls,
               "hasImageData": has_image_data,
               "mimeType": first_mime,
-              "aspectRatio": aspect_ratio,
+              "aspectRatio": image_test_output_aspect_ratio(&size, &aspect_ratio),
               "size": size
             })
         }

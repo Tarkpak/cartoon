@@ -48,6 +48,8 @@ const props = defineProps<{
   currentImageModelResolutionOptions: string[]
   canRunImageTest: boolean
   canRunVideoTest: boolean
+  referenceImagesUploading?: boolean
+  referenceUploadError?: string
   referenceImages: string[]
   videoReferenceImages: string[]
   videoReferenceVideos: string[]
@@ -194,6 +196,7 @@ const videoReferenceMaterialReady = computed(() => {
       :provider="props.imageProvider"
       :model="props.imageModel"
       :has-references="props.referenceImages.length > 0"
+      :reference-image="props.referenceImages[0]"
       :aspect-ratio-options="props.currentImageModelAspectRatioOptions"
       :resolution-options="props.currentImageModelResolutionOptions"
       :quality-options="props.currentImageModelQualityOptions"
@@ -402,20 +405,17 @@ const videoReferenceMaterialReady = computed(() => {
           v-for="(img, index) in props.referenceImages"
           :key="index"
           class="group relative h-14 w-14 cursor-zoom-in overflow-hidden rounded-xl bg-muted/25 transition-colors hover:bg-muted/40"
-          @click="props.openReferenceImagePreview(img, index)"
         >
-          <img
-            :src="img"
-            class="h-full w-full object-cover"
-          >
-          <span class="absolute left-0.5 top-0.5 rounded bg-black/60 px-1 py-0.5 text-xs leading-none text-white">
-            图{{ index + 1 }}
-          </span>
+          <button type="button" class="h-full w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" :aria-label="`预览参考图 ${index + 1}`" @click="props.openReferenceImagePreview(img, index)">
+            <img :src="img" :alt="`参考图 ${index + 1}`" class="h-full w-full object-cover">
+            <span class="absolute left-0.5 top-0.5 rounded bg-black/60 px-1 py-0.5 text-xs leading-none text-white">图{{ index + 1 }}</span>
+          </button>
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            class="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-black/60 p-0 text-white opacity-0 transition-opacity hover:bg-black/70 hover:text-white group-hover:opacity-100"
+            class="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-black/60 p-0 text-white transition-opacity hover:bg-black/70 hover:text-white sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            :aria-label="`移除参考图 ${index + 1}`"
             @click.stop="props.removeReferenceImage(index)"
           >
             <X class="h-3 w-3" />
@@ -435,7 +435,11 @@ const videoReferenceMaterialReady = computed(() => {
         </Button>
       </div>
 
-      <Input
+      <p v-if="props.referenceImagesUploading" class="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+        <Loader2 class="h-3 w-3 animate-spin" />正在读取参考图片…
+      </p>
+      <p v-if="props.referenceUploadError" class="text-xs text-destructive" role="alert">{{ props.referenceUploadError }}</p>
+      <input
         :ref="props.setFileInputRef"
         accept="image/*"
         class="hidden"

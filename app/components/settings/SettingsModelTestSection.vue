@@ -71,6 +71,8 @@ const {
   canRunImageTest,
   canRunVideoTest,
   fileInputRef,
+  referenceImagesUploading,
+  referenceUploadError,
   promptEditorRef,
   imagePromptIsEmpty,
   imageMentionOpen,
@@ -356,6 +358,8 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
           :open-reference-image-preview="openReferenceImagePreview"
           :set-prompt-editor-ref="setPromptEditorElement"
           :reference-images="referenceImages"
+          :reference-images-uploading="referenceImagesUploading"
+          :reference-upload-error="referenceUploadError"
           :video-reference-images="videoReferenceImages"
           :video-reference-videos="videoReferenceVideos"
           :video-reference-video-names="videoReferenceVideoNames"
