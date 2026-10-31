@@ -353,7 +353,7 @@ const videoReferenceMaterialReady = computed(() => {
       </template>
 
       <p
-        v-if="activeTab === 'image' && !usesUnifiedImageControls && props.currentImageModelSupportsReference"
+        v-if="activeTab === 'image' && props.currentImageModelSupportsReference"
         class="mt-1 text-xs text-muted-foreground/70"
       >
         输入 `@` 可直接选择参考图
@@ -389,12 +389,12 @@ const videoReferenceMaterialReady = computed(() => {
 
     <!-- Reference images -->
     <div
-      v-if="activeTab === 'image' && !usesUnifiedImageControls && props.currentImageModelSupportsReference"
+      v-if="activeTab === 'image' && props.currentImageModelSupportsReference"
       class="space-y-1.5"
     >
       <label class="flex items-center gap-1 text-xs text-muted-foreground/70">
         <ImagePlus class="h-3 w-3" />
-        参考图片 (可选，最多 {{ props.currentImageModelMaxReferenceImages }} 张)
+        参考图片（{{ props.currentImageModelRequiresReference ? '必填' : '可选' }}，最多 {{ props.currentImageModelMaxReferenceImages }} 张）
       </label>
 
       <div class="flex flex-wrap gap-2">
@@ -426,10 +426,12 @@ const videoReferenceMaterialReady = computed(() => {
           v-if="props.referenceImages.length < props.currentImageModelMaxReferenceImages"
           type="button"
           variant="ghost"
-          class="h-14 w-14 rounded-lg border-2 border-dashed border-muted-foreground/20 p-0 text-muted-foreground/50 transition-colors hover:bg-muted/35 hover:text-primary"
+          class="h-14 gap-2 rounded-lg border border-dashed border-muted-foreground/30 px-4 text-muted-foreground transition-colors hover:bg-muted/35 hover:text-primary"
+          aria-label="上传参考图"
           @click="props.triggerFileInput"
         >
           <ImagePlus class="h-4 w-4" />
+          上传参考图
         </Button>
       </div>
 
