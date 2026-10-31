@@ -1,4 +1,7 @@
 use super::*;
+#[path = "image_test_options.rs"]
+mod image_test_options;
+use image_test_options::*;
 #[path = "scene_character_presence.rs"]
 mod scene_character_presence;
 #[path = "autodl.rs"]
@@ -7816,7 +7819,8 @@ async fn poll_openai_compatible_image_task(
     api_key: &str,
     model_id: &str,
     task_id: &str,
-) -> Result<(String, Option<String>), String> {
+    output_format: &str,
+) -> Result<ImageTestOutput, String> {
     tokio::time::sleep(Duration::from_secs(10)).await;
     let endpoint = provider_image_task_endpoint(base_url, task_id);
     let started_at = Utc::now().timestamp_millis();
@@ -7897,7 +7901,7 @@ async fn poll_openai_compatible_image_task(
             );
             message
         })?;
-        if let Some(result) = parse_openai_compatible_image_result(&payload) {
+        if let Some(result) = parse_image_test_output(&payload, output_format) {
             llm_dev_write_db_log(
                 "custom_openai",
                 model_id,
@@ -7908,8 +7912,7 @@ async fn poll_openai_compatible_image_task(
                 Some(&request_body),
                 Some(&json!({
                   "taskId": task_id,
-                  "source": result.0.as_str(),
-                  "mimeType": result.1.as_deref()
+                  "imageCount": result.images.len()
                 })),
                 Some(body_text.as_str()),
                 None,
@@ -7962,6 +7965,20 @@ async fn request_custom_openai_image_generation(
     reference_images: &[String],
     creds: &Value,
 ) -> Result<(String, Option<String>), String> {
+    request_custom_openai_image_generation_with_options(provider, model_id, prompt, size, quality_override, reference_images, creds, &json!({}))
+        .await?.images.into_iter().next().ok_or_else(|| "未返回图片".to_string())
+}
+
+async fn request_custom_openai_image_generation_with_options(
+    provider: &str,
+    model_id: &str,
+    prompt: &str,
+    size: &str,
+    quality_override: Option<&str>,
+    reference_images: &[String],
+    creds: &Value,
+    image_options: &Value,
+) -> Result<ImageTestOutput, String> {
     let custom_openai = if provider == "custom_openai" {
         custom_openai_entry_for_model(model_id, creds)
             .ok_or_else(|| "未配置自定义 OpenAI 供应商".to_string())?
@@ -7989,10 +8006,13 @@ async fn request_custom_openai_image_generation(
         .ok_or_else(|| "未配置 Base URL".to_string())?;
     let model = normalize_model_id_for_remote(model_id);
     let normalized_model = model.to_ascii_lowercase();
+    validate_image_test_options(image_options, &normalized_model, reference_images.len())?;
+    let count = image_options.get("n").and_then(Value::as_u64).unwrap_or(1);
+    let streaming = image_options.get("stream").and_then(Value::as_bool).unwrap_or(false);
     let is_apimart = is_apimart_base_url(&base_url);
     let is_gpt_image_2_series = is_gpt_image_2_model(&normalized_model);
     let is_apimart_gpt_image_2 = is_apimart && is_gpt_image_2_series;
-    let supports_edit = normalized_model.starts_with("gpt-image") || is_gpt_image_2_series;
+    let supports_edit = normalized_model.starts_with("gpt-image") || normalized_model == "chatgpt-image-latest" || is_gpt_image_2_series;
     if !reference_images.is_empty() && !supports_edit {
         return Err(format!("模型 {} 不支持参考图编辑", model));
     }
@@ -8029,7 +8049,7 @@ async fn request_custom_openai_image_generation(
         &base_url,
         &normalized_model,
         !reference_images.is_empty(),
-    );
+    ) && image_options.get("mask").is_none() && image_options.get("markup").is_none();
     let use_multipart_edit = !reference_images.is_empty() && !use_image_urls_in_generations;
     let endpoint = provider_image_request_endpoint(&base_url, use_multipart_edit);
 
@@ -8056,7 +8076,7 @@ async fn request_custom_openai_image_generation(
               "model": model.as_str(),
               "prompt": prompt,
               "size": resolved_size.as_str(),
-              "n": 1,
+              "n": count,
               "transport": "multipart",
               "referenceImages": reference_images
             })
@@ -8067,6 +8087,11 @@ async fn request_custom_openai_image_generation(
             if let Some(quality) = &quality {
                 request_log_payload["quality"] = json!(quality);
             }
+            if let Some(options) = image_options.as_object() {
+                for (key, value) in options {
+                    request_log_payload[key] = if matches!(key.as_str(), "mask" | "markup") { json!("[PNG attachment]") } else { value.clone() };
+                }
+            }
         }
 
         let response = if use_multipart_edit {
@@ -8074,10 +8099,20 @@ async fn request_custom_openai_image_generation(
                 .text("model", model.clone())
                 .text("prompt", prompt.to_string())
                 .text("size", resolved_size.clone())
-                .text("n", "1".to_string());
-            if normalized_model.starts_with("gpt-image") {
+                .text("n", count.to_string());
+            if normalized_model.starts_with("gpt-image") || normalized_model == "chatgpt-image-latest" {
                 if let Some(quality) = &quality {
                     form = form.text("quality", quality.clone());
+                }
+            }
+            if let Some(options) = image_options.as_object() {
+                for (key, value) in options {
+                    if key == "n" { continue; }
+                    if matches!(key.as_str(), "mask" | "markup") {
+                        form = form.part(key.clone(), reference_image_part(value.as_str().unwrap_or(""), 0)?);
+                    } else {
+                        form = form.text(key.clone(), value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string()));
+                    }
                 }
             }
             for (index, reference) in reference_images.iter().enumerate() {
@@ -8111,7 +8146,7 @@ async fn request_custom_openai_image_generation(
             llm_http_client()
                 .post(&endpoint_for_log)
                 .header(reqwest::header::AUTHORIZATION, openai_auth_header(&api_key))
-                .header(reqwest::header::ACCEPT, "application/json")
+                .header(reqwest::header::ACCEPT, if streaming { "text/event-stream" } else { "application/json" })
                 .multipart(form)
                 .send()
                 .await
@@ -8144,9 +8179,9 @@ async fn request_custom_openai_image_generation(
               "model": model.as_str(),
               "prompt": prompt,
               "size": resolved_size.as_str(),
-              "n": 1
+              "n": count
             });
-            if normalized_model.starts_with("gpt-image") {
+            if normalized_model.starts_with("gpt-image") || normalized_model == "chatgpt-image-latest" {
                 if let Some(quality) = &quality {
                     request_body["quality"] = json!(quality);
                 }
@@ -8157,11 +8192,14 @@ async fn request_custom_openai_image_generation(
             if use_image_urls_in_generations {
                 request_body["image_urls"] = json!(reference_images);
             }
+            if let Some(options) = image_options.as_object() {
+                for (key, value) in options { request_body[key] = value.clone(); }
+            }
             request_log_payload = request_body.clone();
             llm_http_client()
                 .post(&endpoint_for_log)
                 .header(reqwest::header::AUTHORIZATION, openai_auth_header(&api_key))
-                .header(reqwest::header::ACCEPT, "application/json")
+                .header(reqwest::header::ACCEPT, if streaming { "text/event-stream" } else { "application/json" })
                 .json(&request_body)
                 .send()
                 .await
@@ -8210,7 +8248,7 @@ async fn request_custom_openai_image_generation(
             last_error = Some(message);
             continue;
         }
-        let payload = serde_json::from_str::<Value>(&body_text).map_err(|error| {
+        let payload = parse_image_test_response(&body_text, streaming).map_err(|error| {
             let message = format!(
                 "解析 OpenAI 兼容图片响应失败: {} ({})",
                 error,
@@ -8256,7 +8294,8 @@ async fn request_custom_openai_image_generation(
                 "status" => status.as_u16(),
                 "result" => llm_dev_log_source_summary(&result.0)
             );
-            return Ok(result);
+            let format = image_options.get("output_format").and_then(Value::as_str).unwrap_or("png");
+            return parse_image_test_output(&payload, format).ok_or_else(|| "未返回图片".to_string());
         }
         if let Some(task_id) = parse_openai_compatible_image_task_id(&payload) {
             let parsed_response = json!({ "taskId": task_id.as_str() });
@@ -8280,14 +8319,13 @@ async fn request_custom_openai_image_generation(
                 Some(Utc::now().timestamp_millis() - _log_started_at),
                 "taskId" => task_id.as_str()
             );
-            return match poll_openai_compatible_image_task(&base_url, &api_key, model_id, &task_id)
+            return match poll_openai_compatible_image_task(&base_url, &api_key, model_id, &task_id, image_options.get("output_format").and_then(Value::as_str).unwrap_or("png"))
                 .await
             {
                 Ok(result) => {
                     let parsed_response = json!({
                       "taskId": task_id.as_str(),
-                      "source": result.0.as_str(),
-                      "mimeType": result.1.as_deref()
+                      "imageCount": result.images.len()
                     });
                     llm_dev_write_db_log(
                         provider,
@@ -8308,7 +8346,7 @@ async fn request_custom_openai_image_generation(
                         "generateImage",
                         Some(Utc::now().timestamp_millis() - _log_started_at),
                         "taskId" => task_id.as_str(),
-                        "result" => llm_dev_log_source_summary(&result.0)
+                        "result" => result.images.len()
                     );
                     Ok(result)
                 }
@@ -17156,6 +17194,8 @@ fn models_test_sanitized_payload(body: &Value) -> Value {
         "imageAspectRatio",
         "imageSize",
         "imageQuality",
+        "imageResolution",
+        "imageOptions",
         "referenceImages",
     ] {
         if let Some(value) = body.get(key) {
@@ -19319,6 +19359,12 @@ async fn assert_generated_environment_image_size(
 
 fn resolve_model_test_image_size(body: &Value, model_id: &str, provider: &str) -> Result<String, String> {
     let aspect_ratio = normalize_image_aspect_ratio(body.get("imageAspectRatio").and_then(Value::as_str));
+    if let Some(size) = body.get("imageSize").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+        return Ok(size.replace('*', "x").replace('×', "x").replace(char::is_whitespace, "").to_ascii_lowercase());
+    }
+    if aspect_ratio == "auto" && matches!(provider, "openai" | "custom_openai") {
+        return Ok("auto".into());
+    }
     if let Some(resolution) = body.get("imageResolution") {
         let resolution = resolution.as_str().ok_or("imageResolution 必须是字符串")?;
         let model = normalize_model_id_for_remote(model_id).to_ascii_lowercase();
@@ -20397,44 +20443,68 @@ pub(super) async fn api_models_test(
                 .map(str::trim)
                 .filter(|value| !value.is_empty());
             let reference_images = models_test_reference_images(&body);
-            let (source, mime_type) = match provider.as_str() {
-                "qwen" => {
-                    request_qwen_image_generation(
-                        &model_id,
-                        &prompt,
-                        &size,
-                        &reference_images,
-                        &creds,
-                    )
-                    .await
+            let image_options = body.get("imageOptions").cloned().unwrap_or_else(|| json!({}));
+            let normalized_model = normalize_model_id_for_remote(&model_id).to_ascii_lowercase();
+            let gpt = matches!(provider.as_str(), "openai" | "custom_openai")
+                && (normalized_model.starts_with("gpt-image") || normalized_model == "chatgpt-image-latest");
+            if gpt {
+                validate_image_test_size(&size, &normalized_model).map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, e))?;
+                validate_image_test_options(&image_options, &normalized_model, reference_images.len()).map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, e))?;
+                for key in ["mask", "markup"] {
+                    if let Some(source) = image_options.get(key).and_then(Value::as_str) {
+                        let (attachment, _) = resolve_source_bytes(&state, source, 4 * 1024 * 1024).await?;
+                        let dimensions = parse_png_dimensions(&attachment).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "蒙版和标注图必须是有效 PNG"))?;
+                        let (reference, _) = resolve_source_bytes(&state, &reference_images[0], 50 * 1024 * 1024).await?;
+                        if parse_image_dimensions_from_bytes(&reference) != Some(dimensions) {
+                            return Err(ApiError::new(StatusCode::BAD_REQUEST, "蒙版或标注图尺寸需与第一张参考图一致"));
+                        }
+                    }
                 }
-                "volcengine" | "custom_openai" | "openai" => {
-                    request_openai_compatible_image_generation(
-                        &provider,
-                        &model_id,
-                        &prompt,
-                        &size,
-                        image_quality,
-                        &reference_images,
-                        &creds,
-                    )
-                    .await
-                }
-                "gemini" => {
-                    request_gemini_image_generation(
-                        &model_id,
-                        &prompt,
-                        None,
-                        &reference_images,
-                        &creds,
-                    )
-                    .await
-                }
-                "kling" => {
-                    request_kling_image_generation(&model_id, &prompt, &size, &reference_images)
+            } else if image_options.as_object().is_none_or(|o| !o.is_empty()) {
+                return Err(ApiError::new(StatusCode::BAD_REQUEST, "当前模型不支持 GPT Image 高级参数"));
+            }
+            let generated = if gpt {
+                request_custom_openai_image_generation_with_options(&provider, &model_id, &prompt, &size, image_quality, &reference_images, &creds, &image_options).await
+            } else {
+                match provider.as_str() {
+                    "qwen" => {
+                        request_qwen_image_generation(
+                            &model_id,
+                            &prompt,
+                            &size,
+                            &reference_images,
+                            &creds,
+                        )
                         .await
-                }
-                _ => Err(format!("供应商 {} 暂不支持图片模型测试", provider)),
+                    }
+                    "volcengine" | "custom_openai" | "openai" => {
+                        request_openai_compatible_image_generation(
+                            &provider,
+                            &model_id,
+                            &prompt,
+                            &size,
+                            image_quality,
+                            &reference_images,
+                            &creds,
+                        )
+                        .await
+                    }
+                    "gemini" => {
+                        request_gemini_image_generation(
+                            &model_id,
+                            &prompt,
+                            None,
+                            &reference_images,
+                            &creds,
+                        )
+                        .await
+                    }
+                    "kling" => {
+                        request_kling_image_generation(&model_id, &prompt, &size, &reference_images)
+                            .await
+                    }
+                    _ => Err(format!("供应商 {} 暂不支持图片模型测试", provider)),
+                }.map(ImageTestOutput::single)
             }
             .map_err(|error| {
                 let error_payload = json!({ "message": error });
@@ -20457,31 +20527,40 @@ pub(super) async fn api_models_test(
                     ),
                 )
             })?;
-            let has_image_data = !(is_http_url(&source) || source.starts_with("data:"));
-            let image_url = if is_http_url(&source) || source.starts_with("data:") {
-                persist_image_source(&state, &source, "model_test_image").await?
-            } else {
-                let bytes = BASE64_STANDARD
-                    .decode(source.replace(|c: char| c.is_whitespace(), ""))
-                    .map_err(|error| {
-                        ApiError::new(
-                            StatusCode::BAD_GATEWAY,
-                            format!("解码图片 base64 失败: {}", error),
-                        )
-                    })?;
-                persist_image_bytes_async(
-                    &state,
-                    "model_test_image",
-                    mime_type.as_deref(),
-                    "png",
-                    bytes,
-                )
-                .await?
-            };
+            let mut image_urls = Vec::new();
+            let mut preview_urls = Vec::new();
+            let first_mime = generated.images.first().and_then(|(_, mime)| mime.clone()).unwrap_or_else(|| "image/png".into());
+            let has_image_data = generated.images.iter().any(|(source, _)| !(is_http_url(source) || source.starts_with("data:")));
+            for (is_preview, (source, mime_type)) in generated.images.into_iter().map(|image| (false, image))
+                .chain(generated.previews.into_iter().map(|image| (true, image))) {
+                let image_url = if is_http_url(&source) || source.starts_with("data:") {
+                    persist_image_source(&state, &source, "model_test_image").await?
+                } else {
+                    let bytes = BASE64_STANDARD
+                        .decode(source.replace(|c: char| c.is_whitespace(), ""))
+                        .map_err(|error| {
+                            ApiError::new(
+                                StatusCode::BAD_GATEWAY,
+                                format!("解码图片 base64 失败: {}", error),
+                            )
+                        })?;
+                    persist_image_bytes_async(
+                        &state,
+                        "model_test_image",
+                        mime_type.as_deref(),
+                        "png",
+                        bytes,
+                    )
+                    .await?
+                };
+                if is_preview { preview_urls.push(image_url); } else { image_urls.push(image_url); }
+            }
             json!({
-              "imageUrl": image_url,
+              "imageUrl": image_urls.first(),
+              "imageUrls": image_urls,
+              "previewUrls": preview_urls,
               "hasImageData": has_image_data,
-              "mimeType": mime_type.unwrap_or_else(|| "image/png".to_string()),
+              "mimeType": first_mime,
               "aspectRatio": aspect_ratio,
               "size": size
             })

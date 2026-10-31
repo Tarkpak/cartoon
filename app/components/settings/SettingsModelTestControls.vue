@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import SettingsImageTestAdvanced from './SettingsImageTestAdvanced.vue'
+import { imageTestCapabilities } from '@/lib/model-test-image-options'
+import type { ImageTestOptions } from '@/lib/model-test-image-options'
 import type { ComponentPublicInstance } from 'vue'
 import {
   AudioLines,
@@ -21,11 +24,14 @@ const imageAspectRatio = defineModel<string>('imageAspectRatio', { required: tru
 const imageSize = defineModel<string>('imageSize', { required: true })
 const imageQuality = defineModel<string>('imageQuality', { required: true })
 const imageResolution = defineModel<string>('imageResolution', { required: true })
+const imageAdvancedOptions = defineModel<ImageTestOptions>('imageAdvancedOptions', { required: true })
 const videoDuration = defineModel<number>('videoDuration', { required: true })
 const videoResolution = defineModel<string>('videoResolution', { required: true })
 const videoAspectRatio = defineModel<string>('videoAspectRatio', { required: true })
 
 const props = defineProps<{
+  imageProvider?: string
+  imageModel?: string
   videoProvider?: string
   videoMinDuration: number
   videoMaxDuration: number
@@ -94,6 +100,8 @@ const props = defineProps<{
 }>()
 
 const videoImageInputModeModel = defineModel<'firstLastFrame' | 'referenceImages'>('videoImageInputMode', { default: 'firstLastFrame' })
+
+const usesUnifiedImageControls = computed(() => imageTestCapabilities(props.imageProvider, props.imageModel).gpt)
 
 const currentTestStatus = computed(() => props.testResults[activeTab.value].status)
 const videoReferenceInputRef = ref<HTMLInputElement | null>(null)
@@ -176,6 +184,21 @@ const videoReferenceMaterialReady = computed(() => {
         </Select>
       </label>
     </div>
+    <SettingsImageTestAdvanced
+      v-if="activeTab === 'image' && usesUnifiedImageControls"
+      v-model="imageAdvancedOptions"
+      v-model:aspect-ratio="imageAspectRatio"
+      v-model:resolution="imageResolution"
+      v-model:quality="imageQuality"
+      v-model:size="imageSize"
+      :provider="props.imageProvider"
+      :model="props.imageModel"
+      :has-references="props.referenceImages.length > 0"
+      :aspect-ratio-options="props.currentImageModelAspectRatioOptions"
+      :resolution-options="props.currentImageModelResolutionOptions"
+      :quality-options="props.currentImageModelQualityOptions"
+      :size-options="props.currentImageModelSizeOptions"
+    />
     <!-- Label + Run button -->
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex flex-wrap items-center gap-4">
@@ -183,7 +206,7 @@ const videoReferenceMaterialReady = computed(() => {
           {{ activeTab === 'tts' ? '测试文本' : '测试提示词' }}
         </label>
         <div
-          v-if="activeTab === 'image' && props.currentImageModelAspectRatioOptions.length > 0"
+          v-if="activeTab === 'image' && !usesUnifiedImageControls && props.currentImageModelAspectRatioOptions.length > 0"
           class="flex items-center gap-2"
         >
           <label class="text-xs text-muted-foreground/80">比例</label>
@@ -203,7 +226,7 @@ const videoReferenceMaterialReady = computed(() => {
           </Select>
         </div>
         <div
-          v-if="activeTab === 'image' && props.currentImageModelResolutionOptions.length === 0 && props.currentImageModelSizeOptions.length > 0"
+          v-if="activeTab === 'image' && !usesUnifiedImageControls && props.currentImageModelResolutionOptions.length === 0 && props.currentImageModelSizeOptions.length > 0"
           class="flex items-center gap-2"
         >
           <label class="text-xs text-muted-foreground/80">
@@ -230,7 +253,7 @@ const videoReferenceMaterialReady = computed(() => {
           >{{ props.currentImageModelSizeHelp }}</span>
         </div>
         <div
-          v-if="activeTab === 'image' && props.currentImageModelResolutionOptions.length > 0"
+          v-if="activeTab === 'image' && !usesUnifiedImageControls && props.currentImageModelResolutionOptions.length > 0"
           class="flex items-center gap-2"
         >
           <label class="text-xs text-muted-foreground/80">分辨率</label>
@@ -244,7 +267,7 @@ const videoReferenceMaterialReady = computed(() => {
           </Select>
         </div>
         <div
-          v-if="activeTab === 'image' && props.currentImageModelQualityOptions.length > 0"
+          v-if="activeTab === 'image' && !usesUnifiedImageControls && props.currentImageModelQualityOptions.length > 0"
           class="flex items-center gap-2"
         >
           <label class="text-xs text-muted-foreground/80">画质</label>
@@ -266,7 +289,7 @@ const videoReferenceMaterialReady = computed(() => {
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span
-          v-if="activeTab === 'image' && props.currentImageModelRequiresReference && props.referenceImages.length === 0"
+          v-if="activeTab === 'image' && !usesUnifiedImageControls && props.currentImageModelRequiresReference && props.referenceImages.length === 0"
           class="text-xs text-amber-600 dark:text-amber-400"
         >需要参考图</span>
         <span
@@ -330,7 +353,7 @@ const videoReferenceMaterialReady = computed(() => {
       </template>
 
       <p
-        v-if="activeTab === 'image' && props.currentImageModelSupportsReference"
+        v-if="activeTab === 'image' && !usesUnifiedImageControls && props.currentImageModelSupportsReference"
         class="mt-1 text-xs text-muted-foreground/70"
       >
         输入 `@` 可直接选择参考图
@@ -366,7 +389,7 @@ const videoReferenceMaterialReady = computed(() => {
 
     <!-- Reference images -->
     <div
-      v-if="activeTab === 'image' && props.currentImageModelSupportsReference"
+      v-if="activeTab === 'image' && !usesUnifiedImageControls && props.currentImageModelSupportsReference"
       class="space-y-1.5"
     >
       <label class="flex items-center gap-1 text-xs text-muted-foreground/70">

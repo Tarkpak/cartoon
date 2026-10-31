@@ -1,3 +1,4 @@
+import { defaultImageTestOptions, buildImageTestOptions, imageTestCapabilities, normalizeImageTestRatio } from '@/lib/model-test-image-options'
 import { OPENAI_IMAGE_RESOLUTIONS } from '#shared/types/workflow-models'
 import type { ImageModelConfig, VideoModelConfig } from '#shared/types/provider'
 import { resolveApiErrorMessage } from '@/lib/api-error'
@@ -66,6 +67,7 @@ export function useSettingsModelTest() {
   const imageSize = ref<string>('')
   const imageQuality = ref<string>(DEFAULT_IMAGE_QUALITY)
   const imageResolution = ref<string>('4K')
+  const imageAdvancedOptions = ref(defaultImageTestOptions())
   const currentImageModelResolutionOptions = computed(() =>
     OPENAI_IMAGE_RESOLUTIONS.filter(value => currentImageModel.value?.supportedResolutions?.includes(value))
   )
@@ -712,6 +714,24 @@ export function useSettingsModelTest() {
         if (currentImageModelQualityOptions.value.length > 0) {
           body.imageQuality = imageQuality.value
         }
+        const model = currentImageModel.value
+        if (model) {
+          const advanced = imageAdvancedOptions.value
+          body.imageOptions = buildImageTestOptions(advanced, model.provider, model.model, referenceImages.value.length)
+          if (imageTestCapabilities(model.provider, model.model).gpt) {
+            if (advanced.sizeMode === 'auto') {
+              delete body.imageResolution
+              body.imageSize = 'auto'
+            } else if (advanced.sizeMode === 'size') {
+              delete body.imageResolution
+              body.imageSize = advanced.size
+            } else if (advanced.sizeMode === 'ratio') {
+              delete body.imageSize
+              body.imageAspectRatio = normalizeImageTestRatio(advanced.ratio)
+              body.imageResolution = imageResolution.value
+            }
+          }
+        }
       }
 
       const response = await $fetch<{
@@ -798,8 +818,16 @@ export function useSettingsModelTest() {
   }, { immediate: true })
 
   watch(currentImageModelKey, () => {
+    imageAdvancedOptions.value = defaultImageTestOptions()
     syncImageGenerationOptions(true)
   }, { immediate: true })
+
+  watch(() => referenceImages.value.length, (count) => {
+    if (count > 0) return
+    imageAdvancedOptions.value.mask = ''
+    imageAdvancedOptions.value.markup = ''
+    imageAdvancedOptions.value.input_fidelity = ''
+  })
 
   watch(currentImageModelMaxReferenceImages, (maxCount) => {
     if (referenceImages.value.length <= maxCount) return
@@ -895,6 +923,7 @@ export function useSettingsModelTest() {
     imageSize,
     imageQuality,
     imageResolution,
+    imageAdvancedOptions,
     currentImageModelResolutionOptions,
     canRunImageTest,
     canRunVideoTest,

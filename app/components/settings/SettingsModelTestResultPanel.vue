@@ -45,9 +45,13 @@ async function copyErrorMessage() {
   }
 }
 
-const imageResultUrl = computed(() => {
-  const result = props.testResults.image.result as { imageUrl?: string } | undefined
-  return result?.imageUrl
+const imageResultUrls = computed(() => {
+  const result = props.testResults.image.result as { imageUrl?: string, imageUrls?: string[] } | undefined
+  return result?.imageUrls || (result?.imageUrl ? [result.imageUrl] : [])
+})
+const imagePreviewUrls = computed(() => {
+  const result = props.testResults.image.result as { previewUrls?: string[] } | undefined
+  return result?.previewUrls || []
 })
 const videoResultUrl = computed(() => {
   const result = props.testResults.video.result as { videoUrl?: string } | undefined
@@ -124,14 +128,17 @@ const videoResultMeta = computed(() => {
 
       <!-- Image result -->
       <div
-        v-if="props.activeTab === 'image' && imageResultUrl"
-        class="overflow-hidden rounded-lg border"
+        v-if="props.activeTab === 'image' && imageResultUrls.length"
+        class="grid gap-3 sm:grid-cols-2"
       >
-        <img
-          :src="imageResultUrl"
-          class="max-h-[400px] max-w-full"
-        >
+        <a v-for="(url, index) in imageResultUrls" :key="url" :href="url" target="_blank" rel="noopener noreferrer" class="overflow-hidden rounded-lg border bg-muted/20">
+          <img :src="url" :alt="`生成图片 ${index + 1}`" class="max-h-[500px] w-full object-contain">
+        </a>
       </div>
+      <details v-if="props.activeTab === 'image' && imagePreviewUrls.length" class="rounded-lg border p-3 text-xs">
+        <summary class="cursor-pointer">流式中间预览（{{ imagePreviewUrls.length }}）</summary>
+        <div class="mt-3 grid gap-3 sm:grid-cols-3"><img v-for="(url, index) in imagePreviewUrls" :key="url" :src="url" :alt="`中间预览 ${index + 1}`" class="w-full rounded-md"></div>
+      </details>
 
       <!-- Video result -->
       <div

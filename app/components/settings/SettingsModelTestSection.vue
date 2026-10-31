@@ -66,6 +66,7 @@ const {
   imageSize,
   imageQuality,
   imageResolution,
+  imageAdvancedOptions,
   currentImageModelResolutionOptions,
   canRunImageTest,
   canRunVideoTest,
@@ -313,6 +314,9 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
           v-model:image-size="imageSize"
           v-model:image-quality="imageQuality"
           v-model:image-resolution="imageResolution"
+          v-model:image-advanced-options="imageAdvancedOptions"
+          :image-provider="currentSelectedModelMeta?.provider"
+          :image-model="currentSelectedModel"
           :current-image-model-resolution-options="currentImageModelResolutionOptions"
           :can-run-image-test="canRunImageTest"
           :can-run-video-test="canRunVideoTest"
