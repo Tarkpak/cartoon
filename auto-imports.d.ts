@@ -102,6 +102,7 @@ declare global {
   const useAssetWorkbenchSceneManagement: typeof import('./app/composables/useAssetWorkbenchSceneManagement')['useAssetWorkbenchSceneManagement']
   const useAssetWorkflowMeta: typeof import('./app/composables/useAssetWorkflowMeta')['useAssetWorkflowMeta']
   const useAttrs: typeof import('vue')['useAttrs']
+  const useCachedOverlayActive: typeof import('./app/composables/useCachedOverlayActive')['useCachedOverlayActive']
   const useCharacter: typeof import('./app/composables/useCharacter')['useCharacter']
   const useClientUpdateCheck: typeof import('./app/composables/useClientUpdateCheck')['useClientUpdateCheck']
   const useCloudAdmin: typeof import('./app/composables/useCloudAdmin')['useCloudAdmin']
@@ -314,6 +315,7 @@ declare module 'vue' {
     readonly useAssetWorkbenchSceneManagement: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchSceneManagement')['useAssetWorkbenchSceneManagement']>
     readonly useAssetWorkflowMeta: UnwrapRef<typeof import('./app/composables/useAssetWorkflowMeta')['useAssetWorkflowMeta']>
     readonly useAttrs: UnwrapRef<typeof import('vue')['useAttrs']>
+    readonly useCachedOverlayActive: UnwrapRef<typeof import('./app/composables/useCachedOverlayActive')['useCachedOverlayActive']>
     readonly useCharacter: UnwrapRef<typeof import('./app/composables/useCharacter')['useCharacter']>
     readonly useClientUpdateCheck: UnwrapRef<typeof import('./app/composables/useClientUpdateCheck')['useClientUpdateCheck']>
     readonly useCloudAdmin: UnwrapRef<typeof import('./app/composables/useCloudAdmin')['useCloudAdmin']>

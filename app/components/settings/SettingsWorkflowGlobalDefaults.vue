@@ -522,7 +522,7 @@ function toCheckedBoolean(value: unknown): boolean {
           图片生成额外配置
         </h5>
         <p class="mt-1 text-xs text-muted-foreground">
-          对角色、环境、道具和其他资产图片生成统一生效；不同图片模型按各自能力读取对应配置项。
+          作为角色、环境、道具和其他资产图片的全局默认；可在下方各图片类型中单独设置分辨率与画质。不同图片模型按各自能力读取对应配置项。
         </p>
       </div>
 

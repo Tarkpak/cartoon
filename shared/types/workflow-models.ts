@@ -82,13 +82,40 @@ export type WorkflowPanoramaAspectRatio = z.infer<typeof WorkflowPanoramaAspectR
 export const WorkflowPanoramaImageSizeSchema = z.string().trim().regex(/^\d+\s*[*xX]\s*\d+$/)
 export type WorkflowPanoramaImageSize = z.infer<typeof WorkflowPanoramaImageSizeSchema>
 
+export const WORKFLOW_IMAGE_STEPS = [
+  'character_portrait',
+  'frame_generation',
+  'prop_generation',
+  'other_asset_generation'
+] as const
+export const WorkflowImageStepSchema = z.enum(WORKFLOW_IMAGE_STEPS)
+export type WorkflowImageStep = z.infer<typeof WorkflowImageStepSchema>
+
+/** 单个图片类型的画质/分辨率覆盖；缺省字段沿用全局配置 */
+export const WorkflowImageStepOverrideSchema = z.object({
+  geminiImageSize: WorkflowGeminiImageSizeSchema.optional(),
+  openaiImageQuality: WorkflowOpenAIImageQualitySchema.optional(),
+  openaiImageResolution: WorkflowOpenAIImageResolutionSchema.optional()
+})
+export type WorkflowImageStepOverride = z.infer<typeof WorkflowImageStepOverrideSchema>
+export type WorkflowImageStepOverrideKey = keyof WorkflowImageStepOverride
+
+export const WorkflowImageStepOverridesSchema = z.object({
+  character_portrait: WorkflowImageStepOverrideSchema.optional(),
+  frame_generation: WorkflowImageStepOverrideSchema.optional(),
+  prop_generation: WorkflowImageStepOverrideSchema.optional(),
+  other_asset_generation: WorkflowImageStepOverrideSchema.optional()
+})
+export type WorkflowImageStepOverrides = z.infer<typeof WorkflowImageStepOverridesSchema>
+
 export const WorkflowImageGenerationModelOptionsSchema = z.object({
   geminiImageSize: WorkflowGeminiImageSizeSchema.default('1K'),
   openaiImageQuality: WorkflowOpenAIImageQualitySchema.default('auto'),
   openaiImageResolution: WorkflowOpenAIImageResolutionSchema.default('4K'),
   panoramaSourceMode: WorkflowPanoramaSourceModeSchema.default('equirectangular_360'),
   panoramaCustomAspectRatio: WorkflowPanoramaAspectRatioSchema.default('2:1'),
-  panoramaCustomSize: WorkflowPanoramaImageSizeSchema.default('2048*1024')
+  panoramaCustomSize: WorkflowPanoramaImageSizeSchema.default('2048*1024'),
+  stepOverrides: WorkflowImageStepOverridesSchema.default({})
 })
 export type WorkflowImageGenerationModelOptions = z.infer<typeof WorkflowImageGenerationModelOptionsSchema>
 
@@ -150,7 +177,8 @@ export const WorkflowModelOptionsSchema = z.object({
     openaiImageResolution: '4K',
     panoramaSourceMode: 'equirectangular_360',
     panoramaCustomAspectRatio: '2:1',
-    panoramaCustomSize: '2048*1024'
+    panoramaCustomSize: '2048*1024',
+    stepOverrides: {}
   }),
   video_generation: WorkflowVideoGenerationModelOptionsSchema.default({
     autodl: { quality: '768p' },

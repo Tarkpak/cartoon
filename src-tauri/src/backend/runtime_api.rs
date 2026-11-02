@@ -9167,7 +9167,10 @@ async fn run_workflow_image_model(
         .map_err(|error| format!("刷新后台模型配置失败: {}", error.message))?;
     let conn = db_connection(state).map_err(|error| error.message)?;
     let creds = load_provider_creds(&conn);
-    let workflow_model_options = workflow_model_options(&conn).map_err(|error| error.message)?;
+    let workflow_model_options = workflow_image_options_for_step(
+        &workflow_model_options(&conn).map_err(|error| error.message)?,
+        workflow_step,
+    );
     let model_id = resolve_runtime_workflow_model_id(&conn, workflow_step)?;
     let provider = resolve_model_provider_required_string(&model_id, &creds)?;
     let (openai_image_quality, gemini_image_size) =
@@ -13964,6 +13967,34 @@ fn workflow_image_options(workflow_model_options: &Value) -> &Value {
         .unwrap_or(workflow_model_options)
 }
 
+/// 合并某个图片类型的画质/分辨率覆盖到全局 image_options，返回与原结构一致的选项。
+fn workflow_image_options_for_step(workflow_model_options: &Value, workflow_step: &str) -> Value {
+    let mut merged = workflow_model_options.clone();
+    let overrides = workflow_image_options(workflow_model_options)
+        .get("stepOverrides")
+        .and_then(|value| value.get(workflow_step))
+        .and_then(Value::as_object)
+        .cloned();
+    let Some(overrides) = overrides else {
+        return merged;
+    };
+    if !merged.get("image_options").is_some_and(Value::is_object) {
+        if let Some(obj) = merged.as_object_mut() {
+            obj.insert("image_options".to_string(), json!({}));
+        }
+    }
+    if let Some(image_options) = merged.get_mut("image_options").and_then(Value::as_object_mut) {
+        for key in ["geminiImageSize", "openaiImageQuality", "openaiImageResolution"] {
+            if let Some(value) = overrides.get(key).and_then(Value::as_str).map(str::trim) {
+                if !value.is_empty() {
+                    image_options.insert(key.to_string(), json!(value));
+                }
+            }
+        }
+    }
+    merged
+}
+
 fn workflow_openai_image_quality(workflow_model_options: &Value) -> Option<String> {
     workflow_image_options(workflow_model_options)
         .get("openaiImageQuality")
@@ -18548,6 +18579,47 @@ mod tests {
         assert_eq!(asset_image_workflow_step("other"), "other_asset_generation");
         assert_eq!(workflow_step_label(asset_image_workflow_step("prop")), "道具资产生成");
         assert_eq!(workflow_step_label(asset_image_workflow_step("other")), "其他资产生成");
+    }
+
+    #[test]
+    fn workflow_image_step_overrides_take_precedence_over_global() {
+        let options = json!({
+          "image_options": {
+            "geminiImageSize": "1K",
+            "openaiImageQuality": "auto",
+            "openaiImageResolution": "4K",
+            "stepOverrides": {
+              "character_portrait": { "openaiImageQuality": "high", "openaiImageResolution": "2K" },
+              "prop_generation": { "geminiImageSize": "2K" }
+            }
+          }
+        });
+        let character = workflow_image_options_for_step(&options, "character_portrait");
+        assert_eq!(workflow_openai_image_resolution(&character), "2K");
+        assert_eq!(
+            workflow_image_generation_options(&character, "openai"),
+            (Some("high".to_string()), None)
+        );
+        let prop = workflow_image_options_for_step(&options, "prop_generation");
+        assert_eq!(
+            workflow_image_generation_options(&prop, "gemini"),
+            (None, Some("2K".to_string()))
+        );
+        assert_eq!(workflow_openai_image_resolution(&prop), "4K");
+        let frame = workflow_image_options_for_step(&options, "frame_generation");
+        assert_eq!(frame, options);
+
+        assert!(validate_workflow_model_options("image_options", &options["image_options"]).is_ok());
+        assert!(validate_workflow_model_options(
+            "image_options",
+            &json!({"stepOverrides": {"video_generation": {}}})
+        )
+        .is_err());
+        assert!(validate_workflow_model_options(
+            "image_options",
+            &json!({"stepOverrides": {"character_portrait": {"openaiImageQuality": "ultra"}}})
+        )
+        .is_err());
     }
 
     #[test]
@@ -23932,7 +24004,8 @@ pub(super) async fn api_asset_reference_generate(
     let reference_images = normalize_image_reference_sources(&state, reference_sources, 4).await?;
     let (model_id, workflow_model_options, provider) = {
         let conn = db_connection(&state)?;
-        let workflow_model_options = workflow_model_options(&conn)?;
+        let workflow_model_options =
+            workflow_image_options_for_step(&workflow_model_options(&conn)?, "frame_generation");
         let model_id = resolve_runtime_workflow_model_id(&conn, "frame_generation")
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error))?;
         let provider =

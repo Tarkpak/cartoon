@@ -3139,7 +3139,8 @@ fn default_workflow_model_options() -> Value {
         "openaiImageResolution": "4K",
         "panoramaSourceMode": "equirectangular_360",
         "panoramaCustomAspectRatio": "2:1",
-        "panoramaCustomSize": "2048*1024"
+        "panoramaCustomSize": "2048*1024",
+        "stepOverrides": {}
       },
       "video_generation": {
         "klingV3Omni": { "sound": "off", "mode": "pro" },
@@ -3568,6 +3569,34 @@ fn workflow_model_options(conn: &Connection) -> Result<Value, ApiError> {
     ))
 }
 
+fn validate_image_output_options(obj: &serde_json::Map<String, Value>) -> Result<(), ApiError> {
+    if let Some(value) = obj.get("geminiImageSize") {
+        if !matches!(value.as_str(), Some("512" | "1K" | "2K" | "4K")) {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "geminiImageSize 无效",
+            ));
+        }
+    }
+    if let Some(value) = obj.get("openaiImageResolution") {
+        if !matches!(value.as_str(), Some("2K" | "4K")) {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "openaiImageResolution 无效"));
+        }
+    }
+    if let Some(value) = obj.get("openaiImageQuality") {
+        if !matches!(
+            value.as_str(),
+            Some("auto" | "low" | "medium" | "high" | "xhigh" | "max")
+        ) {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "openaiImageQuality 无效",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_workflow_model_options(step: &str, options: &Value) -> Result<(), ApiError> {
     match step {
         "image_options" => {
@@ -3577,25 +3606,25 @@ fn validate_workflow_model_options(step: &str, options: &Value) -> Result<(), Ap
                     "modelOptions 必须是对象",
                 ));
             };
-            if let Some(value) = obj.get("geminiImageSize").and_then(Value::as_str) {
-                if !matches!(value, "512" | "1K" | "2K" | "4K") {
-                    return Err(ApiError::new(
-                        StatusCode::BAD_REQUEST,
-                        "geminiImageSize 无效",
-                    ));
-                }
-            }
-            if let Some(value) = obj.get("openaiImageResolution") {
-                if !matches!(value.as_str(), Some("2K" | "4K")) {
-                    return Err(ApiError::new(StatusCode::BAD_REQUEST, "openaiImageResolution 无效"));
-                }
-            }
-            if let Some(value) = obj.get("openaiImageQuality").and_then(Value::as_str) {
-                if !matches!(value, "auto" | "low" | "medium" | "high" | "xhigh" | "max") {
-                    return Err(ApiError::new(
-                        StatusCode::BAD_REQUEST,
-                        "openaiImageQuality 无效",
-                    ));
+            validate_image_output_options(obj)?;
+            if let Some(overrides) = obj.get("stepOverrides") {
+                let Some(overrides) = overrides.as_object() else {
+                    return Err(ApiError::new(StatusCode::BAD_REQUEST, "stepOverrides 必须是对象"));
+                };
+                for (step, value) in overrides {
+                    if workflow_step_category(step) != Some("image") {
+                        return Err(ApiError::new(
+                            StatusCode::BAD_REQUEST,
+                            format!("stepOverrides 包含无效图片类型: {}", step),
+                        ));
+                    }
+                    let Some(step_obj) = value.as_object() else {
+                        return Err(ApiError::new(
+                            StatusCode::BAD_REQUEST,
+                            format!("stepOverrides.{} 必须是对象", step),
+                        ));
+                    };
+                    validate_image_output_options(step_obj)?;
                 }
             }
             if let Some(value) = obj.get("panoramaSourceMode").and_then(Value::as_str) {

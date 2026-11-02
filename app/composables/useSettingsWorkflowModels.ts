@@ -12,6 +12,9 @@ import type {
   WorkflowOpenAIImageQuality,
   WorkflowPanoramaSourceMode,
   WorkflowImageGenerationModelOptions,
+  WorkflowImageStep,
+  WorkflowImageStepOverride,
+  WorkflowImageStepOverrides,
   WorkflowVideoGenerationModelOptions,
   WorkflowCompletionNotificationOptions,
   KlingV3OmniVideoOptions,
@@ -82,6 +85,7 @@ export const WORKFLOW_CATEGORY_CONFIG: Record<WorkflowCategoryKey, WorkflowCateg
 }
 
 export const WORKFLOW_GEMINI_IMAGE_SIZES: WorkflowGeminiImageSize[] = ['512', '1K', '2K', '4K']
+export const WORKFLOW_IMAGE_OVERRIDE_INHERIT = '__inherit__'
 export const WORKFLOW_OPENAI_IMAGE_QUALITIES: WorkflowOpenAIImageQuality[] = ['auto', 'low', 'medium', 'high', 'xhigh', 'max']
 export const WORKFLOW_PANORAMA_SOURCE_MODES: WorkflowPanoramaSourceMode[] = [
   'equirectangular_360',
@@ -114,7 +118,8 @@ const DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS: WorkflowImageGenerationModelOption
   openaiImageResolution: '4K',
   panoramaSourceMode: 'equirectangular_360',
   panoramaCustomAspectRatio: '2:1',
-  panoramaCustomSize: '2048*1024'
+  panoramaCustomSize: '2048*1024',
+  stepOverrides: {}
 }
 
 const DEFAULT_COMPLETION_NOTIFICATION_OPTIONS: WorkflowCompletionNotificationOptions = {
@@ -252,9 +257,9 @@ export function useSettingsWorkflowModels() {
   }
 
   function getImageGenerationModelOptions(): WorkflowImageGenerationModelOptions {
-    return workflowData.value?.modelOptions?.image_options || {
-      ...DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS
-    }
+    const options = workflowData.value?.modelOptions?.image_options
+    if (!options) return { ...DEFAULT_IMAGE_GENERATION_MODEL_OPTIONS }
+    return { ...options, stepOverrides: options.stepOverrides || {} }
   }
 
   function getCompletionNotificationOptions(): WorkflowCompletionNotificationOptions {
@@ -538,6 +543,47 @@ export function useSettingsWorkflowModels() {
     })
   }
 
+  /**
+   * 设置某个图片类型的画质/分辨率覆盖；value 为空表示跟随全局
+   */
+  function updateWorkflowImageStepOverride(
+    step: WorkflowImageStep,
+    key: keyof WorkflowImageStepOverride,
+    value: unknown
+  ) {
+    const raw = toSelectString(value)
+    let normalized: string | undefined
+    if (raw && raw !== WORKFLOW_IMAGE_OVERRIDE_INHERIT) {
+      if (key === 'geminiImageSize') {
+        normalized = raw.toUpperCase()
+        if (!WORKFLOW_GEMINI_IMAGE_SIZES.includes(normalized as WorkflowGeminiImageSize)) return
+      } else if (key === 'openaiImageResolution') {
+        normalized = raw.toUpperCase()
+        if (normalized !== '2K' && normalized !== '4K') return
+      } else {
+        normalized = raw.toLowerCase()
+        if (!WORKFLOW_OPENAI_IMAGE_QUALITIES.includes(normalized as WorkflowOpenAIImageQuality)) return
+      }
+    }
+
+    const current = getImageGenerationModelOptions().stepOverrides || {}
+    const stepOverride: Record<string, string> = { ...(current[step] || {}) }
+    if (normalized) {
+      stepOverride[key] = normalized
+    } else {
+      delete stepOverride[key]
+    }
+
+    const next: WorkflowImageStepOverrides = { ...current }
+    if (Object.keys(stepOverride).length) {
+      next[step] = stepOverride as WorkflowImageStepOverride
+    } else {
+      delete next[step]
+    }
+
+    void updateImageGenerationModelOptions({ stepOverrides: next })
+  }
+
   function updateWorkflowPanoramaSourceMode(value: unknown) {
     const normalized = toSelectString(value)
     if (!WORKFLOW_PANORAMA_SOURCE_MODES.includes(normalized as WorkflowPanoramaSourceMode)) return
@@ -692,6 +738,7 @@ export function useSettingsWorkflowModels() {
     updateWorkflowGeminiImageSize,
     updateWorkflowOpenaiImageQuality,
     updateWorkflowOpenaiImageResolution,
+    updateWorkflowImageStepOverride,
     updateWorkflowPanoramaSourceMode,
     updateWorkflowPanoramaCustomAspectRatio,
     updateWorkflowPanoramaCustomSize,

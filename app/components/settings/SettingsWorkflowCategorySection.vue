@@ -1,8 +1,14 @@
 <script setup lang="ts">
 import SettingsModelReasoningControl from '@/components/settings/SettingsModelReasoningControl.vue'
+import SettingsWorkflowImageStepOptions from '@/components/settings/SettingsWorkflowImageStepOptions.vue'
+import type { ImageModelConfig } from '#shared/types/provider'
 import type {
+  WorkflowImageGenerationModelOptions,
+  WorkflowImageStep,
+  WorkflowImageStepOverride,
   WorkflowStep
 } from '#shared/types/workflow-models'
+import { WORKFLOW_IMAGE_STEPS } from '#shared/types/workflow-models'
 import {
   AlertCircle,
   CheckCircle2,
@@ -19,7 +25,14 @@ const props = defineProps<{
   getProviderLabel: (provider: string) => string
   updateWorkflowModel: (step: WorkflowStep, modelId: string) => Promise<void>
   toSelectString: (value: unknown) => string
+  imageModels?: ImageModelConfig[]
+  imageGenerationOptions?: WorkflowImageGenerationModelOptions
+  updateWorkflowImageStepOverride?: (step: WorkflowImageStep, key: keyof WorkflowImageStepOverride, value: unknown) => void
 }>()
+
+function isImageStep(step: WorkflowStep): step is WorkflowImageStep {
+  return (WORKFLOW_IMAGE_STEPS as readonly string[]).includes(step)
+}
 
 function hasCompatibleModels(workflow: WorkflowConfig) {
   return workflow.compatibleModels.length > 0
@@ -142,6 +155,17 @@ function updateWorkflowSelection(step: WorkflowStep, value: unknown) {
           v-if="getSelectedModel(workflow)"
           :model="workflow.selectedModel || ''"
           :provider="getSelectedModel(workflow)!.provider"
+        />
+
+        <SettingsWorkflowImageStepOptions
+          v-if="isImageStep(workflow.id) && workflow.selectedModel && getSelectedModel(workflow) && props.imageGenerationOptions && props.updateWorkflowImageStepOverride"
+          :step="workflow.id"
+          :model-id="workflow.selectedModel"
+          :provider="getSelectedModel(workflow)!.provider"
+          :image-models="props.imageModels || []"
+          :options="props.imageGenerationOptions"
+          :disabled="props.workflowSaving"
+          :update="props.updateWorkflowImageStepOverride"
         />
 
         <div

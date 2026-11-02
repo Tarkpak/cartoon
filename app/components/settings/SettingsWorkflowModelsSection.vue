@@ -31,6 +31,7 @@ const {
   updateWorkflowGeminiImageSize,
   updateWorkflowOpenaiImageQuality,
   updateWorkflowOpenaiImageResolution,
+  updateWorkflowImageStepOverride,
   updateWorkflowPanoramaSourceMode,
   updateWorkflowPanoramaCustomAspectRatio,
   updateWorkflowPanoramaCustomSize,
@@ -127,6 +128,9 @@ const {
               :update-workflow-model="updateWorkflowModel"
               :workflow-saving="workflowSaving"
               :workflows="activeCategoryWorkflows"
+              :image-models="models?.image || []"
+              :image-generation-options="imageGenerationOptions"
+              :update-workflow-image-step-override="updateWorkflowImageStepOverride"
             />
           </div>
         </div>
