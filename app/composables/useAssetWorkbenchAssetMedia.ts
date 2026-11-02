@@ -8,6 +8,7 @@ import {
 import {
   resetFileInput,
   uploadAudioFile,
+  uploadVideoFile,
   uploadImageFile
 } from '~/lib/asset-workbench-upload'
 import {
@@ -26,6 +27,9 @@ import type {
   EnvironmentAssetCard,
   EnvironmentPanoramaState
 } from '~/lib/asset-workbench-types'
+
+/** 全模态视频模型（如 Seedance）单段参考视频上限 50MB */
+const MAX_REFERENCE_VIDEO_UPLOAD_SIZE = 50 * 1024 * 1024
 
 export function useAssetWorkbenchAssetMedia(options: {
   maxAssetUploadSize: number
@@ -81,6 +85,7 @@ export function useAssetWorkbenchAssetMedia(options: {
   const uploadingEnvironmentAssetId = ref<string | null>(null)
   const uploadingPropId = ref<string | null>(null)
   const uploadingPropVoiceId = ref<string | null>(null)
+  const uploadingPropVideoId = ref<string | null>(null)
   const generatingPropId = ref<string | null>(null)
 
   async function notifyModelTaskCompleted(payload: {
@@ -500,7 +505,7 @@ export function useAssetWorkbenchAssetMedia(options: {
         throw new Error('道具图片已上传，但项目中的道具资产已不存在')
       }
       currentTarget.referenceImage = imageUrl
-      if (currentTarget.category === 'other' && currentTarget.mediaType !== 'voice') {
+      if (currentTarget.category === 'other' && currentTarget.mediaType !== 'voice' && currentTarget.mediaType !== 'video') {
         currentTarget.mediaType = 'image'
       }
       await options.saveWorkflowMeta()
@@ -550,6 +555,47 @@ export function useAssetWorkbenchAssetMedia(options: {
       options.statusError.value = options.resolveUiError(error, '旁白音频上传失败')
     } finally {
       uploadingPropVoiceId.value = null
+      resetFileInput(event)
+    }
+  }
+
+  async function handlePropVideoUpload(propId: string, event: Event) {
+    const input = event.target as HTMLInputElement | null
+    const file = input?.files?.[0]
+    if (!file) {
+      resetFileInput(event)
+      return
+    }
+
+    const target = options.propAssets.value.find(item => item.id === propId)
+    if (!target || target.category !== 'other') {
+      resetFileInput(event)
+      return
+    }
+
+    uploadingPropVideoId.value = propId
+    options.statusError.value = null
+
+    try {
+      const videoUrl = await uploadVideoFile(file, {
+        maxFileSize: MAX_REFERENCE_VIDEO_UPLOAD_SIZE,
+        prefix: `prop_video_${target.id}`,
+        projectId: options.projectId?.value || ''
+      })
+      const currentTarget = options.propAssets.value.find(item => item.id === propId)
+      if (!currentTarget || currentTarget.category !== 'other') {
+        throw new Error('参考视频已上传，但项目中的视频资产已不存在')
+      }
+      currentTarget.videoAsset = {
+        videoUrl,
+        updatedAt: new Date().toISOString()
+      }
+      currentTarget.mediaType = 'video'
+      await options.saveWorkflowMeta()
+    } catch (error) {
+      options.statusError.value = options.resolveUiError(error, '参考视频上传失败')
+    } finally {
+      uploadingPropVideoId.value = null
       resetFileInput(event)
     }
   }
@@ -770,6 +816,7 @@ export function useAssetWorkbenchAssetMedia(options: {
     uploadingEnvironmentAssetId,
     uploadingPropId,
     uploadingPropVoiceId,
+    uploadingPropVideoId,
     generatingPropId,
     openImagePreview,
     handleCharacterImageUpload,
@@ -779,6 +826,7 @@ export function useAssetWorkbenchAssetMedia(options: {
     handleEnvironmentImageUpload,
     handlePropImageUpload,
     handlePropVoiceUpload,
+    handlePropVideoUpload,
     handlePropVoiceLockChange,
     generatePropImage,
     openEnvironmentRegenerateDialog,

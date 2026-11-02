@@ -26,7 +26,12 @@ import {
 
 type ConsistencyLevel = 'lock' | 'soft'
 export type PropAssetCategory = 'prop' | 'other'
-export type PropAssetMediaType = 'image' | 'voice'
+export type PropAssetMediaType = 'image' | 'voice' | 'video'
+
+export interface PropVideoAsset {
+  videoUrl: string
+  updatedAt: string
+}
 
 export interface SceneConsistencyConfig {
   sceneId: string
@@ -46,6 +51,7 @@ export interface PropAsset {
   mediaType?: PropAssetMediaType
   referenceImage?: string
   voiceAsset?: CharacterVoiceAsset
+  videoAsset?: PropVideoAsset
   assetHistory?: AssetImageHistoryEntry[]
   libraryAssetId?: string
   libraryAssetVersion?: number
@@ -197,17 +203,23 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
         category: prop.category === 'other' ? 'other' : 'prop',
         mediaType: prop.category === 'other'
           ? (
-              prop.mediaType === 'voice'
-                ? 'voice'
-                : (prop.mediaType === 'image'
-                    ? 'image'
-                    : (prop.voiceAsset?.audioUrl?.trim() ? 'voice' : undefined))
+              prop.mediaType === 'voice' || prop.mediaType === 'video' || prop.mediaType === 'image'
+                ? prop.mediaType
+                : (prop.voiceAsset?.audioUrl?.trim()
+                    ? 'voice'
+                    : (prop.videoAsset?.videoUrl?.trim() ? 'video' : undefined))
             )
           : undefined,
         voiceAsset: prop.voiceAsset?.audioUrl
           ? {
               ...prop.voiceAsset,
               audioUrl: prop.voiceAsset.audioUrl.trim()
+            }
+          : undefined,
+        videoAsset: prop.category === 'other' && prop.videoAsset?.videoUrl?.trim()
+          ? {
+              ...prop.videoAsset,
+              videoUrl: prop.videoAsset.videoUrl.trim()
             }
           : undefined,
         assetHistory: normalizeAssetHistoryEntries(prop.assetHistory, prop.referenceImage)
@@ -347,6 +359,17 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
                     audioUrl: prop.voiceAsset.audioUrl.trim()
                   }
                 : undefined
+              const normalizedVideoAsset = prop.category === 'other'
+                && prop.videoAsset
+                && typeof prop.videoAsset === 'object'
+                && !Array.isArray(prop.videoAsset)
+                && typeof prop.videoAsset.videoUrl === 'string'
+                && prop.videoAsset.videoUrl.trim()
+                ? {
+                    videoUrl: prop.videoAsset.videoUrl.trim(),
+                    updatedAt: typeof prop.videoAsset.updatedAt === 'string' ? prop.videoAsset.updatedAt : ''
+                  }
+                : undefined
 
               return {
                 id: typeof prop.id === 'string' ? prop.id : createFallbackPropId(),
@@ -354,12 +377,13 @@ export function useAssetWorkflowMeta(options: UseAssetWorkflowMetaOptions) {
                 description: typeof prop.description === 'string' ? prop.description : '',
                 category: prop.category === 'other' ? 'other' : 'prop',
                 mediaType: prop.category === 'other'
-                  ? (prop.mediaType === 'voice'
-                      ? 'voice'
-                      : (prop.mediaType === 'image' ? 'image' : undefined))
+                  ? (prop.mediaType === 'voice' || prop.mediaType === 'video' || prop.mediaType === 'image'
+                      ? prop.mediaType
+                      : (normalizedVideoAsset ? 'video' : undefined))
                   : undefined,
                 referenceImage: typeof prop.referenceImage === 'string' ? prop.referenceImage : undefined,
                 voiceAsset: normalizedVoiceAsset,
+                videoAsset: normalizedVideoAsset,
                 libraryAssetId: typeof prop.libraryAssetId === 'string' ? prop.libraryAssetId : undefined,
                 libraryAssetVersion: typeof prop.libraryAssetVersion === 'number' && prop.libraryAssetVersion > 0
                   ? prop.libraryAssetVersion

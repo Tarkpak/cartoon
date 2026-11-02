@@ -36,7 +36,8 @@ import {
   resolveConfiguredCharacterReferences,
   resolveSceneNarrationVoiceAsset,
   resolveSceneVideoCharacterReferences,
-  resolveSceneVideoReferenceAssets
+  resolveSceneVideoReferenceAssets,
+  resolveSceneVideoReferenceVideos
 } from '~/lib/asset-workbench-scene-references'
 import {
   resolveEnvironmentCaptureModeForScene,
@@ -63,6 +64,7 @@ interface SceneVideoInputs {
   characterReferenceAssets: ReturnType<typeof resolveSceneVideoReferenceAssets>
   characterImages: string[]
   narrationVoiceReference: ReturnType<typeof resolveSceneNarrationVoiceAsset>
+  referenceVideoAssets: ReturnType<typeof resolveSceneVideoReferenceVideos>
   continuityFirstFrame: string | undefined
 }
 
@@ -376,12 +378,14 @@ export function useAssetWorkbenchSceneGeneration(
 
   function buildVideoReferenceAssetNames(
     characterReferenceAssets: ReturnType<typeof resolveSceneVideoReferenceAssets>,
-    narrationVoiceReference?: ReturnType<typeof resolveSceneNarrationVoiceAsset>
+    narrationVoiceReference?: ReturnType<typeof resolveSceneNarrationVoiceAsset>,
+    referenceVideoAssets: ReturnType<typeof resolveSceneVideoReferenceVideos> = []
   ): string[] {
     const names = characterReferenceAssets.map(asset => asset.name)
     if (narrationVoiceReference?.audioUrl?.trim()) {
       names.push(narrationVoiceReference.name)
     }
+    names.push(...referenceVideoAssets.map(asset => asset.name))
     return uniqueSorted(names.map(name => name.trim()).filter(Boolean))
   }
 
@@ -458,11 +462,13 @@ export function useAssetWorkbenchSceneGeneration(
       characterReferenceAssets,
       characterImages,
       narrationVoiceReference,
+      referenceVideoAssets,
       continuityFirstFrame
     } = inputs
     const referenceAssetNames = buildVideoReferenceAssetNames(
       characterReferenceAssets,
-      narrationVoiceReference
+      narrationVoiceReference,
+      referenceVideoAssets
     )
     return JSON.stringify({
       scenePayload: buildAssetWorkflowScenePayload(scene, { referenceAssetNames }),
@@ -478,6 +484,10 @@ export function useAssetWorkbenchSceneGeneration(
             locked: narrationVoiceReference.locked
           }
         : null,
+      referenceVideos: referenceVideoAssets.map(asset => ({
+        assetId: asset.assetId,
+        videoUrl: asset.videoUrl
+      })),
       characterVoiceAssets: resolveSceneVoiceReferenceSummary({
         scene,
         characters: options.characters.value
@@ -530,6 +540,7 @@ export function useAssetWorkbenchSceneGeneration(
       characterReferenceAssets: resolveSceneVideoReferenceAssets(referenceOptions),
       characterImages: resolveSceneVideoCharacterReferences(referenceOptions),
       narrationVoiceReference: resolveSceneNarrationVoiceAsset(referenceOptions),
+      referenceVideoAssets: resolveSceneVideoReferenceVideos(referenceOptions),
       continuityFirstFrame: resolvePreviousSceneLastFrameForContinuity(scene)
     }
   }
@@ -854,7 +865,8 @@ export function useAssetWorkbenchSceneGeneration(
       const inputs = resolveSceneVideoInputs(scene)
       const referenceAssetNames = buildVideoReferenceAssetNames(
         inputs.characterReferenceAssets,
-        inputs.narrationVoiceReference
+        inputs.narrationVoiceReference,
+        inputs.referenceVideoAssets
       )
       const currentKey = buildSceneVideoGenerationKey(scene, environmentImage, inputs)
       generationKey = currentKey
@@ -884,7 +896,8 @@ export function useAssetWorkbenchSceneGeneration(
                 name: narrationVoiceReference.name,
                 audioUrl: narrationVoiceReference.audioUrl
               }
-            : undefined
+            : undefined,
+          referenceVideoAssets: inputs.referenceVideoAssets
         })
       }
       const createAndPollVideoTask = async () => {

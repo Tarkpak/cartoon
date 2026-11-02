@@ -5482,6 +5482,11 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             get(api_asset_video_active_tasks),
         )
         .route(
+            "/api/asset-workflow/upload-video",
+            post(api_asset_upload_video)
+                .layer(DefaultBodyLimit::max(ASSET_VIDEO_UPLOAD_BODY_LIMIT_BYTES)),
+        )
+        .route(
             "/api/asset-workflow/upload-image",
             post(api_asset_upload_image)
                 .layer(DefaultBodyLimit::max(ASSET_IMAGE_UPLOAD_BODY_LIMIT_BYTES)),

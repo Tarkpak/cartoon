@@ -1,7 +1,7 @@
 import { isCharacterOnlyMentionedOffscreen } from '~/lib/scene-character-presence'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
-import type { DisplayAsset, SceneVideoReferenceAsset } from '~/lib/asset-workbench-types'
+import type { DisplayAsset, SceneVideoReferenceAsset, SceneVideoReferenceVideoAsset } from '~/lib/asset-workbench-types'
 import {
   extractSceneDescriptionMentionTokens,
   resolveSceneDescriptionWithoutAssetMentions,
@@ -326,6 +326,46 @@ export function resolveSceneVideoReferenceAssets(
   }
   for (const asset of resolveConfiguredPropReferenceAssets(options)) {
     appendAsset(asset)
+  }
+
+  return assets
+}
+
+function isReferenceVideoAsset(prop: PropAsset): boolean {
+  return prop.category === 'other'
+    && prop.mediaType === 'video'
+    && !!prop.videoAsset?.videoUrl?.trim()
+}
+
+/**
+ * 分镜视频的参考视频：仅取场景描述 @ 引用或场景配置中显式指定的「其他 / 视频资产」。
+ * 视频参考会明显改变动作与运镜，不做按名称的自动兜底匹配。
+ */
+export function resolveSceneVideoReferenceVideos(
+  options: SceneReferenceOptions
+): SceneVideoReferenceVideoAsset[] {
+  const videoProps = options.propAssets.filter(isReferenceVideoAsset)
+  if (videoProps.length === 0) return []
+
+  const orderedPropIds = [
+    ...resolveMentionedSceneAssetIds(options),
+    ...(options.sceneConfigs[options.scene.id]?.mustReferenceAssetIds || [])
+  ]
+    .filter(assetId => assetId.startsWith('prop:'))
+    .map(assetId => assetId.slice('prop:'.length))
+
+  const assets: SceneVideoReferenceVideoAsset[] = []
+  const seenUrls = new Set<string>()
+  for (const propId of orderedPropIds) {
+    const prop = videoProps.find(item => item.id === propId)
+    const videoUrl = prop?.videoAsset?.videoUrl?.trim()
+    if (!prop || !videoUrl || seenUrls.has(videoUrl)) continue
+    seenUrls.add(videoUrl)
+    assets.push({
+      assetId: `prop:${prop.id}`,
+      name: prop.name?.trim() || '参考视频',
+      videoUrl
+    })
   }
 
   return assets

@@ -2189,6 +2189,7 @@ const {
   uploadingEnvironmentAssetId,
   uploadingPropId,
   uploadingPropVoiceId,
+  uploadingPropVideoId,
   generatingPropId,
   openImagePreview,
   handleCharacterImageUpload: handleCharacterImageUploadCore,
@@ -2198,6 +2199,7 @@ const {
   handleEnvironmentImageUpload: handleEnvironmentImageUploadCore,
   handlePropImageUpload: handlePropImageUploadCore,
   handlePropVoiceUpload,
+  handlePropVideoUpload,
   handlePropVoiceLockChange,
   generatePropImage: generatePropImageCore,
   openEnvironmentRegenerateDialog,
@@ -3937,6 +3939,7 @@ function reportWorkbenchActivity() {
           :uploading-environment-asset-id="uploadingEnvironmentAssetId"
           :uploading-prop-id="uploadingPropId"
           :uploading-prop-voice-id="uploadingPropVoiceId"
+          :uploading-prop-video-id="uploadingPropVideoId"
           :generating-prop-id="generatingPropId"
           :get-character-scene-count="resolveCharacterSceneCount"
           :get-environment-scene-summary="resolveEnvironmentSceneSummary"
@@ -3975,6 +3978,7 @@ function reportWorkbenchActivity() {
           @generate-prop="handleGeneratePropImage"
           @upload-prop-image="handlePropImageUpload($event.propId, $event.event)"
           @upload-prop-voice="handlePropVoiceUpload($event.propId, $event.event)"
+          @upload-prop-video="handlePropVideoUpload($event.propId, $event.event)"
           @update-prop-voice-lock="handlePropVoiceLockChange($event.propId, $event.locked)"
           @open-prop-history="openPropHistory"
           @import-library-asset="handleImportLibraryAsset"

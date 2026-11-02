@@ -171,7 +171,7 @@ declare global {
   export type { AssetWorkbenchParseProgressLogItem, AssetWorkbenchParseProgressState } from './app/composables/useAssetWorkbenchGeneration'
   import('./app/composables/useAssetWorkbenchGeneration')
   // @ts-ignore
-  export type { PropAssetCategory, PropAssetMediaType, SceneConsistencyConfig, PropAsset, AssetWorkflowMeta } from './app/composables/useAssetWorkflowMeta'
+  export type { PropAssetCategory, PropAssetMediaType, PropVideoAsset, SceneConsistencyConfig, PropAsset, AssetWorkflowMeta } from './app/composables/useAssetWorkflowMeta'
   import('./app/composables/useAssetWorkflowMeta')
   // @ts-ignore
   export type { GenerateCharacterOptions } from './app/composables/useCharacter'

@@ -9510,6 +9510,22 @@ fn build_scene_video_reference_materials(config: &Value) -> String {
         lines.push(format!("- 音频{}：{label}", index + 1));
     }
 
+    let video_labels = config.get("referenceVideoLabels").and_then(Value::as_array);
+    for (index, _) in config
+        .get("referenceVideos")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|item| item.as_str().is_some_and(|url| !url.trim().is_empty()))
+        .enumerate()
+    {
+        let label = video_labels
+            .and_then(|labels| labels.get(index))
+            .and_then(Value::as_str)
+            .unwrap_or("视频参考");
+        lines.push(format!("- 视频{}：{label}", index + 1));
+    }
+
     if lines.is_empty() {
         "无额外参考素材".to_string()
     } else {
@@ -11053,6 +11069,102 @@ fn apply_scene_video_reference_inputs(
                 );
             }
         }
+    }
+
+    apply_scene_video_reference_videos(config, &references, provider, model_id, &model_caps);
+}
+
+/// Explicitly referenced video assets (「其他 / 视频资产」) become `referenceVideos`
+/// for omni-reference models. Models without video reference support ignore them.
+fn apply_scene_video_reference_videos(
+    config: &mut Value,
+    references: &Value,
+    provider: &str,
+    model_id: &str,
+    model_caps: &Value,
+) {
+    let support_video_reference = model_caps
+        .get("supportVideoReference")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !support_video_reference {
+        return;
+    }
+    let limit = model_caps
+        .get("maxReferenceVideos")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(1)
+        .clamp(1, 10);
+
+    let mut seen = HashSet::<String>::new();
+    let mut videos = Vec::new();
+    let mut labels = Vec::new();
+    for item in references
+        .get("referenceVideoAssets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if videos.len() >= limit {
+            break;
+        }
+        let Some(url) = item
+            .get("videoUrl")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        if !seen.insert(url.to_string()) {
+            continue;
+        }
+        videos.push(url.to_string());
+        labels.push(named_scene_video_reference_label(
+            "视频参考",
+            item.get("name"),
+            Some("参考视频"),
+        ));
+    }
+    if videos.is_empty() {
+        return;
+    }
+
+    // Wan 3.0 rejects first/last frames mixed with reference media: switch the
+    // frame anchor to an ordinary reference image (omni-reference mode).
+    if provider == "qwen" && model_id.starts_with("wan3.0-video") {
+        let mut reference_images = config
+            .get("referenceImages")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for key in ["firstFrame", "imageUrl"] {
+            if let Some(frame) = config
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+            {
+                if !reference_images.iter().any(|item| item.as_str() == Some(frame.as_str())) {
+                    reference_images.insert(0, json!(frame));
+                }
+            }
+        }
+        if let Some(object) = config.as_object_mut() {
+            object.remove("firstFrame");
+            object.remove("imageUrl");
+            object.remove("lastFrame");
+            if !reference_images.is_empty() {
+                object.insert("referenceImages".to_string(), json!(reference_images));
+            }
+        }
+    }
+
+    if let Some(object) = config.as_object_mut() {
+        object.insert("referenceVideos".to_string(), json!(videos));
+        object.insert("referenceVideoLabels".to_string(), json!(labels));
     }
 }
 
@@ -18217,6 +18329,42 @@ mod tests {
     }
 
     #[test]
+    fn scene_video_references_forward_reference_videos_for_omni_models() {
+        let references = json!({
+          "environmentImage": "env-image",
+          "referenceVideoAssets": [
+            { "id": "prop:fight", "name": "打斗动作", "type": "other", "videoUrl": "https://example.com/fight.mp4" },
+            { "id": "prop:dup", "name": "重复", "type": "other", "videoUrl": "https://example.com/fight.mp4" }
+          ]
+        });
+        let scene = json!({ "description": "两人交手" });
+
+        let mut config = json!({ "provider": "volcengine", "references": references.clone() });
+        apply_scene_video_reference_inputs(&mut config, &scene, "volcengine", "doubao-seedance-2-0-mini-260615");
+        let (_, caps) = build_available_model_entry("volcengine", "doubao-seedance-2-0-mini-260615");
+        if caps.get("supportVideoReference").and_then(Value::as_bool) == Some(true) {
+            assert_eq!(config["referenceVideos"], json!(["https://example.com/fight.mp4"]));
+            assert!(build_scene_video_reference_materials(&config).contains("- 视频1：视频参考（打斗动作）"));
+        }
+
+        let mut unsupported = json!({ "provider": "kling", "references": references });
+        apply_scene_video_reference_inputs(&mut unsupported, &scene, "kling", "unknown-model");
+        assert!(unsupported.get("referenceVideos").is_none());
+    }
+
+    #[test]
+    fn video_generate_payload_rejects_reference_video_without_url() {
+        let body = json!({
+          "scene": { "id": "s1", "description": "x" },
+          "references": {
+            "environmentImage": "env-image",
+            "referenceVideoAssets": [{ "id": "prop:a", "name": "a" }]
+          }
+        });
+        assert!(validate_video_generate_payload(&body).is_err());
+    }
+
+    #[test]
     fn scene_video_reference_materials_use_seedance_image_numbers_in_request_order() {
         let mut config = json!({
           "references": {
@@ -23040,6 +23188,62 @@ pub(super) async fn api_character_voice_upload(
     })))
 }
 
+/// 单段参考视频上限 50MB（火山 Seedance 等全模态模型的参考视频限制）。
+pub(super) const ASSET_REFERENCE_VIDEO_MAX_BYTES: usize = 50 * 1024 * 1024;
+/// base64 dataURL 体积约为原文件的 4/3，再留出 JSON 字段余量。
+pub(super) const ASSET_VIDEO_UPLOAD_BODY_LIMIT_BYTES: usize = 72 * 1024 * 1024;
+
+pub(super) async fn api_asset_upload_video(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Edit).await?;
+    let video_data = body
+        .get("videoData")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "视频内容不能为空"))?;
+    let payload = video_data
+        .strip_prefix("data:")
+        .and_then(|rest| rest.split_once(";base64,"))
+        .filter(|(mime, _)| mime.starts_with("video/"));
+    let Some((mime, encoded)) = payload else {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "仅支持视频 dataURL（video/*;base64）",
+        ));
+    };
+    if let Some(prefix) = body.get("prefix").and_then(Value::as_str) {
+        if prefix.trim().chars().count() > 80 {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "prefix 不能超过 80 个字符",
+            ));
+        }
+    }
+    let bytes = BASE64_STANDARD
+        .decode(encoded.replace(|c: char| c.is_whitespace(), ""))
+        .map_err(|error| {
+            ApiError::new(StatusCode::BAD_REQUEST, format!("视频内容解码失败: {error}"))
+        })?;
+    if bytes.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "视频文件为空"));
+    }
+    if bytes.len() > ASSET_REFERENCE_VIDEO_MAX_BYTES {
+        return Err(ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "参考视频不能超过 50MB",
+        ));
+    }
+    let prefix = sanitize_file_component(&json_string(body.get("prefix"), "asset_reference_video"));
+    let video_url = persist_video_bytes_async(&state, &prefix, Some(mime), "mp4", bytes).await?;
+    Ok(Json(json!({
+      "success": true,
+      "videoUrl": video_url
+    })))
+}
+
 fn validate_character_voice_asset(value: Option<&Value>, path: &str) -> Result<(), ApiError> {
     let Some(value) = value else {
         return Ok(());
@@ -23701,6 +23905,34 @@ fn validate_video_generate_payload(body: &Value) -> Result<(), ApiError> {
             "audioUrl",
             "body.references.narrationVoiceAsset",
         )?;
+    }
+    if let Some(items) = references
+        .get("referenceVideoAssets")
+        .filter(|value| !value.is_null())
+    {
+        let items = items.as_array().ok_or_else(|| {
+            workflow_validation_error("body.references.referenceVideoAssets", "Expected array")
+        })?;
+        if items.len() > 10 {
+            return Err(workflow_validation_error(
+                "body.references.referenceVideoAssets",
+                "参考视频最多 10 个",
+            ));
+        }
+        for (index, item) in items.iter().enumerate() {
+            let item_path = format!("body.references.referenceVideoAssets.{index}");
+            workflow_optional_string(item, "id", &item_path)?;
+            workflow_optional_string(item, "name", &item_path)?;
+            if let Some(asset_type) = item.get("type").filter(|value| !value.is_null()) {
+                if asset_type.as_str() != Some("other") {
+                    return Err(workflow_validation_error(
+                        format!("{item_path}.type"),
+                        "Invalid literal value",
+                    ));
+                }
+            }
+            workflow_required_string(item, "videoUrl", &item_path)?;
+        }
     }
     if !has_reference {
         return Err(workflow_validation_error(

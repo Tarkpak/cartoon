@@ -47,6 +47,7 @@ const props = defineProps<{
   uploadingEnvironmentAssetId: string | null
   uploadingPropId: string | null
   uploadingPropVoiceId: string | null
+  uploadingPropVideoId?: string | null
   generatingPropId: string | null
   getCharacterSceneCount: (character: CharacterData) => number
   getEnvironmentSceneSummary: (asset: EnvironmentAssetCard) => string
@@ -93,6 +94,7 @@ const emit = defineEmits<{
   'generate-prop': [propId: string]
   'upload-prop-image': [payload: { propId: string, event: Event }]
   'upload-prop-voice': [payload: { propId: string, event: Event }]
+  'upload-prop-video': [payload: { propId: string, event: Event }]
   'update-prop-voice-lock': [payload: { propId: string, locked: boolean }]
   'open-prop-history': [propId: string]
   'import-library-asset': [payload: { asset: LibraryAsset, targetId?: string, createNew: boolean, tab: AssetTab }]
@@ -324,6 +326,7 @@ const fenceOptions = computed(() => ({
         :auto-running="autoRunning"
         :uploading-prop-id="uploadingPropId"
         :uploading-prop-voice-id="uploadingPropVoiceId"
+        :uploading-prop-video-id="uploadingPropVideoId"
         :generating-prop-id="generatingPropId"
         :get-prop-usage-count="getPropUsageCount"
         :allow-voice-upload="true"
@@ -331,12 +334,13 @@ const fenceOptions = computed(() => ({
         add-category="other"
         asset-label="其他素材"
         empty-title="暂无其他素材"
-        empty-description="可新增图片或声音素材，用于场景改写和分镜视频参考。"
+        empty-description="可新增图片、声音或视频素材，用于场景改写和分镜视频参考。"
         @add-prop="emit('add-prop', $event)"
         @remove-prop="emit('remove-prop', $event)"
         @generate-prop="emit('generate-prop', $event)"
         @upload-image="emit('upload-prop-image', $event)"
         @upload-voice="emit('upload-prop-voice', $event)"
+        @upload-video="emit('upload-prop-video', $event)"
         @update-voice-lock="emit('update-prop-voice-lock', $event)"
         @open-history="emit('open-prop-history', $event)"
         @preview-image="emit('preview-image', $event)"

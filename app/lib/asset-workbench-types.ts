@@ -3,7 +3,7 @@ export type AssetTab = 'characters' | 'environments' | 'props' | 'others'
 export type QueueStatus = 'pending' | 'running' | 'done' | 'error'
 export type AutoStageKey = 'parse' | 'assets' | 'videos' | 'final'
 export type AutoStageStatus = 'pending' | 'running' | 'done'
-export type AssetUploadInputType = 'char' | 'char_voice' | 'env' | 'prop' | 'prop_voice'
+export type AssetUploadInputType = 'char' | 'char_voice' | 'env' | 'prop' | 'prop_voice' | 'prop_video'
 export type AssetHistorySource = 'generated' | 'uploaded' | 'cropped' | 'legacy'
 
 export interface EnvironmentCropSelection {
@@ -145,6 +145,12 @@ export interface SceneVideoReferenceAsset {
   arkAssetId?: string
   arkAssetStatus?: ArkVirtualAssetStatus
   source: 'configured' | 'fallback'
+}
+
+export interface SceneVideoReferenceVideoAsset {
+  assetId: string
+  name: string
+  videoUrl: string
 }
 
 export interface EnvironmentAssetCard {

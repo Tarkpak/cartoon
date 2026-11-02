@@ -280,7 +280,11 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
         return {
           label: category === 'prop' ? '道具' : '其他素材',
           total: assets.length,
-          ready: assets.filter(asset => asset.mediaType === 'voice' ? !!asset.voiceAsset?.audioUrl?.trim() : !!asset.referenceImage?.trim()).length
+          ready: assets.filter((asset) => {
+            if (asset.mediaType === 'voice') return !!asset.voiceAsset?.audioUrl?.trim()
+            if (asset.mediaType === 'video') return !!asset.videoAsset?.videoUrl?.trim()
+            return !!asset.referenceImage?.trim()
+          }).length
         }
       })
     ]

@@ -153,3 +153,81 @@ export async function uploadAudioFile(file: File, options: {
   const dataUrl = await fileToAudioDataUrl(file)
   return await uploadAssetAudio(dataUrl, options.prefix, options.projectId)
 }
+
+const VIDEO_MIME_BY_EXTENSION: Record<string, string> = {
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+  m4v: 'video/mp4'
+}
+
+export function resolveVideoFileMimeType(file: Pick<File, 'name' | 'type'>): string | undefined {
+  const reportedType = file.type.trim().toLowerCase()
+  if (reportedType.startsWith('video/')) return reportedType
+
+  const extension = file.name.split('.').pop()?.trim().toLowerCase() || ''
+  return VIDEO_MIME_BY_EXTENSION[extension]
+}
+
+export function assertValidVideoFile(file: File, maxFileSize: number) {
+  if (!resolveVideoFileMimeType(file)) {
+    throw new Error('仅支持上传视频文件')
+  }
+
+  if (file.size > maxFileSize) {
+    throw new Error(`视频大小不能超过 ${formatUploadLimit(maxFileSize)}`)
+  }
+}
+
+export async function fileToVideoDataUrl(file: File): Promise<string> {
+  const mimeType = resolveVideoFileMimeType(file)
+  if (!mimeType) {
+    throw new Error('仅支持上传视频文件')
+  }
+
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => {
+      reject(new Error('读取视频文件失败，请重试'))
+    }
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('仅支持视频文件上传'))
+        return
+      }
+      const separatorIndex = reader.result.indexOf(',')
+      if (separatorIndex < 0) {
+        reject(new Error('读取视频文件失败，请重试'))
+        return
+      }
+      resolve(`data:${mimeType};base64,${reader.result.slice(separatorIndex + 1)}`)
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+export async function uploadVideoFile(file: File, options: {
+  maxFileSize: number
+  prefix: string
+  projectId: string
+}): Promise<string> {
+  assertValidVideoFile(file, options.maxFileSize)
+  const dataUrl = await fileToVideoDataUrl(file)
+  const response = await $fetch<{
+    success: boolean
+    videoUrl?: string
+  }>('/api/asset-workflow/upload-video', {
+    method: 'POST',
+    body: {
+      projectId: options.projectId,
+      videoData: dataUrl,
+      prefix: options.prefix
+    }
+  })
+
+  if (!response.success || !response.videoUrl) {
+    throw new Error('视频上传失败，请稍后重试')
+  }
+
+  return response.videoUrl
+}

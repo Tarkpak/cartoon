@@ -3,7 +3,8 @@ import type { CharacterData, SceneData } from './asset-workbench-models'
 import type { SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import {
   resolveSceneNarrationVoiceAsset,
-  resolveSceneVideoReferenceAssets
+  resolveSceneVideoReferenceAssets,
+  resolveSceneVideoReferenceVideos
 } from './asset-workbench-scene-references'
 
 function createCharacter(input: Partial<CharacterData> & Pick<CharacterData, 'id' | 'name'>): CharacterData {
@@ -444,6 +445,54 @@ describe('scene video reference assets', () => {
       type: 'other',
       image: 'flashlight.png'
     })
+  })
+
+  it('resolves only explicitly referenced video assets as reference videos', () => {
+    const scene = createScene({
+      id: 'scene_video_ref',
+      title: '巷战',
+      description: '两人在巷口交手。\n\n[引用资产]\n@其他:打斗动作'
+    })
+
+    const propAssets = [
+      {
+        id: 'fight',
+        name: '打斗动作',
+        description: '',
+        category: 'other' as const,
+        mediaType: 'video' as const,
+        videoAsset: { videoUrl: 'fight.mp4', updatedAt: '2026-11-03T00:00:00.000Z' }
+      },
+      {
+        id: 'camera',
+        name: '运镜参考',
+        description: '',
+        category: 'other' as const,
+        mediaType: 'video' as const,
+        videoAsset: { videoUrl: 'camera.mp4', updatedAt: '2026-11-03T00:00:00.000Z' }
+      },
+      {
+        id: 'empty',
+        name: '空视频',
+        description: '',
+        category: 'other' as const,
+        mediaType: 'video' as const
+      }
+    ]
+    const options = {
+      scene,
+      characters: [],
+      propAssets,
+      sceneConfigs: {
+        [scene.id]: createSceneConfig(scene.id, ['prop:empty'])
+      }
+    }
+
+    expect(resolveSceneVideoReferenceVideos(options)).toEqual([
+      { assetId: 'prop:fight', name: '打斗动作', videoUrl: 'fight.mp4' }
+    ])
+    // 视频资产没有参考图，不能混入图片参考
+    expect(resolveSceneVideoReferenceAssets(options)).toEqual([])
   })
 
   it('resolves narration voice asset from explicitly referenced other asset', () => {

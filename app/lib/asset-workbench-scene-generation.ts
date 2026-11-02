@@ -15,7 +15,7 @@ import {
   resolveSceneEnvironmentLabel
 } from '~/lib/asset-workbench-environment'
 import { extractSceneDescriptionMentionTokens } from '~/lib/asset-workbench-mentions'
-import type { SceneVideoReferenceAsset } from '~/lib/asset-workbench-types'
+import type { SceneVideoReferenceAsset, SceneVideoReferenceVideoAsset } from '~/lib/asset-workbench-types'
 
 export type AssetWorkbenchAspectRatio = '16:9' | '9:16' | '1:1'
 
@@ -83,6 +83,12 @@ interface AssetWorkflowVideoReferences {
     type: 'other'
     audioUrl: string
   }
+  referenceVideoAssets?: Array<{
+    id: string
+    name: string
+    type: 'other'
+    videoUrl: string
+  }>
   environmentAsset: {
     id: string
     name: string
@@ -239,8 +245,17 @@ export function buildAssetWorkflowVideoReferences(options: {
     name: string
     audioUrl: string
   }
+  referenceVideoAssets?: SceneVideoReferenceVideoAsset[]
 }): AssetWorkflowVideoReferences {
   const narrationAudioUrl = options.narrationVoiceAsset?.audioUrl?.trim() || ''
+  const referenceVideoAssets = (options.referenceVideoAssets || [])
+    .filter(item => !!item.videoUrl?.trim())
+    .map(item => ({
+      id: item.assetId,
+      name: item.name,
+      type: 'other' as const,
+      videoUrl: item.videoUrl.trim()
+    }))
 
   return {
     environmentImage: options.environmentImage,
@@ -255,6 +270,7 @@ export function buildAssetWorkflowVideoReferences(options: {
           audioUrl: narrationAudioUrl
         }
       : undefined,
+    referenceVideoAssets: referenceVideoAssets.length > 0 ? referenceVideoAssets : undefined,
     environmentAsset: {
       id: options.environmentAssetId || resolveSceneEnvironmentAssetId(options.scene),
       name: options.environmentAssetName || resolveSceneEnvironmentLabel(options.scene),

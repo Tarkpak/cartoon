@@ -560,7 +560,7 @@ export function useAssetWorkbenchSceneManagement(options: {
     const description = payload.description?.trim() || ''
     const category: PropAssetCategory = payload.category === 'other' ? 'other' : 'prop'
     const mediaType: PropAssetMediaType | undefined = category === 'other'
-      ? (payload.mediaType === 'voice' ? 'voice' : 'image')
+      ? (payload.mediaType === 'voice' || payload.mediaType === 'video' ? payload.mediaType : 'image')
       : undefined
     if (!name) return
 
