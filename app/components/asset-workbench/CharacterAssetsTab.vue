@@ -4,6 +4,7 @@ import LazyImage from '~/components/LazyImage.vue'
 import SaveToPersonalLibraryButton from './SaveToPersonalLibraryButton.vue'
 import type { CharacterData } from '~/composables/useAssetWorkbench'
 import { buildAssetUploadInputId, resolveCharacterRoleLabel } from '~/lib/asset-workbench-types'
+import { useIncrementalList } from '~/composables/useIncrementalList'
 
 const props = defineProps<{
   characters: CharacterData[]
@@ -190,13 +191,42 @@ const rootCharacters = computed(() => {
   })
 })
 
+const characterNameById = computed(() => {
+  return new Map(props.characters.map(character => [character.id, character.name]))
+})
+
+const variantsByParentId = computed(() => {
+  const map = new Map<string, CharacterData[]>()
+  for (const character of props.characters) {
+    if (!character.parentCharacterId) continue
+    const list = map.get(character.parentCharacterId)
+    if (list) {
+      list.push(character)
+    } else {
+      map.set(character.parentCharacterId, [character])
+    }
+  }
+  return map
+})
+
+const EMPTY_VARIANTS: CharacterData[] = []
+
+const {
+  sentinel: characterLoadMoreSentinel,
+  visibleItems: visibleRootCharacters,
+  total: rootCharacterTotal,
+  hasMore: hasMoreRootCharacters,
+  loadMore: loadMoreRootCharacters,
+  ensureIndexVisible: ensureRootCharacterVisible
+} = useIncrementalList(() => rootCharacters.value, { getKey: character => character.id })
+
 function resolveParentCharacterName(char: CharacterData): string {
   if (!char.parentCharacterId) return ''
-  return props.characters.find(item => item.id === char.parentCharacterId)?.name || ''
+  return characterNameById.value.get(char.parentCharacterId) || ''
 }
 
 function resolveCharacterVariants(char: CharacterData): CharacterData[] {
-  return props.characters.filter(item => item.parentCharacterId === char.id)
+  return variantsByParentId.value.get(char.id) || EMPTY_VARIANTS
 }
 
 function resolveVariantCount(char: CharacterData): number {
@@ -237,6 +267,11 @@ watch(
     if (editingVariant?.parentCharacterId) {
       setVariantSectionExpanded(editingVariant.parentCharacterId, true)
     }
+    const rootId = editingVariant?.parentCharacterId && characterNameById.value.has(editingVariant.parentCharacterId)
+      ? editingVariant.parentCharacterId
+      : editingCharacterId
+    const rootIndex = rootCharacters.value.findIndex(character => character.id === rootId)
+    if (rootIndex >= 0) ensureRootCharacterVisible(rootIndex)
   },
   { immediate: true }
 )
@@ -257,7 +292,7 @@ watch(
     class="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3"
   >
     <div
-      v-for="char in rootCharacters"
+      v-for="char in visibleRootCharacters"
       :key="char.id"
       class="group rounded-xl bg-muted/25 transition-colors hover:bg-muted/35"
     >
@@ -901,6 +936,22 @@ watch(
         </template>
       </div>
     </div>
+  </div>
+  <div
+    v-if="characters.length > 0 && hasMoreRootCharacters"
+    ref="characterLoadMoreSentinel"
+    class="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground"
+  >
+    已显示 {{ visibleRootCharacters.length }} / {{ rootCharacterTotal }}
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      class="h-7 px-2 text-xs"
+      @click="loadMoreRootCharacters"
+    >
+      加载更多
+    </Button>
   </div>
 </template>
 

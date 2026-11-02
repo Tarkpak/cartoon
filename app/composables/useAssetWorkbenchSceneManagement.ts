@@ -90,7 +90,42 @@ export function useAssetWorkbenchSceneManagement(options: {
     })
   }
 
+  // Asset cards call these counters once per card on every render. Cache the
+  // scene-side data so hundreds of assets do not each rescan every scene.
+  const sceneUsageIndex = computed(() => {
+    return options.scenes.value.map(scene => ({
+      refs: new Set(options.sceneConfigs.value[scene.id]?.mustReferenceAssetIds || []),
+      characterTokens: scene.characters
+        .map(sceneCharacter => options.normalizeToken(sceneCharacter.name))
+        .filter(Boolean)
+    }))
+  })
+
+  const characterSceneCountById = computed(() => {
+    const counts = new Map<string, number>()
+    for (const character of options.characters.value) {
+      counts.set(character.id, computeCharacterSceneCount(character))
+    }
+    return counts
+  })
+
+  const propUsageCountById = computed(() => {
+    const counts = new Map<string, number>()
+    for (const scene of sceneUsageIndex.value) {
+      for (const ref of scene.refs) {
+        if (!ref.startsWith('prop:')) continue
+        const propId = ref.slice('prop:'.length)
+        counts.set(propId, (counts.get(propId) || 0) + 1)
+      }
+    }
+    return counts
+  })
+
   function resolveCharacterSceneCount(character: CharacterData): number {
+    return characterSceneCountById.value.get(character.id) ?? computeCharacterSceneCount(character)
+  }
+
+  function computeCharacterSceneCount(character: CharacterData): number {
     const target = options.normalizeToken(character.name)
     const targetRefs = new Set<string>([`char:${character.id}`])
     if (!character.parentCharacterId) {
@@ -101,26 +136,19 @@ export function useAssetWorkbenchSceneManagement(options: {
       }
     }
 
-    return options.scenes.value.filter((scene) => {
-      const refs = options.sceneConfigs.value[scene.id]?.mustReferenceAssetIds || []
-      if (refs.some(assetId => targetRefs.has(assetId))) {
-        return true
+    return sceneUsageIndex.value.filter((scene) => {
+      for (const ref of targetRefs) {
+        if (scene.refs.has(ref)) return true
       }
       if (!target) return false
-      return scene.characters.some((sceneCharacter) => {
-        const candidate = options.normalizeToken(sceneCharacter.name)
-        if (!candidate) return false
+      return scene.characterTokens.some((candidate) => {
         return candidate === target || candidate.includes(target) || target.includes(candidate)
       })
     }).length
   }
 
   function resolvePropUsageCount(propId: string): number {
-    const targetAssetId = `prop:${propId}`
-    return options.scenes.value.filter((scene) => {
-      const refs = options.sceneConfigs.value[scene.id]?.mustReferenceAssetIds || []
-      return refs.includes(targetAssetId)
-    }).length
+    return propUsageCountById.value.get(propId) || 0
   }
 
   function synchronizeSceneConfigs() {

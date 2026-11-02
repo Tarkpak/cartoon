@@ -8,9 +8,7 @@ import type { ScriptEpisodePlanItem } from '~/lib/asset-workbench-api'
 import {
   buildEnvironmentAssetCards,
   buildEnvironmentDisplayAssets,
-  hasEnvironmentRepresentativeScene as hasEnvironmentRepresentativeSceneForAsset,
   resolveEnvironmentCard as findEnvironmentCard,
-  resolveEnvironmentRepresentativeScene as findEnvironmentRepresentativeScene,
   resolveEnvironmentSceneSummary,
   resolveSceneEnvironmentAssetId,
   resolveSceneEnvironmentAssetIdAliases,
@@ -469,20 +467,28 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
     })
   }
 
+  // Asset cards render per-card lookups on every update; index them once so a
+  // project with hundreds of assets does not pay O(n) per lookup.
+  const environmentCardById = computed(() => {
+    return new Map(environmentAssetCards.value.map(card => [card.id, card]))
+  })
+
+  const sceneIdSet = computed(() => new Set(options.scenes.value.map(scene => scene.id)))
+
+  const sceneById = computed(() => new Map(options.scenes.value.map(scene => [scene.id, scene])))
+
   function resolveEnvironmentCard(assetId: string) {
-    return findEnvironmentCard(assetId, environmentAssetCards.value)
+    return environmentCardById.value.get(assetId)
   }
 
   function resolveEnvironmentRepresentativeScene(assetId: string) {
-    return findEnvironmentRepresentativeScene(assetId, environmentAssetCards.value, options.scenes.value)
+    const representativeSceneId = resolveEnvironmentCard(assetId)?.representativeSceneId
+    return representativeSceneId ? sceneById.value.get(representativeSceneId) : undefined
   }
 
   function hasEnvironmentRepresentativeScene(assetId: string): boolean {
-    return hasEnvironmentRepresentativeSceneForAsset(
-      assetId,
-      environmentAssetCards.value,
-      options.scenes.value
-    )
+    const representativeSceneId = resolveEnvironmentCard(assetId)?.representativeSceneId
+    return !!representativeSceneId && sceneIdSet.value.has(representativeSceneId)
   }
 
   return {

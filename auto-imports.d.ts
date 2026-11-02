@@ -10,6 +10,7 @@ declare global {
   const APP_LOG_ALL_FILTER_VALUE: typeof import('./app/composables/useAppLogs')['APP_LOG_ALL_FILTER_VALUE']
   const APP_LOG_LEVEL_OPTIONS: typeof import('./app/composables/useAppLogs')['APP_LOG_LEVEL_OPTIONS']
   const APP_LOG_SOURCE_OPTIONS: typeof import('./app/composables/useAppLogs')['APP_LOG_SOURCE_OPTIONS']
+  const DEFAULT_INCREMENTAL_PAGE_SIZE: typeof import('./app/composables/useIncrementalList')['DEFAULT_INCREMENTAL_PAGE_SIZE']
   const EffectScope: typeof import('vue')['EffectScope']
   const MODEL_DEBUG_ALL_FILTER_VALUE: typeof import('./app/composables/useModelDebugLogs')['MODEL_DEBUG_ALL_FILTER_VALUE']
   const MODEL_DEBUG_OPERATION_OPTIONS: typeof import('./app/composables/useModelDebugLogs')['MODEL_DEBUG_OPERATION_OPTIONS']
@@ -18,6 +19,7 @@ declare global {
   const WORKFLOW_CATEGORY_CONFIG: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_CATEGORY_CONFIG']
   const WORKFLOW_CATEGORY_ORDER: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_CATEGORY_ORDER']
   const WORKFLOW_GEMINI_IMAGE_SIZES: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_GEMINI_IMAGE_SIZES']
+  const WORKFLOW_IMAGE_OVERRIDE_INHERIT: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_IMAGE_OVERRIDE_INHERIT']
   const WORKFLOW_OPENAI_IMAGE_QUALITIES: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_OPENAI_IMAGE_QUALITIES']
   const WORKFLOW_PANORAMA_SOURCE_MODES: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_PANORAMA_SOURCE_MODES']
   const WORKFLOW_SEEDANCE_VIDEO_QUALITIES: typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_SEEDANCE_VIDEO_QUALITIES']
@@ -117,6 +119,7 @@ declare global {
   const useId: typeof import('vue')['useId']
   const useImagePromptReferenceEditor: typeof import('./app/composables/useImagePromptReferenceEditor')['useImagePromptReferenceEditor']
   const useImagePromptReferenceMentions: typeof import('./app/composables/useImagePromptReferenceMentions')['useImagePromptReferenceMentions']
+  const useIncrementalList: typeof import('./app/composables/useIncrementalList')['useIncrementalList']
   const useLink: typeof import('vue-router')['useLink']
   const useModel: typeof import('vue')['useModel']
   const useModelDebugLogs: typeof import('./app/composables/useModelDebugLogs')['useModelDebugLogs']
@@ -223,6 +226,7 @@ declare module 'vue' {
     readonly APP_LOG_ALL_FILTER_VALUE: UnwrapRef<typeof import('./app/composables/useAppLogs')['APP_LOG_ALL_FILTER_VALUE']>
     readonly APP_LOG_LEVEL_OPTIONS: UnwrapRef<typeof import('./app/composables/useAppLogs')['APP_LOG_LEVEL_OPTIONS']>
     readonly APP_LOG_SOURCE_OPTIONS: UnwrapRef<typeof import('./app/composables/useAppLogs')['APP_LOG_SOURCE_OPTIONS']>
+    readonly DEFAULT_INCREMENTAL_PAGE_SIZE: UnwrapRef<typeof import('./app/composables/useIncrementalList')['DEFAULT_INCREMENTAL_PAGE_SIZE']>
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
     readonly MODEL_DEBUG_ALL_FILTER_VALUE: UnwrapRef<typeof import('./app/composables/useModelDebugLogs')['MODEL_DEBUG_ALL_FILTER_VALUE']>
     readonly MODEL_DEBUG_OPERATION_OPTIONS: UnwrapRef<typeof import('./app/composables/useModelDebugLogs')['MODEL_DEBUG_OPERATION_OPTIONS']>
@@ -231,6 +235,7 @@ declare module 'vue' {
     readonly WORKFLOW_CATEGORY_CONFIG: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_CATEGORY_CONFIG']>
     readonly WORKFLOW_CATEGORY_ORDER: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_CATEGORY_ORDER']>
     readonly WORKFLOW_GEMINI_IMAGE_SIZES: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_GEMINI_IMAGE_SIZES']>
+    readonly WORKFLOW_IMAGE_OVERRIDE_INHERIT: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_IMAGE_OVERRIDE_INHERIT']>
     readonly WORKFLOW_OPENAI_IMAGE_QUALITIES: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_OPENAI_IMAGE_QUALITIES']>
     readonly WORKFLOW_PANORAMA_SOURCE_MODES: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_PANORAMA_SOURCE_MODES']>
     readonly WORKFLOW_SEEDANCE_VIDEO_QUALITIES: UnwrapRef<typeof import('./app/composables/useSettingsWorkflowModels')['WORKFLOW_SEEDANCE_VIDEO_QUALITIES']>
@@ -330,6 +335,7 @@ declare module 'vue' {
     readonly useId: UnwrapRef<typeof import('vue')['useId']>
     readonly useImagePromptReferenceEditor: UnwrapRef<typeof import('./app/composables/useImagePromptReferenceEditor')['useImagePromptReferenceEditor']>
     readonly useImagePromptReferenceMentions: UnwrapRef<typeof import('./app/composables/useImagePromptReferenceMentions')['useImagePromptReferenceMentions']>
+    readonly useIncrementalList: UnwrapRef<typeof import('./app/composables/useIncrementalList')['useIncrementalList']>
     readonly useLink: UnwrapRef<typeof import('vue-router')['useLink']>
     readonly useModel: UnwrapRef<typeof import('vue')['useModel']>
     readonly useModelDebugLogs: UnwrapRef<typeof import('./app/composables/useModelDebugLogs')['useModelDebugLogs']>

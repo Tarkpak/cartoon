@@ -541,23 +541,38 @@ function setEnvironmentAssetGenerationState(
   }
 }
 
-function resolveEnvironmentAssetReferenceImage(assetId: string): string | undefined {
+function computeEnvironmentAssetReferenceImage(assetId: string): string | undefined {
+  const card = resolveEnvironmentCard(assetId)
   return resolveEnvironmentPanoramaState(assetId)?.panoramaImage?.trim()
-    || resolveEnvironmentCard(assetId)?.panoramaImage?.trim()
-    || resolveEnvironmentCard(assetId)?.referenceImage?.trim()
+    || card?.panoramaImage?.trim()
+    || card?.referenceImage?.trim()
     || undefined
 }
 
-function resolveEnvironmentMotherCandidates(asset: EnvironmentAssetCard): Array<{ id: string, label: string }> {
+// Cached once per asset/panorama change; the asset grid reads it per card on
+// every render, so recomputing it inline made large projects O(n^2) or worse.
+const environmentAssetReferenceImageById = computed(() => {
+  const map = new Map<string, string>()
+  for (const asset of environmentAssetCards.value) {
+    const image = computeEnvironmentAssetReferenceImage(asset.id)
+    if (image) map.set(asset.id, image)
+  }
+  return map
+})
+
+function resolveEnvironmentAssetReferenceImage(assetId: string): string | undefined {
+  return environmentAssetReferenceImageById.value.get(assetId)
+    ?? computeEnvironmentAssetReferenceImage(assetId)
+}
+
+const environmentMotherCandidatePool = computed(() => {
   return displayEnvironmentAssetCards.value
-    .filter(item => item.id !== asset.id)
-    .map(item => ({
-      id: item.id,
-      label: item.name,
-      image: resolveEnvironmentAssetReferenceImage(item.id)
-    }))
-    .filter(item => !!item.image)
-    .map(({ id, label }) => ({ id, label }))
+    .filter(item => environmentAssetReferenceImageById.value.has(item.id))
+    .map(item => ({ id: item.id, label: item.name }))
+})
+
+function resolveEnvironmentMotherCandidates(asset: EnvironmentAssetCard): Array<{ id: string, label: string }> {
+  return environmentMotherCandidatePool.value.filter(item => item.id !== asset.id)
 }
 
 function resolveEnvironmentSelectedMotherId(assetId: string): string | undefined {

@@ -5,6 +5,7 @@ import SaveToPersonalLibraryButton from './SaveToPersonalLibraryButton.vue'
 import type { EnvironmentAssetCard, EnvironmentCropCaptureMode } from '~/lib/asset-workbench-types'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
 import { resolveEnvironmentViewImageForCard } from '~/lib/asset-workbench-environment-views'
+import { useIncrementalList } from '~/composables/useIncrementalList'
 
 const props = defineProps<{
   environmentAssetCards: EnvironmentAssetCard[]
@@ -29,6 +30,13 @@ const emit = defineEmits<{
   'regenerate': [assetId: string]
   'update-mother': [payload: { assetId: string, motherAssetId: string }]
 }>()
+
+const {
+  sentinel: environmentLoadMoreSentinel,
+  visibleItems: visibleEnvironmentAssetCards,
+  hasMore: hasMoreEnvironmentAssets,
+  loadMore: loadMoreEnvironmentAssets
+} = useIncrementalList(() => props.environmentAssetCards, { getKey: asset => asset.id })
 
 function triggerUploadInput(assetId: string) {
   if (typeof document === 'undefined') return
@@ -92,6 +100,33 @@ function resolveEnvironmentGenerateLabel(asset: EnvironmentAssetCard): string {
   return hasEnvironmentImage(asset) ? '重新生成' : '生成'
 }
 
+// reka-ui Select renders its items into a detached fragment even while closed.
+// With one mother picker per card, that was N cards x N candidates mounted at
+// all times. Only mount the full candidate list for the picker that is open;
+// a closed picker keeps just the selected item so SelectValue can show it.
+const openMotherSelectAssetId = ref<string | null>(null)
+
+const environmentNameById = computed(() => {
+  return new Map(props.environmentAssetCards.map(asset => [asset.id, asset.name]))
+})
+
+function handleMotherSelectOpenChange(assetId: string, open: boolean) {
+  if (open) {
+    openMotherSelectAssetId.value = assetId
+  } else if (openMotherSelectAssetId.value === assetId) {
+    openMotherSelectAssetId.value = null
+  }
+}
+
+function resolveRenderedMotherCandidates(asset: EnvironmentAssetCard): Array<{ id: string, label: string }> {
+  if (openMotherSelectAssetId.value === asset.id) {
+    return props.getEnvironmentMotherCandidates(asset)
+  }
+  const selectedId = props.getEnvironmentSelectedMotherId(asset.id)
+  if (!selectedId) return []
+  return [{ id: selectedId, label: environmentNameById.value.get(selectedId) || selectedId }]
+}
+
 function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
   if (asset.referenceStatus === 'generating') return '环境图生成中'
   if (!canGenerateEnvironmentAsset(asset.id)) return '未找到环境资产'
@@ -119,7 +154,7 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
 
     <div class="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
       <div
-        v-for="(asset, idx) in environmentAssetCards"
+        v-for="(asset, idx) in visibleEnvironmentAssetCards"
         :key="`asset_env_${asset.id}`"
         class="group overflow-hidden rounded-xl bg-muted/25 transition-colors hover:bg-muted/35"
       >
@@ -292,6 +327,7 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
           <Select
             :model-value="getEnvironmentSelectedMotherId(asset.id) || '__none__'"
             @update:model-value="emit('update-mother', { assetId: asset.id, motherAssetId: $event === '__none__' ? '' : String($event) })"
+            @update:open="handleMotherSelectOpenChange(asset.id, $event)"
           >
             <SelectTrigger
               class="h-7 w-[160px] px-2 text-xs text-muted-foreground"
@@ -304,7 +340,7 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
                 不使用母体
               </SelectItem>
               <SelectItem
-                v-for="candidate in getEnvironmentMotherCandidates(asset)"
+                v-for="candidate in resolveRenderedMotherCandidates(asset)"
                 :key="`env_mother_${asset.id}_${candidate.id}`"
                 :value="candidate.id"
               >
@@ -331,6 +367,23 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
           />
         </div>
       </div>
+    </div>
+
+    <div
+      v-if="hasMoreEnvironmentAssets"
+      ref="environmentLoadMoreSentinel"
+      class="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground"
+    >
+      已显示 {{ visibleEnvironmentAssetCards.length }} / {{ environmentAssetCards.length }}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        class="h-7 px-2 text-xs"
+        @click="loadMoreEnvironmentAssets"
+      >
+        加载更多
+      </Button>
     </div>
   </div>
 </template>

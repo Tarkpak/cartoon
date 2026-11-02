@@ -8,6 +8,7 @@ import type {
   PropAssetMediaType
 } from '~/composables/useAssetWorkflowMeta'
 import { buildAssetUploadInputId } from '~/lib/asset-workbench-types'
+import { useIncrementalList } from '~/composables/useIncrementalList'
 
 type OtherAssetMediaSubTab = 'image' | 'voice'
 const OTHER_ASSET_VOICE_HINT_REGEX = /(旁白|画外音|voiceover|narration|音色|声线|配音|旁述)/iu
@@ -91,6 +92,16 @@ const displayedPropAssets = computed(() => {
   return tabFilteredPropAssets.value.filter((asset) => {
     return `${asset.name || ''} ${asset.description || ''}`.toLowerCase().includes(keyword)
   })
+})
+
+const {
+  sentinel: propLoadMoreSentinel,
+  visibleItems: visiblePropAssets,
+  hasMore: hasMorePropAssets,
+  loadMore: loadMorePropAssets
+} = useIncrementalList(() => displayedPropAssets.value, {
+  getKey: asset => asset.id,
+  resetKey: () => [normalizedSearchKeyword.value, otherAssetMediaSubTab.value]
 })
 
 watch(showMediaSubTabs, (enabled) => {
@@ -338,7 +349,7 @@ function buildImageLoadKey(prop: PropAsset): string {
       class="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3"
     >
       <div
-        v-for="prop in displayedPropAssets"
+        v-for="prop in visiblePropAssets"
         :key="prop.id"
         class="group rounded-xl bg-muted/25 transition-colors hover:bg-muted/35"
       >
@@ -526,6 +537,23 @@ function buildImageLoadKey(prop: PropAsset): string {
           />
         </div>
       </div>
+    </div>
+
+    <div
+      v-if="displayedPropAssets.length > 0 && hasMorePropAssets"
+      ref="propLoadMoreSentinel"
+      class="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground"
+    >
+      已显示 {{ visiblePropAssets.length }} / {{ displayedPropAssets.length }}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        class="h-7 px-2 text-xs"
+        @click="loadMorePropAssets"
+      >
+        加载更多
+      </Button>
     </div>
   </div>
 </template>
