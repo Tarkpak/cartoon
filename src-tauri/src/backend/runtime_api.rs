@@ -11213,6 +11213,7 @@ fn inject_collaboration_image_references(config: &mut Value, provider: &str, mod
     let source = config["collaborationVoiceContext"].clone();
     let scene = &source["scene"];
     let mut assets = Vec::new();
+    let mut video_assets = Vec::new();
     for resource in source["characters"].as_array().into_iter().flatten() {
         let character = &resource["body"];
         let Some(id) = resource["id"].as_str() else { continue; };
@@ -11237,6 +11238,13 @@ fn inject_collaboration_image_references(config: &mut Value, provider: &str, mod
         let name = prop["name"].as_str().unwrap_or("");
         let (kind, label) = if prop["category"] == "other" { ("other", "其他") } else { ("prop", "道具") };
         if !collaboration_asset_is_selected(&source, &format!("prop:{id}"), name, kind, label) { continue; }
+        // 「其他 / 视频资产」 has no image: it becomes a reference video, not a reference image.
+        if kind == "other" && prop["mediaType"] == "video" {
+            if let Some(url) = prop["videoAsset"]["videoUrl"].as_str().map(str::trim).filter(|url| !url.is_empty()) {
+                video_assets.push(json!({"id":format!("prop:{id}"), "name":name, "type":"other", "videoUrl":url}));
+            }
+            continue;
+        }
         if let Some(image) = prop["referenceImage"].as_str().map(str::trim).filter(|image| !image.is_empty()) {
             assets.push(json!({"id":format!("prop:{id}"), "name":name, "type":kind, "image":image}));
         } else if !is_narration_voice_prop(prop) {
@@ -11244,7 +11252,11 @@ fn inject_collaboration_image_references(config: &mut Value, provider: &str, mod
         }
     }
     assets.sort_by_key(|asset| collaboration_asset_order(&source, asset["id"].as_str().unwrap_or(""), asset["name"].as_str().unwrap_or("")));
+    video_assets.sort_by_key(|asset| collaboration_asset_order(&source, asset["id"].as_str().unwrap_or(""), asset["name"].as_str().unwrap_or("")));
     config["references"] = json!({"environmentImage":scene.get("firstFrame"), "characterAssets":assets});
+    if !video_assets.is_empty() {
+        config["references"]["referenceVideoAssets"] = json!(video_assets);
+    }
     apply_scene_video_reference_inputs(config, scene, provider, model_id);
     Ok(())
 }
@@ -21495,6 +21507,21 @@ mod collaboration_generation_tests {
         assert_eq!(images, vec!["https://shared.example/env.png", "asset://ming-asset", "https://shared.example/cup.png", "https://shared.example/li.png", "https://shared.example/hong.png"]);
         assert_eq!(content[1]["role"], "reference_image");
         assert!(content[2..].iter().all(|item| item["role"] == "reference_image"));
+    }
+
+    #[test]
+    fn collaboration_video_uses_referenced_video_asset_as_reference_video() {
+        let mut config = json!({"collaborationVoiceContext":{
+            "scene":{"id":"s", "description":"对话\n[引用资产]\n@其他:对话视频风格"},
+            "settings":{"body":{"script":{"assetWorkflow":{
+                "props":[{"id":"style", "name":"对话视频风格", "category":"other", "mediaType":"video",
+                    "videoAsset":{"videoUrl":"https://shared.example/style.mp4"}}]
+            }}}},
+            "characters":[]
+        }});
+        let model = "doubao-seedance-2-0-mini-260615";
+        inject_collaboration_image_references(&mut config, "volcengine", model).unwrap();
+        assert_eq!(config["references"]["referenceVideoAssets"][0]["videoUrl"], "https://shared.example/style.mp4");
     }
 
     #[test]

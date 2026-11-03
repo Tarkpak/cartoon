@@ -49,7 +49,27 @@ interface EpisodeDirectoryItem {
 }
 
 const componentActive = ref(true)
-onActivated(() => { componentActive.value = true })
+const episodeDirectoryContainer = ref<HTMLElement | null>(null)
+const sceneListContainer = ref<HTMLElement | null>(null)
+
+// KeepAlive detaches the DOM while another stage is shown, which resets
+// scrollTop. Track offsets on scroll (by deactivation the DOM is already
+// detached and reads 0) and restore them once the stage is re-inserted.
+const savedListScroll = { episodeDirectory: 0, sceneList: 0 }
+function rememberListScroll(key: keyof typeof savedListScroll, event: Event) {
+  if (!componentActive.value) return
+  savedListScroll[key] = (event.target as HTMLElement).scrollTop
+}
+function restoreListScroll() {
+  if (episodeDirectoryContainer.value) episodeDirectoryContainer.value.scrollTop = savedListScroll.episodeDirectory
+  if (sceneListContainer.value) sceneListContainer.value.scrollTop = savedListScroll.sceneList
+}
+
+onActivated(() => {
+  componentActive.value = true
+  restoreListScroll()
+  requestAnimationFrame(restoreListScroll)
+})
 onDeactivated(() => { componentActive.value = false })
 
 // State and actions come from the workbench page (see asset-workbench-videos-stage-context).
@@ -574,7 +594,6 @@ const SCENE_STATUS_LABEL: Record<SceneListStatus, string> = {
 }
 
 const sceneListFilter = ref<SceneListFilter>('all')
-const sceneListContainer = ref<HTMLElement | null>(null)
 
 const selectedEpisodeSceneStatuses = computed(() => {
   return new Map(selectedEpisodeScenes.value.map(scene => [
@@ -858,8 +877,10 @@ watch(episodeDirectoryCollapsed, (value) => {
             </div>
 
             <div
+              ref="episodeDirectoryContainer"
               class="min-h-0 flex-1 space-y-1 overflow-y-auto p-2"
               data-readonly-allowed
+              @scroll.passive="rememberListScroll('episodeDirectory', $event)"
             >
               <div
                 v-for="episode in episodeDirectoryItems"
@@ -1030,6 +1051,7 @@ watch(episodeDirectoryCollapsed, (value) => {
         <div
           ref="sceneListContainer"
           class="min-h-0 flex-1 space-y-2 overflow-y-auto"
+          @scroll.passive="rememberListScroll('sceneList', $event)"
         >
           <div
             v-if="selectedEpisodeScenes.length === 0"
