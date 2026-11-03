@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import App from './app.vue'
 import { router } from './router'
 import { installFrontendObservability } from './lib/observability'
+import { installKeepAliveScrollRestore } from './lib/keep-alive-scroll-restore'
 import { vTooltip } from './lib/tooltip-directive'
 import './assets/css/main.css'
 
@@ -27,6 +28,7 @@ applyInitialTheme()
 const app = createApp(App)
 
 installFrontendObservability(app)
+installKeepAliveScrollRestore(app)
 app.use(createPinia())
 app.use(router)
 app.component('NuxtLink', RouterLink)

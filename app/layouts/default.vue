@@ -12,9 +12,18 @@ import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import { createClickRipple } from '@/lib/ripple'
 import type { ThemePreference } from '@/composables/useTheme'
 import { hasOverlayTitlebar } from '@/lib/desktop-titlebar'
+import { pageScrollMemory } from '@/lib/keep-alive-scroll-restore'
 
 const route = useRoute()
 const router = useRouter()
+
+// Shared page scroll container: remember each page's offset across navigation.
+const pageScrollContainer = ref<HTMLElement | null>(null)
+watch(pageScrollContainer, element => pageScrollMemory.setContainer(element), { immediate: true })
+const removePageScrollGuard = router.beforeEach((to, from) => {
+  if (to.path !== from.path) pageScrollMemory.save(from.path)
+})
+onBeforeUnmount(removePageScrollGuard)
 const { isDark, preference: themePreference, colorMode, resolveTheme, setPreference, initTheme } = useTheme()
 
 const themeOptions = [
@@ -596,7 +605,11 @@ function handleThemeSelect(pref: ThemePreference, event: Event) {
         :class="titlebarStripClass"
         data-tauri-drag-region
       />
-      <div class="min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref="pageScrollContainer"
+        data-page-scroll-container
+        class="min-h-0 flex-1 overflow-y-auto"
+      >
         <slot />
       </div>
     </main>

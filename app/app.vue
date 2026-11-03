@@ -6,6 +6,7 @@ import Toaster from '@/components/ui/toast/Toaster.vue'
 import ConfirmHost from '@/components/ui/confirm/ConfirmHost.vue'
 import { useDesktopFfmpeg } from '@/composables/useDesktopFfmpeg'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
+import { pageScrollMemory } from '@/lib/keep-alive-scroll-restore'
 
 useHead({
   meta: [
@@ -59,6 +60,7 @@ onUnmounted(() => {
       <Transition
         name="page"
         mode="out-in"
+        @before-enter="pageScrollMemory.restore(route.path)"
       >
         <KeepAlive v-if="route.path !== '/login'" :max="12">
           <component
