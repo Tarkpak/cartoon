@@ -52,6 +52,7 @@ declare global {
   const markRaw: typeof import('vue')['markRaw']
   const navigateTo: typeof import('./app/composables/useNuxtCompat')['navigateTo']
   const nextTick: typeof import('vue')['nextTick']
+  const normalizeAspectRatioValue: typeof import('./app/composables/useAssetWorkbenchModelCapabilities')['normalizeAspectRatioValue']
   const onActivated: typeof import('vue')['onActivated']
   const onBeforeMount: typeof import('vue')['onBeforeMount']
   const onBeforeRouteLeave: typeof import('vue-router')['onBeforeRouteLeave']
@@ -75,6 +76,7 @@ declare global {
   const refreshBrowserNotificationStatus: typeof import('./app/composables/useGenerationCompletionNotification')['refreshBrowserNotificationStatus']
   const requestBrowserNotificationPermission: typeof import('./app/composables/useGenerationCompletionNotification')['requestBrowserNotificationPermission']
   const resolveComponent: typeof import('vue')['resolveComponent']
+  const resolvePanoramaSourceAspectRatio: typeof import('./app/composables/useAssetWorkbenchModelCapabilities')['resolvePanoramaSourceAspectRatio']
   const sendSystemNotificationTest: typeof import('./app/composables/useGenerationCompletionNotification')['sendSystemNotificationTest']
   const setActivePinia: typeof import('pinia')['setActivePinia']
   const setMapStoreSuffix: typeof import('pinia')['setMapStoreSuffix']
@@ -90,10 +92,27 @@ declare global {
   const unref: typeof import('vue')['unref']
   const useAppLogs: typeof import('./app/composables/useAppLogs')['useAppLogs']
   const useAssetWorkbench: typeof import('./app/composables/useAssetWorkbench')['useAssetWorkbench']
+  const useAssetWorkbenchArkBindings: typeof import('./app/composables/useAssetWorkbenchArkBindings')['useAssetWorkbenchArkBindings']
+  const useAssetWorkbenchAssetHistory: typeof import('./app/composables/useAssetWorkbenchAssetHistory')['useAssetWorkbenchAssetHistory']
   const useAssetWorkbenchAssetMedia: typeof import('./app/composables/useAssetWorkbenchAssetMedia')['useAssetWorkbenchAssetMedia']
+  const useAssetWorkbenchAssetUploads: typeof import('./app/composables/useAssetWorkbenchAssetUploads')['useAssetWorkbenchAssetUploads']
+  const useAssetWorkbenchAutoAssetPlan: typeof import('./app/composables/useAssetWorkbenchAutoAssetPlan')['useAssetWorkbenchAutoAssetPlan']
   const useAssetWorkbenchAutoFlow: typeof import('./app/composables/useAssetWorkbenchAutoFlow')['useAssetWorkbenchAutoFlow']
   const useAssetWorkbenchCharacterActions: typeof import('./app/composables/useAssetWorkbenchCharacterActions')['useAssetWorkbenchCharacterActions']
+  const useAssetWorkbenchCharacterGeneration: typeof import('./app/composables/useAssetWorkbenchCharacterGeneration')['useAssetWorkbenchCharacterGeneration']
+  const useAssetWorkbenchDependencyInvalidation: typeof import('./app/composables/useAssetWorkbenchDependencyInvalidation')['useAssetWorkbenchDependencyInvalidation']
+  const useAssetWorkbenchEnvironmentAssets: typeof import('./app/composables/useAssetWorkbenchEnvironmentAssets')['useAssetWorkbenchEnvironmentAssets']
+  const useAssetWorkbenchEnvironmentCrop: typeof import('./app/composables/useAssetWorkbenchEnvironmentCrop')['useAssetWorkbenchEnvironmentCrop']
+  const useAssetWorkbenchEnvironmentGeneration: typeof import('./app/composables/useAssetWorkbenchEnvironmentGeneration')['useAssetWorkbenchEnvironmentGeneration']
+  const useAssetWorkbenchEnvironmentReferences: typeof import('./app/composables/useAssetWorkbenchEnvironmentReferences')['useAssetWorkbenchEnvironmentReferences']
+  const useAssetWorkbenchEpisodeParsing: typeof import('./app/composables/useAssetWorkbenchEpisodeParsing')['useAssetWorkbenchEpisodeParsing']
+  const useAssetWorkbenchExport: typeof import('./app/composables/useAssetWorkbenchExport')['useAssetWorkbenchExport']
+  const useAssetWorkbenchFinalStageOptions: typeof import('./app/composables/useAssetWorkbenchFinalStageOptions')['useAssetWorkbenchFinalStageOptions']
   const useAssetWorkbenchGeneration: typeof import('./app/composables/useAssetWorkbenchGeneration')['useAssetWorkbenchGeneration']
+  const useAssetWorkbenchHistoryDialogs: typeof import('./app/composables/useAssetWorkbenchHistoryDialogs')['useAssetWorkbenchHistoryDialogs']
+  const useAssetWorkbenchLibrary: typeof import('./app/composables/useAssetWorkbenchLibrary')['useAssetWorkbenchLibrary']
+  const useAssetWorkbenchModelCapabilities: typeof import('./app/composables/useAssetWorkbenchModelCapabilities')['useAssetWorkbenchModelCapabilities']
+  const useAssetWorkbenchNovelTextAutoSave: typeof import('./app/composables/useAssetWorkbenchNovelTextAutoSave')['useAssetWorkbenchNovelTextAutoSave']
   const useAssetWorkbenchPageState: typeof import('./app/composables/useAssetWorkbenchPageState')['useAssetWorkbenchPageState']
   const useAssetWorkbenchProjectIO: typeof import('./app/composables/useAssetWorkbenchProjectIO')['useAssetWorkbenchProjectIO']
   const useAssetWorkbenchSceneChat: typeof import('./app/composables/useAssetWorkbenchSceneChat')['useAssetWorkbenchSceneChat']
@@ -102,6 +121,10 @@ declare global {
   const useAssetWorkbenchSceneEditing: typeof import('./app/composables/useAssetWorkbenchSceneEditing')['useAssetWorkbenchSceneEditing']
   const useAssetWorkbenchSceneGeneration: typeof import('./app/composables/useAssetWorkbenchSceneGeneration')['useAssetWorkbenchSceneGeneration']
   const useAssetWorkbenchSceneManagement: typeof import('./app/composables/useAssetWorkbenchSceneManagement')['useAssetWorkbenchSceneManagement']
+  const useAssetWorkbenchSceneReferenceOptions: typeof import('./app/composables/useAssetWorkbenchSceneReferenceOptions')['useAssetWorkbenchSceneReferenceOptions']
+  const useAssetWorkbenchStageProgress: typeof import('./app/composables/useAssetWorkbenchStageProgress')['useAssetWorkbenchStageProgress']
+  const useAssetWorkbenchVoiceAssets: typeof import('./app/composables/useAssetWorkbenchVoiceAssets')['useAssetWorkbenchVoiceAssets']
+  const useAssetWorkbenchWorkflowMetaAutoSave: typeof import('./app/composables/useAssetWorkbenchWorkflowMetaAutoSave')['useAssetWorkbenchWorkflowMetaAutoSave']
   const useAssetWorkflowMeta: typeof import('./app/composables/useAssetWorkflowMeta')['useAssetWorkflowMeta']
   const useAttrs: typeof import('vue')['useAttrs']
   const useCachedOverlayActive: typeof import('./app/composables/useCachedOverlayActive')['useCachedOverlayActive']
@@ -169,6 +192,9 @@ declare global {
   // @ts-ignore
   export type { AssetWorkbenchTransitionType, CharacterData, SceneData } from './app/composables/useAssetWorkbench'
   import('./app/composables/useAssetWorkbench')
+  // @ts-ignore
+  export type { EnvironmentCropImageResult } from './app/composables/useAssetWorkbenchEnvironmentCrop'
+  import('./app/composables/useAssetWorkbenchEnvironmentCrop')
   // @ts-ignore
   export type { AssetWorkbenchParseProgressLogItem, AssetWorkbenchParseProgressState } from './app/composables/useAssetWorkbenchGeneration'
   import('./app/composables/useAssetWorkbenchGeneration')
@@ -270,6 +296,7 @@ declare module 'vue' {
     readonly markRaw: UnwrapRef<typeof import('vue')['markRaw']>
     readonly navigateTo: UnwrapRef<typeof import('./app/composables/useNuxtCompat')['navigateTo']>
     readonly nextTick: UnwrapRef<typeof import('vue')['nextTick']>
+    readonly normalizeAspectRatioValue: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchModelCapabilities')['normalizeAspectRatioValue']>
     readonly onActivated: UnwrapRef<typeof import('vue')['onActivated']>
     readonly onBeforeMount: UnwrapRef<typeof import('vue')['onBeforeMount']>
     readonly onBeforeRouteLeave: UnwrapRef<typeof import('vue-router')['onBeforeRouteLeave']>
@@ -293,6 +320,7 @@ declare module 'vue' {
     readonly refreshBrowserNotificationStatus: UnwrapRef<typeof import('./app/composables/useGenerationCompletionNotification')['refreshBrowserNotificationStatus']>
     readonly requestBrowserNotificationPermission: UnwrapRef<typeof import('./app/composables/useGenerationCompletionNotification')['requestBrowserNotificationPermission']>
     readonly resolveComponent: UnwrapRef<typeof import('vue')['resolveComponent']>
+    readonly resolvePanoramaSourceAspectRatio: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchModelCapabilities')['resolvePanoramaSourceAspectRatio']>
     readonly sendSystemNotificationTest: UnwrapRef<typeof import('./app/composables/useGenerationCompletionNotification')['sendSystemNotificationTest']>
     readonly setActivePinia: UnwrapRef<typeof import('pinia')['setActivePinia']>
     readonly setMapStoreSuffix: UnwrapRef<typeof import('pinia')['setMapStoreSuffix']>
@@ -308,10 +336,27 @@ declare module 'vue' {
     readonly unref: UnwrapRef<typeof import('vue')['unref']>
     readonly useAppLogs: UnwrapRef<typeof import('./app/composables/useAppLogs')['useAppLogs']>
     readonly useAssetWorkbench: UnwrapRef<typeof import('./app/composables/useAssetWorkbench')['useAssetWorkbench']>
+    readonly useAssetWorkbenchArkBindings: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchArkBindings')['useAssetWorkbenchArkBindings']>
+    readonly useAssetWorkbenchAssetHistory: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchAssetHistory')['useAssetWorkbenchAssetHistory']>
     readonly useAssetWorkbenchAssetMedia: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchAssetMedia')['useAssetWorkbenchAssetMedia']>
+    readonly useAssetWorkbenchAssetUploads: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchAssetUploads')['useAssetWorkbenchAssetUploads']>
+    readonly useAssetWorkbenchAutoAssetPlan: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchAutoAssetPlan')['useAssetWorkbenchAutoAssetPlan']>
     readonly useAssetWorkbenchAutoFlow: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchAutoFlow')['useAssetWorkbenchAutoFlow']>
     readonly useAssetWorkbenchCharacterActions: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchCharacterActions')['useAssetWorkbenchCharacterActions']>
+    readonly useAssetWorkbenchCharacterGeneration: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchCharacterGeneration')['useAssetWorkbenchCharacterGeneration']>
+    readonly useAssetWorkbenchDependencyInvalidation: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchDependencyInvalidation')['useAssetWorkbenchDependencyInvalidation']>
+    readonly useAssetWorkbenchEnvironmentAssets: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchEnvironmentAssets')['useAssetWorkbenchEnvironmentAssets']>
+    readonly useAssetWorkbenchEnvironmentCrop: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchEnvironmentCrop')['useAssetWorkbenchEnvironmentCrop']>
+    readonly useAssetWorkbenchEnvironmentGeneration: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchEnvironmentGeneration')['useAssetWorkbenchEnvironmentGeneration']>
+    readonly useAssetWorkbenchEnvironmentReferences: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchEnvironmentReferences')['useAssetWorkbenchEnvironmentReferences']>
+    readonly useAssetWorkbenchEpisodeParsing: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchEpisodeParsing')['useAssetWorkbenchEpisodeParsing']>
+    readonly useAssetWorkbenchExport: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchExport')['useAssetWorkbenchExport']>
+    readonly useAssetWorkbenchFinalStageOptions: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchFinalStageOptions')['useAssetWorkbenchFinalStageOptions']>
     readonly useAssetWorkbenchGeneration: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchGeneration')['useAssetWorkbenchGeneration']>
+    readonly useAssetWorkbenchHistoryDialogs: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchHistoryDialogs')['useAssetWorkbenchHistoryDialogs']>
+    readonly useAssetWorkbenchLibrary: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchLibrary')['useAssetWorkbenchLibrary']>
+    readonly useAssetWorkbenchModelCapabilities: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchModelCapabilities')['useAssetWorkbenchModelCapabilities']>
+    readonly useAssetWorkbenchNovelTextAutoSave: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchNovelTextAutoSave')['useAssetWorkbenchNovelTextAutoSave']>
     readonly useAssetWorkbenchPageState: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchPageState')['useAssetWorkbenchPageState']>
     readonly useAssetWorkbenchProjectIO: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchProjectIO')['useAssetWorkbenchProjectIO']>
     readonly useAssetWorkbenchSceneChat: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchSceneChat')['useAssetWorkbenchSceneChat']>
@@ -320,6 +365,10 @@ declare module 'vue' {
     readonly useAssetWorkbenchSceneEditing: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchSceneEditing')['useAssetWorkbenchSceneEditing']>
     readonly useAssetWorkbenchSceneGeneration: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchSceneGeneration')['useAssetWorkbenchSceneGeneration']>
     readonly useAssetWorkbenchSceneManagement: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchSceneManagement')['useAssetWorkbenchSceneManagement']>
+    readonly useAssetWorkbenchSceneReferenceOptions: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchSceneReferenceOptions')['useAssetWorkbenchSceneReferenceOptions']>
+    readonly useAssetWorkbenchStageProgress: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchStageProgress')['useAssetWorkbenchStageProgress']>
+    readonly useAssetWorkbenchVoiceAssets: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchVoiceAssets')['useAssetWorkbenchVoiceAssets']>
+    readonly useAssetWorkbenchWorkflowMetaAutoSave: UnwrapRef<typeof import('./app/composables/useAssetWorkbenchWorkflowMetaAutoSave')['useAssetWorkbenchWorkflowMetaAutoSave']>
     readonly useAssetWorkflowMeta: UnwrapRef<typeof import('./app/composables/useAssetWorkflowMeta')['useAssetWorkflowMeta']>
     readonly useAttrs: UnwrapRef<typeof import('vue')['useAttrs']>
     readonly useCachedOverlayActive: UnwrapRef<typeof import('./app/composables/useCachedOverlayActive')['useCachedOverlayActive']>

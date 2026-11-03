@@ -16,6 +16,9 @@ import { computed, type HTMLAttributes } from 'vue'
 const props = defineProps<DialogContentProps & { class?: HTMLAttributes['class'] }>()
 const emits = defineEmits<DialogContentEmits>()
 
+// The root is a portal, so attrs (aria-*, data-*) are forwarded to the content element explicitly.
+defineOptions({ inheritAttrs: false })
+
 const overlayActive = useCachedOverlayActive()
 
 const delegatedProps = computed(() => {
@@ -32,7 +35,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
       class="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none dark:bg-black/60"
     />
     <DialogContent
-      v-bind="forwarded"
+      v-bind="{ ...forwarded, ...$attrs }"
       :class="cn(
         'fixed inset-y-0 right-0 z-50 flex h-full w-96 max-w-[calc(100vw-2rem)] flex-col bg-popover text-popover-foreground shadow-[-16px_0_48px_rgb(0_0_0/0.18)] focus-visible:outline-none',
         'data-[state=open]:animate-in data-[state=open]:slide-in-from-right-6 data-[state=open]:fade-in-0 data-[state=open]:duration-200',

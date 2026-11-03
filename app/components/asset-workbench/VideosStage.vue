@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AssetWorkbenchParseProgress from './ParseProgress.vue'
-import { onActivated, onDeactivated } from 'vue'
+import { onActivated, onDeactivated, toRefs } from 'vue'
 import { useIntervalFn, useStorage } from '@vueuse/core'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { Check, ChevronLeft, ChevronRight, Clapperboard, Download, Ellipsis, Eraser, FileDown, FolderOpen, Loader2, Play } from 'lucide-vue-next'
@@ -10,24 +10,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { isSelectedEpisodeParsing, shouldShowEpisodeParseProgress, type ParseProgressDisplayState } from '~/lib/asset-workbench-parse-progress'
-import type { ScriptParseMode } from '#shared/types/script'
+import { isSelectedEpisodeParsing, shouldShowEpisodeParseProgress } from '~/lib/asset-workbench-parse-progress'
 import type { SceneData } from '~/composables/useAssetWorkbench'
-import type {
-  DisplayAsset,
-  QueueSummary,
-  SceneChatMentionCandidate,
-  SceneChatMessage,
-  SceneDescriptionMentionItem,
-  SceneDescriptionRenderSegment,
-  SceneVideoBadge,
-  SceneVoiceReferenceSummary
-} from '~/lib/asset-workbench-types'
 import { prepareSubtitleErasureSource } from '~/lib/subtitle-erasure-source'
 import { useSubtitleErasureSettings } from '~/composables/useSubtitleErasureSettings'
 import { ensureVideoHistoryEntry } from '~/lib/asset-history'
 import { resolveVideoPreviewAspectRatio } from '~/lib/video-preview-aspect-ratio'
 import { vReadOnlyFence } from '~/lib/read-only-fence'
+import { useVideosStageContext, type EpisodePlanItemForVideoStage } from '~/lib/asset-workbench-videos-stage-context'
 import {
   buildQueueProgressSegments,
   matchesSceneListFilter,
@@ -42,26 +32,6 @@ interface SceneEpisodeGroup {
   index: number
   scenes: SceneData[]
   duration: number
-}
-
-interface EpisodePlanItemForVideoStage {
-  id: string
-  title: string
-  index: number
-  startOffset: number
-  endOffset: number
-  charCount: number
-  episodeHook?: string
-  humiliationOrThreat?: string
-  reversalPoint?: string
-  emotionalCurve?: string
-  cliffhanger?: string
-  payoffType?: string
-  episodeAssets?: {
-    characters?: Array<{ name: string }>
-    props?: Array<{ name: string }>
-    environments?: Array<{ location: string }>
-  }
 }
 
 interface EpisodeDirectoryItem {
@@ -82,108 +52,62 @@ const componentActive = ref(true)
 onActivated(() => { componentActive.value = true })
 onDeactivated(() => { componentActive.value = false })
 
-const props = defineProps<{
-  toolbarActive?: boolean
-  canExport?: boolean
-  scenes: SceneData[]
-  projectName: string
-  projectAspectRatio: string
-  scriptParseMode?: ScriptParseMode
-  episodePlan: EpisodePlanItemForVideoStage[]
-  episodeOverviews?: Record<string, string>
-  selectedSceneId: string
-  /** Read-only projects can still browse scenes, preview and (with export permission) download. */
-  readOnly?: boolean
-  selectedScene: SceneData | null
-  queueSummary: QueueSummary
-  autoRunning: boolean
-  parsing: boolean
-  parseProgress?: ParseProgressDisplayState
-  sceneChatOpenSceneId: string | null
-  sceneChatCurrentMessages: SceneChatMessage[]
-  sceneChatComposerAssets: DisplayAsset[]
-  sceneChatComposerText: string
-  sceneChatMentionOpen: boolean
-  sceneChatMentionCandidates: SceneChatMentionCandidate[]
-  sceneChatMentionActiveIndex: number
-  sceneChatUploading: boolean
-  sceneChatApplying: boolean
-  sceneChatError: string | null
-  sceneChatCanSubmit: boolean
-  resolveScenePreviousLastFrameReferenceEnabled: (sceneId: string) => boolean
-  resolveSceneContinuityLinkReason: (sceneId: string) => string
-  canUsePreviousLastFrameReference: (sceneId: string) => boolean
-  exportingScriptDocx: boolean
-  resolveSceneVideoBadge: (scene: SceneData) => SceneVideoBadge
-  resolveSceneVoiceReferenceSummary: (scene: SceneData) => SceneVoiceReferenceSummary
-  resolveSceneDescriptionRenderSegments: (scene: SceneData) => SceneDescriptionRenderSegment[]
-  resolveSceneDescriptionSecondaryMentionItems: (scene: SceneData) => SceneDescriptionMentionItem[]
-  resolveSceneReferenceImage: (scene: SceneData) => string | undefined
-  resolveSceneEnvironmentReferenceImageForMode: (
-    scene: SceneData,
-    mode: '单视角' | '四视角'
-  ) => string | undefined
-  sceneEnvironmentAssetOptions: Array<{
-    id: string
-    label: string
-    hasReference: boolean
-    previewImage?: string
-  }>
-  resolveSceneEnvironmentReferenceAssetSelection: (sceneId: string) => string
-  resolveSceneNarrationVoiceOptions: (scene: SceneData) => Array<{
-    assetId: string
-    name: string
-    locked: boolean
-    source: 'manual' | 'auto'
-  }>
-  resolveSceneNarrationVoiceReferenceSelection: (sceneId: string) => string
-  supportsNarrationVoiceReference: boolean
-  isSceneBusy: (scene: SceneData) => boolean
-  isScenePreparing: (scene: SceneData) => boolean
-  canMergeSceneByIndex: (index: number) => boolean
-  normalizeWorkflowText: (value: string) => string
-  resolveDisplayAssetById: (assetId: string) => DisplayAsset | undefined
-  resolveDisplayAssetTypeLabel: (type: DisplayAsset['type']) => string
-  setSceneChatInputRef: (element: unknown) => void
-  setSceneChatMentionListRef: (element: unknown) => void
-  setSceneChatComposerText: (value: string) => void
-  onExportFormattedScriptDocx: () => void
-  onGoToParse?: () => void
-  onParseEpisode: (episodeId: string) => void | Promise<void>
-  onSelectScene: (sceneId: string) => void
-  onOpenSceneEdit: (scene: SceneData) => void
-  onToggleSceneChat: (scene: SceneData) => void
-  onHandleSplitScene: (sceneId: string) => void
-  onHandleMergeWithNextScene: (sceneId: string) => void
-  onHandleDeleteScene: (scene: SceneData) => void
-  onGenerateSceneBaseline: (sceneId: string) => void
-  onRetryScene: (sceneId: string) => void
-  onApplySubtitleErasure: (scene: Partial<SceneData> & { id: string }) => Promise<void>
-  onOpenSceneVideoHistory: (sceneId: string) => void
-  onSetScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void
-  onSetSceneEnvironmentCaptureMode: (sceneId: string, mode: '单视角' | '四视角') => void
-  onSetSceneEnvironmentReferenceAsset: (sceneId: string, assetId: string) => void | Promise<void>
-  onSetSceneNarrationVoiceReference: (sceneId: string, assetId: string) => void | Promise<void>
-  onPreviewImage: (src: string | undefined, alt: string) => void
-  onCloseSceneChat: () => void
-  onHandleSceneChatComposerInput: () => void
-  onHandleSceneChatComposerCursor: () => void
-  onHandleSceneChatComposerKeydown: (event: KeyboardEvent) => void
-  onApplySceneChatMention: (candidate: SceneChatMentionCandidate) => void
-  onRemoveSceneChatComposerAsset: (assetId: string) => void
-  onHandleSceneChatImageUpload: (event: Event) => void
-  onSubmitSceneChat: (sceneId: string) => void
-  onSelectSceneDescriptionVersion: (sceneId: string, versionId: string) => void
-}>()
+// State and actions come from the workbench page (see asset-workbench-videos-stage-context).
+const { state, actions } = useVideosStageContext()
+const {
+  toolbarActive,
+  canExport,
+  scenes,
+  selectedSceneId,
+  selectedScene,
+  queueSummary,
+  parsing,
+  parseProgress,
+  sceneChatOpenSceneId,
+  sceneChatCurrentMessages,
+  sceneChatComposerAssets,
+  sceneChatComposerText,
+  sceneChatMentionOpen,
+  sceneChatMentionCandidates,
+  sceneChatMentionActiveIndex,
+  sceneChatUploading,
+  sceneChatApplying,
+  sceneChatError,
+  sceneChatCanSubmit,
+  resolveScenePreviousLastFrameReferenceEnabled,
+  resolveSceneContinuityLinkReason,
+  canUsePreviousLastFrameReference,
+  exportingScriptDocx,
+  resolveSceneVideoBadge,
+  resolveSceneVoiceReferenceSummary,
+  resolveSceneDescriptionRenderSegments,
+  resolveSceneDescriptionSecondaryMentionItems,
+  resolveSceneReferenceImage,
+  resolveSceneEnvironmentReferenceImageForMode,
+  sceneEnvironmentAssetOptions,
+  resolveSceneEnvironmentReferenceAssetSelection,
+  resolveSceneNarrationVoiceOptions,
+  resolveSceneNarrationVoiceReferenceSelection,
+  supportsNarrationVoiceReference,
+  isSceneBusy,
+  isScenePreparing,
+  canMergeSceneByIndex,
+  normalizeWorkflowText,
+  resolveDisplayAssetById,
+  resolveDisplayAssetTypeLabel,
+  setSceneChatInputRef,
+  setSceneChatMentionListRef,
+  setSceneChatComposerText
+} = toRefs(state)
 
-const previewAspectRatio = computed(() => resolveVideoPreviewAspectRatio(props.projectAspectRatio))
+const previewAspectRatio = computed(() => resolveVideoPreviewAspectRatio(state.projectAspectRatio))
 
 const readySceneCount = computed(() => {
-  return props.scenes.filter(scene => scene.referenceStatus === 'done').length
+  return state.scenes.filter(scene => scene.referenceStatus === 'done').length
 })
 
 const normalizedEpisodePlan = computed(() => {
-  return (props.episodePlan || [])
+  return (state.episodePlan || [])
     .slice()
     .sort((a, b) => {
       if (a.index !== b.index) return a.index - b.index
@@ -205,7 +129,7 @@ function resolveSceneEpisodeMeta(scene: SceneData): { id: string, title: string,
 const downloadingVideo = ref(false)
 const downloadedVideos = useStorage<Record<string, string>>('project-downloaded-videos', {})
 const selectedVideoDownloaded = computed(() => {
-  const scene = props.selectedScene
+  const scene = state.selectedScene
   return Boolean(scene?.videoUrl && downloadedVideos.value[scene.id] === scene.videoUrl)
 })
 const { toast } = useToast()
@@ -218,13 +142,13 @@ const erasureTasks = useStorage<Record<string, { taskId: string, sourceUrl: stri
 const submittingErasure = ref<string[]>([])
 const checkingErasure = new Set<string>()
 const erasureErrors = new Set<string>()
-const selectedSceneErasing = computed(() => !!props.selectedScene && (
-  submittingErasure.value.includes(props.selectedScene.id) || !!erasureTasks.value[props.selectedScene.id]
+const selectedSceneErasing = computed(() => !!state.selectedScene && (
+  submittingErasure.value.includes(state.selectedScene.id) || !!erasureTasks.value[state.selectedScene.id]
 ))
 
 async function eraseSelectedVideo() {
-  const scene = props.selectedScene
-  if (!scene?.videoUrl || selectedSceneErasing.value || props.isSceneBusy(scene)) return
+  const scene = state.selectedScene
+  if (!scene?.videoUrl || selectedSceneErasing.value || state.isSceneBusy(scene)) return
   const sourceUrl = scene.videoUrl
   submittingErasure.value.push(scene.id)
   try {
@@ -249,7 +173,7 @@ async function eraseSelectedVideo() {
 }
 
 async function checkErasureTasks() {
-  for (const scene of props.scenes) {
+  for (const scene of state.scenes) {
     const task = erasureTasks.value[scene.id]
     if (!task || checkingErasure.has(scene.id)) continue
     checkingErasure.add(scene.id)
@@ -261,15 +185,15 @@ async function checkErasureTasks() {
         delete erasureTasks.value[scene.id]
         toast.error(`${scene.title} 去字幕失败`, { description: status.errorMessage || '请重试' })
       } else if (status.status === 'completed') {
-        const latest = props.scenes.find(item => item.id === scene.id)
-        if (latest?.videoUrl === task.sourceUrl && props.isSceneBusy(latest)) continue
+        const latest = state.scenes.find(item => item.id === scene.id)
+        if (latest?.videoUrl === task.sourceUrl && state.isSceneBusy(latest)) continue
         const result = await $fetch<{ videoUrl: string }>('/api/tools/subtitle-erasure/save', {
           method: 'POST', body: { taskId: task.taskId }
         })
         // A new generation may have replaced this scene while erasure was running.
-        const current = props.scenes.find(item => item.id === scene.id)
-        if (current?.videoUrl === task.sourceUrl && !props.isSceneBusy(current)) {
-          await props.onApplySubtitleErasure({
+        const current = state.scenes.find(item => item.id === scene.id)
+        if (current?.videoUrl === task.sourceUrl && !state.isSceneBusy(current)) {
+          await actions.applySubtitleErasure({
             id: scene.id,
             videoUrl: result.videoUrl,
             videoHistory: ensureVideoHistoryEntry(current.videoHistory, task.sourceUrl, { source: 'legacy' }),
@@ -313,7 +237,7 @@ async function openDownloadDirectory() {
 }
 
 async function downloadSelectedVideo() {
-  const scene = props.selectedScene
+  const scene = state.selectedScene
   if (!scene?.videoUrl || downloadingVideo.value) return
   const videoUrl = scene.videoUrl
   const episode = resolveSceneEpisodeMeta(scene)
@@ -329,7 +253,7 @@ async function downloadSelectedVideo() {
       const url = source.origin === window.location.origin && source.pathname.startsWith('/api/video/file/')
         ? `http://127.0.0.1:43127${source.pathname}`
         : `http://127.0.0.1:43127/api/video/download?${new URLSearchParams({ url: source.href })}`
-      const savedPath = await invoke<string>('save_project_video', { url, fileName, projectName: props.projectName })
+      const savedPath = await invoke<string>('save_project_video', { url, fileName, projectName: state.projectName })
       downloadedVideos.value = { ...downloadedVideos.value, [scene.id]: videoUrl }
       toast.success('视频已保存到项目文件夹', { description: savedPath })
       return
@@ -380,7 +304,7 @@ const sceneEpisodeGroups = computed<SceneEpisodeGroup[]>(() => {
   const groups: SceneEpisodeGroup[] = []
   const groupMap = new Map<string, SceneEpisodeGroup>()
 
-  for (const scene of props.scenes) {
+  for (const scene of state.scenes) {
     const episodeMeta = resolveSceneEpisodeMeta(scene)
     const episodeId = episodeMeta.id
     const episodeTitle = episodeMeta.title
@@ -452,7 +376,7 @@ const episodeDirectoryItems = computed<EpisodeDirectoryItem[]>(() => {
       endOffset: episode.endOffset,
       charCount: episode.charCount,
       assetSummary: resolveEpisodeAssetSummaryText(episode),
-      overview: props.episodeOverviews?.[episode.id] || ''
+      overview: state.episodeOverviews?.[episode.id] || ''
     }))
   }
 
@@ -480,7 +404,7 @@ const episodeDirectoryIds = computed(() => {
 })
 
 watch(
-  [episodeDirectoryIds, () => props.selectedSceneId],
+  [episodeDirectoryIds, () => state.selectedSceneId],
   () => {
     const directoryIds = episodeDirectoryIds.value
     if (directoryIds.length === 0) {
@@ -488,8 +412,8 @@ watch(
       return
     }
 
-    const selectedSceneEpisodeId = props.selectedScene
-      ? resolveSceneEpisodeMeta(props.selectedScene).id
+    const selectedSceneEpisodeId = state.selectedScene
+      ? resolveSceneEpisodeMeta(state.selectedScene).id
       : ''
 
     if (selectedSceneEpisodeId && directoryIds.includes(selectedSceneEpisodeId)) {
@@ -553,7 +477,7 @@ watch(
   { immediate: true }
 )
 
-const isOriginExplainer = computed(() => props.scriptParseMode === 'origin_explainer')
+const isOriginExplainer = computed(() => state.scriptParseMode === 'origin_explainer')
 
 const emptyProjectMessage = computed(() => {
   return isOriginExplainer.value
@@ -577,7 +501,7 @@ const parseEpisodeError = ref('')
 
 const selectedEpisodeParsing = computed(() => {
   return Boolean(parsingEpisodeId.value && parsingEpisodeId.value === selectedEpisodeId.value)
-    || isSelectedEpisodeParsing(props.parseProgress, props.parsing, selectedEpisodeId.value)
+    || isSelectedEpisodeParsing(state.parseProgress, state.parsing, selectedEpisodeId.value)
 })
 
 const parseSelectedEpisodeButtonLabel = computed(() => {
@@ -616,7 +540,7 @@ const selectedEpisodeSceneStatsText = computed(() => {
 
 const sceneIndexMap = computed(() => {
   const indexMap = new Map<string, number>()
-  props.scenes.forEach((scene, index) => {
+  state.scenes.forEach((scene, index) => {
     indexMap.set(scene.id, index)
   })
   return indexMap
@@ -627,8 +551,8 @@ function resolveSceneGlobalIndex(sceneId: string): number {
 }
 
 const fenceOptions = computed(() => ({
-  readOnly: !!props.readOnly,
-  conditional: [{ selector: '[data-export]', enabled: props.canExport !== false }]
+  readOnly: !!state.readOnly,
+  conditional: [{ selector: '[data-export]', enabled: state.canExport !== false }]
 }))
 
 const SCENE_LIST_FILTERS: Array<{ key: SceneListFilter, label: string }> = [
@@ -655,7 +579,7 @@ const sceneListContainer = ref<HTMLElement | null>(null)
 const selectedEpisodeSceneStatuses = computed(() => {
   return new Map(selectedEpisodeScenes.value.map(scene => [
     scene.id,
-    resolveSceneListStatus(scene, props.isSceneBusy(scene))
+    resolveSceneListStatus(scene, state.isSceneBusy(scene))
   ] as const))
 })
 
@@ -681,14 +605,14 @@ watch(sceneListFilter, () => {
 })
 
 // A selection made elsewhere (task panel, preview) must stay visible in the list.
-watch(() => props.selectedSceneId, (sceneId) => {
+watch(() => state.selectedSceneId, (sceneId) => {
   if (!sceneId || sceneListFilter.value === 'all') return
   if (selectedEpisodeSceneStatuses.value.has(sceneId) && !visibleEpisodeScenes.value.some(scene => scene.id === sceneId)) {
     sceneListFilter.value = 'all'
   }
 })
 
-const queueProgress = computed(() => buildQueueProgressSegments(props.queueSummary, props.scenes.length))
+const queueProgress = computed(() => buildQueueProgressSegments(state.queueSummary, state.scenes.length))
 const QUEUE_SEGMENT_CLASS: Record<string, string> = {
   done: 'bg-success',
   running: 'bg-primary motion-safe:animate-pulse',
@@ -702,7 +626,7 @@ const queueProgressTitle = computed(() => queueProgress.value.segments
 
 // Jump to the first failed scene (switching episode if needed) with the list filtered to failures.
 function showFailedScenes() {
-  const failed = props.scenes.find(scene => resolveSceneListStatus(scene, props.isSceneBusy(scene)) === 'error')
+  const failed = state.scenes.find(scene => resolveSceneListStatus(scene, state.isSceneBusy(scene)) === 'error')
   if (!failed) return
   const episodeId = resolveSceneEpisodeMeta(failed).id
   if (selectedEpisodeId.value !== episodeId) handleSelectEpisode(episodeId)
@@ -713,11 +637,11 @@ function showFailedScenes() {
 }
 
 function resolveSceneThumbnail(scene: SceneData): string | undefined {
-  return scene.firstFrame || props.resolveSceneReferenceImage(scene)
+  return scene.firstFrame || state.resolveSceneReferenceImage(scene)
 }
 
 function focusScene(sceneId: string) {
-  props.onSelectScene(sceneId)
+  actions.selectScene(sceneId)
   void nextTick(() => {
     const card = sceneListContainer.value?.querySelector<HTMLElement>(`[data-scene-id="${CSS.escape(sceneId)}"]`)
     card?.scrollIntoView({ block: 'start', behavior: 'smooth' })
@@ -728,10 +652,10 @@ function handleSelectEpisode(groupId: string) {
   if (!groupId.trim()) return
   activeEpisodeId.value = groupId
   const targetScenes = sceneEpisodeGroupMap.value.get(groupId)?.scenes || []
-  if (!props.selectedScene || resolveSceneEpisodeMeta(props.selectedScene).id !== groupId) {
+  if (!state.selectedScene || resolveSceneEpisodeMeta(state.selectedScene).id !== groupId) {
     const firstScene = targetScenes[0]
     if (firstScene) {
-      props.onSelectScene(firstScene.id)
+      actions.selectScene(firstScene.id)
     }
   }
 }
@@ -766,7 +690,7 @@ async function handleParseSelectedEpisode() {
 
   parsingEpisodeId.value = episode.id
   try {
-    await props.onParseEpisode(episode.id)
+    await actions.parseEpisode(episode.id)
   } catch (error) {
     if (selectedEpisodeId.value === episode.id) {
       parseEpisodeError.value = error instanceof Error ? error.message : '本集解析失败，请稍后重试'
@@ -784,8 +708,8 @@ function toggleEpisodeDirectoryCollapsed() {
 }
 
 const selectedSceneVoiceReferenceSummary = computed(() => {
-  if (!props.selectedScene) return null
-  return props.resolveSceneVoiceReferenceSummary(props.selectedScene)
+  if (!state.selectedScene) return null
+  return state.resolveSceneVoiceReferenceSummary(state.selectedScene)
 })
 
 onMounted(() => {
@@ -815,9 +739,9 @@ watch(episodeDirectoryCollapsed, (value) => {
     :icon="Clapperboard"
     title="还没有可生成视频的场景"
     :description="emptyProjectMessage"
-    :action-label="onGoToParse ? (isOriginExplainer ? '去镜头规划' : '去解析剧本') : undefined"
+    :action-label="actions.goToParse ? (isOriginExplainer ? '去镜头规划' : '去解析剧本') : undefined"
     class="flex-1"
-    @action="onGoToParse?.()"
+    @action="actions.goToParse?.()"
   />
   <template v-else>
     <Teleport to="#workbench-stage-toolbar">
@@ -891,7 +815,7 @@ watch(episodeDirectoryCollapsed, (value) => {
           <DropdownMenuContent align="end">
             <DropdownMenuItem
               :disabled="canExport === false || exportingScriptDocx || scenes.length === 0"
-              @select="onExportFormattedScriptDocx()"
+              @select="actions.exportFormattedScriptDocx()"
             >
               <FileDown class="mr-2 h-4 w-4" />
               导出格式化 DOCX
@@ -1169,29 +1093,29 @@ watch(episodeDirectoryCollapsed, (value) => {
             :set-scene-chat-input-ref="setSceneChatInputRef"
             :set-scene-chat-mention-list-ref="setSceneChatMentionListRef"
             :set-scene-chat-composer-text="setSceneChatComposerText"
-            :on-select-scene="onSelectScene"
-            :on-open-scene-edit="onOpenSceneEdit"
-            :on-toggle-scene-chat="onToggleSceneChat"
-            :on-handle-split-scene="onHandleSplitScene"
-            :on-handle-merge-with-next-scene="onHandleMergeWithNextScene"
-            :on-handle-delete-scene="onHandleDeleteScene"
-            :on-generate-scene-baseline="onGenerateSceneBaseline"
-            :on-retry-scene="onRetryScene"
-            :on-open-scene-video-history="onOpenSceneVideoHistory"
-            :on-set-scene-previous-last-frame-reference="onSetScenePreviousLastFrameReference"
-            :on-set-scene-environment-capture-mode="onSetSceneEnvironmentCaptureMode"
-            :on-set-scene-environment-reference-asset="onSetSceneEnvironmentReferenceAsset"
-            :on-set-scene-narration-voice-reference="onSetSceneNarrationVoiceReference"
-            :on-preview-image="onPreviewImage"
-            :on-close-scene-chat="onCloseSceneChat"
-            :on-handle-scene-chat-composer-input="onHandleSceneChatComposerInput"
-            :on-handle-scene-chat-composer-cursor="onHandleSceneChatComposerCursor"
-            :on-handle-scene-chat-composer-keydown="onHandleSceneChatComposerKeydown"
-            :on-apply-scene-chat-mention="onApplySceneChatMention"
-            :on-remove-scene-chat-composer-asset="onRemoveSceneChatComposerAsset"
-            :on-handle-scene-chat-image-upload="onHandleSceneChatImageUpload"
-            :on-submit-scene-chat="onSubmitSceneChat"
-            :on-select-scene-description-version="onSelectSceneDescriptionVersion"
+            :on-select-scene="actions.selectScene"
+            :on-open-scene-edit="actions.openSceneEdit"
+            :on-toggle-scene-chat="actions.toggleSceneChat"
+            :on-handle-split-scene="actions.handleSplitScene"
+            :on-handle-merge-with-next-scene="actions.handleMergeWithNextScene"
+            :on-handle-delete-scene="actions.handleDeleteScene"
+            :on-generate-scene-baseline="actions.generateSceneBaseline"
+            :on-retry-scene="actions.retryScene"
+            :on-open-scene-video-history="actions.openSceneVideoHistory"
+            :on-set-scene-previous-last-frame-reference="actions.setScenePreviousLastFrameReference"
+            :on-set-scene-environment-capture-mode="actions.setSceneEnvironmentCaptureMode"
+            :on-set-scene-environment-reference-asset="actions.setSceneEnvironmentReferenceAsset"
+            :on-set-scene-narration-voice-reference="actions.setSceneNarrationVoiceReference"
+            :on-preview-image="actions.previewImage"
+            :on-close-scene-chat="actions.closeSceneChat"
+            :on-handle-scene-chat-composer-input="actions.handleSceneChatComposerInput"
+            :on-handle-scene-chat-composer-cursor="actions.handleSceneChatComposerCursor"
+            :on-handle-scene-chat-composer-keydown="actions.handleSceneChatComposerKeydown"
+            :on-apply-scene-chat-mention="actions.applySceneChatMention"
+            :on-remove-scene-chat-composer-asset="actions.removeSceneChatComposerAsset"
+            :on-handle-scene-chat-image-upload="actions.handleSceneChatImageUpload"
+            :on-submit-scene-chat="actions.submitSceneChat"
+            :on-select-scene-description-version="actions.selectSceneDescriptionVersion"
           />
         </div>
       </div>

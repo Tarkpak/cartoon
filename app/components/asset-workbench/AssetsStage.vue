@@ -1,109 +1,44 @@
 <script setup lang="ts">
 import { vReadOnlyFence } from '~/lib/read-only-fence'
-import { onActivated, onDeactivated } from 'vue'
-import type { LibraryAsset, LibraryAssetCategory } from '#shared/types/library'
+import { useAssetsStageContext } from '~/lib/asset-workbench-assets-stage-context'
+import { onActivated, onDeactivated, toRefs } from 'vue'
+import type { LibraryAssetCategory } from '#shared/types/library'
 import { Database, Download, Loader2, Plus } from 'lucide-vue-next'
-import type { CharacterData } from '~/composables/useAssetWorkbench'
-import type {
-  PropAsset,
-  PropAssetCategory,
-  PropAssetMediaType
-} from '~/composables/useAssetWorkflowMeta'
-import type {
-  AutoStageKey,
-  AssetTab,
-  EnvironmentAssetCard,
-  EnvironmentCropCaptureMode
-} from '~/lib/asset-workbench-types'
+import type { AssetTab } from '~/lib/asset-workbench-types'
 import { isPropAssetMediaReady } from '~/lib/asset-workbench-prop-media'
 
 const componentActive = ref(true)
 onActivated(() => { componentActive.value = true })
 onDeactivated(() => { componentActive.value = false })
 
-const props = defineProps<{
-  toolbarActive?: boolean
-  scenesCount: number
-  characters: CharacterData[]
-  environmentAssetCards: EnvironmentAssetCard[]
-  propAssets: PropAsset[]
-  autoRunning: boolean
-  readOnly?: boolean
-  canSaveToLibrary?: boolean
-  savingLibraryAssetKey?: string | null
-  parseStageLabel?: string
-  characterReadyCount: number
-  characterGeneratingCount: number
-  characterMissingCount: number
-  editingCharacterId: string | null
-  characterEditDraft: {
-    id: string
-    name: string
-    appearance: string
-    role: string
-  }
-  uploadingCharacterId: string | null
-  uploadingArkCharacterId: string | null
-  uploadingCharacterVoiceId: string | null
-  uploadingEnvironmentAssetId: string | null
-  uploadingPropId: string | null
-  uploadingPropVoiceId: string | null
-  uploadingPropVideoId?: string | null
-  /** 当前分镜视频模型是否支持视频参考；null 表示未知 */
-  videoReferenceSupported?: boolean | null
-  generatingPropId: string | null
-  getCharacterSceneCount: (character: CharacterData) => number
-  getEnvironmentSceneSummary: (asset: EnvironmentAssetCard) => string
-  getEnvironmentMotherCandidates: (asset: EnvironmentAssetCard) => Array<{ id: string, label: string }>
-  getEnvironmentSelectedMotherId: (assetId: string) => string | undefined
-  hasEnvironmentRepresentativeScene: (assetId: string) => boolean
-  getPropUsageCount: (propId: string) => number
-  setCharacterEditDraft: (draft: { name: string, role: string, appearance: string }) => void
-}>()
+// State and actions come from the workbench page (see asset-workbench-assets-stage-context).
+const { state, actions } = useAssetsStageContext()
+const {
+  toolbarActive,
+  characters,
+  environmentAssetCards,
+  autoRunning,
+  savingLibraryAssetKey,
+  editingCharacterId,
+  characterEditDraft,
+  uploadingCharacterId,
+  uploadingArkCharacterId,
+  uploadingCharacterVoiceId,
+  uploadingEnvironmentAssetId,
+  uploadingPropId,
+  uploadingPropVoiceId,
+  uploadingPropVideoId,
+  videoReferenceSupported,
+  generatingPropId,
+  getCharacterSceneCount,
+  getEnvironmentSceneSummary,
+  getEnvironmentMotherCandidates,
+  getEnvironmentSelectedMotherId,
+  hasEnvironmentRepresentativeScene,
+  getPropUsageCount,
+  setCharacterEditDraft
+} = toRefs(state)
 
-const emit = defineEmits<{
-  'add-character': []
-  'remove-character': [characterId: string]
-  'select-stage': [stage: AutoStageKey]
-  'preview-image': [payload: { src: string | undefined, alt: string }]
-  'start-character-edit': [character: CharacterData]
-  'add-character-variant': [character: CharacterData]
-  'remove-character-variant': [characterId: string]
-  'cancel-character-edit': []
-  'save-character-edit': []
-  'save-character-edit-regenerate': []
-  'generate-character': [characterId: string]
-  'open-character-regenerate': [character: CharacterData]
-  'open-character-history': [characterId: string]
-  'upload-character-image': [payload: { characterId: string, event: Event }]
-  'ingest-character-ark-asset': [characterId: string]
-  'select-character-ark-asset': [character: CharacterData]
-  'upload-character-voice': [payload: { characterId: string, event: Event }]
-  'update-character-voice-lock': [payload: { characterId: string, locked: boolean }]
-  'edit-environment-scene': [assetId: string]
-  'upload-environment-image': [payload: { assetId: string, event: Event }]
-  'open-environment-crop': [payload: { assetId: string, captureMode: EnvironmentCropCaptureMode }]
-  'open-environment-regenerate': [assetId: string]
-  'open-environment-history': [assetId: string]
-  'regenerate-environment': [assetId: string]
-  'update-environment-mother': [payload: { assetId: string, motherAssetId: string }]
-  'add-prop': [payload: {
-    name: string
-    description: string
-    category: PropAssetCategory
-    mediaType?: PropAssetMediaType
-  }]
-  'remove-prop': [propId: string]
-  'generate-prop': [propId: string]
-  'upload-prop-image': [payload: { propId: string, event: Event }]
-  'upload-prop-voice': [payload: { propId: string, event: Event }]
-  'upload-prop-video': [payload: { propId: string, event: Event }]
-  'update-prop-voice-lock': [payload: { propId: string, locked: boolean }]
-  'open-prop-history': [propId: string]
-  'import-library-asset': [payload: { asset: LibraryAsset, targetId?: string, createNew: boolean, tab: AssetTab }]
-  'save-assets-to-library': [tab: AssetTab]
-  'save-asset-to-library': [payload: { tab: AssetTab, targetId: string }]
-}>()
 
 const assetTab = ref<AssetTab>('characters')
 const libraryPickerOpen = ref(false)
@@ -116,49 +51,49 @@ const libraryPickerCategories = computed<LibraryAssetCategory[]>(() => {
 })
 
 const libraryPickerTargets = computed(() => {
-  if (assetTab.value === 'characters') return props.characters.map(item => ({ id: item.id, name: item.name }))
-  if (assetTab.value === 'environments') return props.environmentAssetCards.map(item => ({ id: item.id, name: item.name }))
+  if (assetTab.value === 'characters') return state.characters.map(item => ({ id: item.id, name: item.name }))
+  if (assetTab.value === 'environments') return state.environmentAssetCards.map(item => ({ id: item.id, name: item.name }))
   return (assetTab.value === 'props' ? propAssetsOfType.value : otherAssetsOfType.value)
     .map(item => ({ id: item.id, name: item.name }))
 })
 
 const propAssetsOfType = computed(() => {
-  return props.propAssets.filter(item => item.category !== 'other')
+  return state.propAssets.filter(item => item.category !== 'other')
 })
 
 const otherAssetsOfType = computed(() => {
-  return props.propAssets.filter(item => item.category === 'other')
+  return state.propAssets.filter(item => item.category === 'other')
 })
 
 const tabs = computed(() => [
-  { key: 'characters' as AssetTab, label: '角色', count: props.characters.length },
-  { key: 'environments' as AssetTab, label: '环境', count: props.environmentAssetCards.length },
+  { key: 'characters' as AssetTab, label: '角色', count: state.characters.length },
+  { key: 'environments' as AssetTab, label: '环境', count: state.environmentAssetCards.length },
   { key: 'props' as AssetTab, label: '道具', count: propAssetsOfType.value.length },
   { key: 'others' as AssetTab, label: '其他素材', count: otherAssetsOfType.value.length }
 ])
 
 const assetSummary = computed(() => {
   if (assetTab.value === 'characters') {
-    return { label: '角色图', total: props.characters.length, ready: props.characterReadyCount, generating: props.characterGeneratingCount, missing: props.characterMissingCount, error: 0 }
+    return { label: '角色图', total: state.characters.length, ready: state.characterReadyCount, generating: state.characterGeneratingCount, missing: state.characterMissingCount, error: 0 }
   }
   if (assetTab.value === 'environments') {
-    const assets = props.environmentAssetCards
+    const assets = state.environmentAssetCards
     const count = (status: string) => assets.filter(item => item.referenceStatus === status).length
     return { label: '环境图', total: assets.length, ready: count('done'), generating: count('generating'), missing: count('pending'), error: count('error') }
   }
   const assets = assetTab.value === 'props' ? propAssetsOfType.value : otherAssetsOfType.value
   const ready = assets.filter(isPropAssetMediaReady).length
-  const generating = assets.filter(item => item.id === props.generatingPropId).length
-  const missing = assets.filter(item => item.id !== props.generatingPropId && !isPropAssetMediaReady(item)).length
+  const generating = assets.filter(item => item.id === state.generatingPropId).length
+  const missing = assets.filter(item => item.id !== state.generatingPropId && !isPropAssetMediaReady(item)).length
   return { label: assetTab.value === 'props' ? '道具图' : '其他素材', total: assets.length, ready, generating, missing, missingLabel: assetTab.value === 'props' ? '待生成' : '待补充', error: 0 }
 })
 
 // Personal-library exports do not change the project. Keep them and category
 // navigation available while fencing editing controls in a read-only project.
 const fenceOptions = computed(() => ({
-  readOnly: !!props.readOnly,
+  readOnly: !!state.readOnly,
   allow: ['[data-asset-tab]'],
-  conditional: [{ selector: '[data-library-save]', enabled: props.canSaveToLibrary !== false }]
+  conditional: [{ selector: '[data-library-save]', enabled: state.canSaveToLibrary !== false }]
 }))
 </script>
 
@@ -198,7 +133,7 @@ const fenceOptions = computed(() => ({
           <span v-if="assetSummary.error" class="text-xs text-destructive">失败 {{ assetSummary.error }}</span>
         </div>
         <div class="ml-auto flex flex-wrap items-center gap-1">
-          <Button v-if="assetTab === 'characters'" size="sm" class="h-7 gap-1 px-2 text-xs" :disabled="autoRunning" @click="emit('add-character')">
+          <Button v-if="assetTab === 'characters'" size="sm" class="h-7 gap-1 px-2 text-xs" :disabled="autoRunning" @click="actions.addCharacter()">
             <Plus class="h-3.5 w-3.5" />
             新增角色
           </Button>
@@ -206,7 +141,7 @@ const fenceOptions = computed(() => ({
             <Database class="h-3.5 w-3.5" />
             从资源库选择
           </Button>
-          <Button data-library-save size="sm" variant="outline" class="h-7 gap-1 px-2 text-xs" :disabled="!!savingLibraryAssetKey" @click="emit('save-assets-to-library', assetTab)">
+          <Button data-library-save size="sm" variant="outline" class="h-7 gap-1 px-2 text-xs" :disabled="!!savingLibraryAssetKey" @click="actions.saveAssetsToLibrary(assetTab)">
             <Download class="h-3.5 w-3.5" />
             全部存入个人库
           </Button>
@@ -219,7 +154,7 @@ const fenceOptions = computed(() => ({
       :categories="libraryPickerCategories"
       :targets="libraryPickerTargets"
       :allow-create="assetTab !== 'environments'"
-      @select="emit('import-library-asset', { ...$event, tab: assetTab })"
+      @select="actions.importLibraryAsset({ ...$event, tab: assetTab })"
     />
 
     <!-- Asset type tabs (underline style) -->
@@ -253,7 +188,7 @@ const fenceOptions = computed(() => ({
         v-if="assetTab === 'characters'"
         :characters="characters"
         :saving-library-asset-key="savingLibraryAssetKey"
-        @save-to-library="emit('save-asset-to-library', { tab: 'characters', targetId: $event })"
+        @save-to-library="actions.saveAssetToLibrary({ tab: 'characters', targetId: $event })"
         :auto-running="autoRunning"
         :editing-character-id="editingCharacterId"
         :character-edit-draft="characterEditDraft"
@@ -262,70 +197,70 @@ const fenceOptions = computed(() => ({
         :uploading-character-voice-id="uploadingCharacterVoiceId"
         :get-character-scene-count="getCharacterSceneCount"
         :set-character-edit-draft="setCharacterEditDraft"
-        @preview-image="emit('preview-image', $event)"
-        @start-edit="emit('start-character-edit', $event)"
-        @remove-character="emit('remove-character', $event)"
-        @add-variant="emit('add-character-variant', $event)"
-        @remove-variant="emit('remove-character-variant', $event)"
-        @cancel-edit="emit('cancel-character-edit')"
-        @save-edit="emit('save-character-edit')"
-        @save-edit-regenerate="emit('save-character-edit-regenerate')"
-        @generate="emit('generate-character', $event)"
-        @open-regenerate="emit('open-character-regenerate', $event)"
-        @open-history="emit('open-character-history', $event)"
-        @upload-image="emit('upload-character-image', $event)"
-        @ingest-ark-asset="emit('ingest-character-ark-asset', $event)"
-        @select-ark-asset="emit('select-character-ark-asset', $event)"
-        @upload-voice="emit('upload-character-voice', $event)"
-        @update-voice-lock="emit('update-character-voice-lock', $event)"
+        @preview-image="actions.previewImage($event)"
+        @start-edit="actions.startCharacterEdit($event)"
+        @remove-character="actions.removeCharacter($event)"
+        @add-variant="actions.addCharacterVariant($event)"
+        @remove-variant="actions.removeCharacterVariant($event)"
+        @cancel-edit="actions.cancelCharacterEdit()"
+        @save-edit="actions.saveCharacterEdit()"
+        @save-edit-regenerate="actions.saveCharacterEditRegenerate()"
+        @generate="actions.generateCharacter($event)"
+        @open-regenerate="actions.openCharacterRegenerate($event)"
+        @open-history="actions.openCharacterHistory($event)"
+        @upload-image="actions.uploadCharacterImage($event)"
+        @ingest-ark-asset="actions.ingestCharacterArkAsset($event)"
+        @select-ark-asset="actions.selectCharacterArkAsset($event)"
+        @upload-voice="actions.uploadCharacterVoice($event)"
+        @update-voice-lock="actions.updateCharacterVoiceLock($event)"
       />
 
       <AssetWorkbenchEnvironmentAssetsTab
         v-else-if="assetTab === 'environments'"
         :environment-asset-cards="environmentAssetCards"
         :saving-library-asset-key="savingLibraryAssetKey"
-        @save-to-library="emit('save-asset-to-library', { tab: 'environments', targetId: $event })"
+        @save-to-library="actions.saveAssetToLibrary({ tab: 'environments', targetId: $event })"
         :auto-running="autoRunning"
         :uploading-environment-asset-id="uploadingEnvironmentAssetId"
         :get-environment-scene-summary="getEnvironmentSceneSummary"
         :get-environment-mother-candidates="getEnvironmentMotherCandidates"
         :get-environment-selected-mother-id="getEnvironmentSelectedMotherId"
         :has-environment-representative-scene="hasEnvironmentRepresentativeScene"
-        @go-videos="emit('select-stage', 'videos')"
-        @preview-image="emit('preview-image', $event)"
-        @edit-scene="emit('edit-environment-scene', $event)"
-        @upload-image="emit('upload-environment-image', $event)"
-        @open-crop="emit('open-environment-crop', $event)"
-        @open-regenerate="emit('open-environment-regenerate', $event)"
-        @open-history="emit('open-environment-history', $event)"
-        @regenerate="emit('regenerate-environment', $event)"
-        @update-mother="emit('update-environment-mother', $event)"
+        @go-videos="actions.selectStage('videos')"
+        @preview-image="actions.previewImage($event)"
+        @edit-scene="actions.editEnvironmentScene($event)"
+        @upload-image="actions.uploadEnvironmentImage($event)"
+        @open-crop="actions.openEnvironmentCrop($event)"
+        @open-regenerate="actions.openEnvironmentRegenerate($event)"
+        @open-history="actions.openEnvironmentHistory($event)"
+        @regenerate="actions.regenerateEnvironment($event)"
+        @update-mother="actions.updateEnvironmentMother($event)"
       />
 
       <AssetWorkbenchPropAssetsTab
         v-else-if="assetTab === 'props'"
         :prop-assets="propAssetsOfType"
         :saving-library-asset-key="savingLibraryAssetKey"
-        @save-to-library="emit('save-asset-to-library', { tab: 'props', targetId: $event })"
+        @save-to-library="actions.saveAssetToLibrary({ tab: 'props', targetId: $event })"
         :auto-running="autoRunning"
         :uploading-prop-id="uploadingPropId"
         :generating-prop-id="generatingPropId"
         :get-prop-usage-count="getPropUsageCount"
         add-category="prop"
         asset-label="道具"
-        @add-prop="emit('add-prop', $event)"
-        @remove-prop="emit('remove-prop', $event)"
-        @generate-prop="emit('generate-prop', $event)"
-        @upload-image="emit('upload-prop-image', $event)"
-        @open-history="emit('open-prop-history', $event)"
-        @preview-image="emit('preview-image', $event)"
+        @add-prop="actions.addProp($event)"
+        @remove-prop="actions.removeProp($event)"
+        @generate-prop="actions.generateProp($event)"
+        @upload-image="actions.uploadPropImage($event)"
+        @open-history="actions.openPropHistory($event)"
+        @preview-image="actions.previewImage($event)"
       />
 
       <AssetWorkbenchPropAssetsTab
         v-else
         :prop-assets="otherAssetsOfType"
         :saving-library-asset-key="savingLibraryAssetKey"
-        @save-to-library="emit('save-asset-to-library', { tab: 'others', targetId: $event })"
+        @save-to-library="actions.saveAssetToLibrary({ tab: 'others', targetId: $event })"
         :auto-running="autoRunning"
         :uploading-prop-id="uploadingPropId"
         :uploading-prop-voice-id="uploadingPropVoiceId"
@@ -339,15 +274,15 @@ const fenceOptions = computed(() => ({
         asset-label="其他素材"
         empty-title="暂无其他素材"
         empty-description="可新增图片、声音或视频素材，用于场景改写和分镜视频参考。"
-        @add-prop="emit('add-prop', $event)"
-        @remove-prop="emit('remove-prop', $event)"
-        @generate-prop="emit('generate-prop', $event)"
-        @upload-image="emit('upload-prop-image', $event)"
-        @upload-voice="emit('upload-prop-voice', $event)"
-        @upload-video="emit('upload-prop-video', $event)"
-        @update-voice-lock="emit('update-prop-voice-lock', $event)"
-        @open-history="emit('open-prop-history', $event)"
-        @preview-image="emit('preview-image', $event)"
+        @add-prop="actions.addProp($event)"
+        @remove-prop="actions.removeProp($event)"
+        @generate-prop="actions.generateProp($event)"
+        @upload-image="actions.uploadPropImage($event)"
+        @upload-voice="actions.uploadPropVoice($event)"
+        @upload-video="actions.uploadPropVideo($event)"
+        @update-voice-lock="actions.updatePropVoiceLock($event)"
+        @open-history="actions.openPropHistory($event)"
+        @preview-image="actions.previewImage($event)"
       />
     </div>
   </div>

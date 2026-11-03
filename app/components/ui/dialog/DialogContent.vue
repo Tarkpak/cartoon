@@ -24,6 +24,9 @@ const props = defineProps<DialogContentProps & {
 }>()
 const emits = defineEmits<DialogContentEmits>()
 
+// The root is a portal, so attrs (aria-*, data-*) are forwarded to the content element explicitly.
+defineOptions({ inheritAttrs: false })
+
 const delegatedProps = computed(() => {
   const { class: _, overlayClass: _overlayClass, hideClose: _hideClose, ...delegated } = props
   return delegated
@@ -48,7 +51,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
          (8px lower on enter) through the plugin's variables. A calc() inside the slide-in "from top" utility
          gets a minus sign prefixed, which is invalid CSS and makes the dialog fly in from the bottom-right. -->
     <DialogContent
-      v-bind="forwarded"
+      v-bind="{ ...forwarded, ...$attrs }"
       :class="cn(
         'fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4',
         'max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain',
