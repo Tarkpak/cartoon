@@ -617,7 +617,7 @@ onMounted(() => {
             variant="ghost"
             size="icon"
             class="shrink-0"
-            title="返回全部成员"
+            v-tooltip="'返回全部成员'"
             :disabled="loading"
             @click="returnToMembers"
           >
@@ -843,17 +843,17 @@ onMounted(() => {
               </TableCell>
               <TableCell class="w-[160px] bg-background text-center">
                 <div class="inline-flex w-full items-center justify-center gap-1">
-                  <Button type="button" variant="ghost" size="icon" title="复制对象 Key" @click.stop="copyText(file.key, '对象 Key')">
+                  <Button type="button" variant="ghost" size="icon" v-tooltip="'复制对象 Key'" @click.stop="copyText(file.key, '对象 Key')">
                     <Copy class="h-4 w-4" />
                   </Button>
-                  <Button type="button" variant="ghost" size="icon" title="复制素材地址" :disabled="!file.url" @click.stop="copyText(file.url, '素材地址')">
+                  <Button type="button" variant="ghost" size="icon" v-tooltip="'复制素材地址'" :disabled="!file.url" @click.stop="copyText(file.url, '素材地址')">
                     <Copy class="h-4 w-4" />
                   </Button>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    title="下载文件"
+                    v-tooltip="'下载文件'"
                     :disabled="downloadingFileKey !== null"
                     @click.stop="downloadFile(file)"
                   >
@@ -965,30 +965,25 @@ onMounted(() => {
       :src="imagePreviewSrc"
       :alt="imagePreviewAlt"
     />
-    <Teleport to="body">
-      <Transition
-        enter-active-class="transition-opacity duration-200 ease-out motion-reduce:transition-none"
-        leave-active-class="transition-opacity duration-150 ease-in motion-reduce:transition-none"
-        enter-from-class="opacity-0"
-        leave-to-class="opacity-0"
-      >
-      <div
+    <Dialog
+      :open="!!videoPreviewFile"
+      @update:open="(open) => { if (!open) videoPreviewFile = null }"
+    >
+      <DialogContent
         v-if="videoPreviewFile"
-        class="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="fileNameFromKey(videoPreviewFile.key)"
-        @click.self="videoPreviewFile = null"
+        hide-close
+        aria-describedby=""
+        class="max-w-5xl gap-3 bg-neutral-950 p-4 text-white ring-white/10"
+        overlay-class="bg-black/80 backdrop-blur-sm"
       >
-        <div class="relative flex max-h-full w-full max-w-5xl flex-col gap-3">
-          <div class="flex items-center justify-between gap-4 text-white">
-            <p class="truncate text-sm font-medium">{{ fileNameFromKey(videoPreviewFile.key) }}</p>
-            <Button variant="secondary" size="sm" @click="videoPreviewFile = null">关闭</Button>
-          </div>
-          <video :src="videoPreviewFile.url" class="max-h-[80vh] w-full rounded-lg bg-black object-contain" controls autoplay playsinline />
+        <div class="flex items-center justify-between gap-4">
+          <DialogTitle class="truncate text-sm font-medium">
+            {{ fileNameFromKey(videoPreviewFile.key) }}
+          </DialogTitle>
+          <Button variant="secondary" size="sm" @click="videoPreviewFile = null">关闭</Button>
         </div>
-      </div>
-      </Transition>
-    </Teleport>
+        <video :src="videoPreviewFile.url" class="max-h-[80vh] w-full rounded-lg bg-black object-contain" controls autoplay playsinline />
+      </DialogContent>
+    </Dialog>
   </AppPage>
 </template>

@@ -9,6 +9,10 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontSize: {
+        // Smallest step on the type scale; reserve for counters and tiny badges.
+        '2xs': ['0.6875rem', { lineHeight: '1rem' }]
+      },
       colors: {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',

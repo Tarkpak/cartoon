@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useModalOverlay } from '@/composables/useModalOverlay'
 import { Loader2 } from 'lucide-vue-next'
 import {
   buildDefaultCropSelection,
@@ -369,6 +370,13 @@ watchEffect((onCleanup) => {
   onCleanup(() => window.removeEventListener('resize', handleResize))
 })
 
+const dialogRoot = ref<HTMLElement | null>(null)
+useModalOverlay({
+  open: computed(() => props.open),
+  root: dialogRoot,
+  onClose: () => emit('update:open', false)
+})
+
 onBeforeUnmount(() => {
   stopDragging()
   if (renderFrameId) {
@@ -383,11 +391,16 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-50 flex flex-col bg-background"
+      ref="dialogRoot"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="environment-crop-title"
+      tabindex="-1"
+      class="fixed inset-0 z-50 flex flex-col bg-background focus:outline-none"
     >
-      <div class="sr-only">
-        环境取景区域
-      </div>
+      <h2 id="environment-crop-title" class="sr-only">
+        {{ targetLabel || '环境取景区域' }}
+      </h2>
 
       <div class="relative min-h-0 flex-1 overflow-hidden bg-black">
         <div

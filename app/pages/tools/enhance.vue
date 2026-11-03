@@ -62,6 +62,25 @@ const pageDescription = computed(() => {
     : '使用火山引擎 AI MediaKit 或 Topaz Labs 提升视频和图片画质。'
 })
 
+const VIEW_TABS = [
+  { value: 'create' as const, label: '新建处理', icon: WandSparkles },
+  { value: 'tasks' as const, label: '任务记录', icon: ListChecks }
+]
+
+const MODE_TABS = [
+  { value: 'cloud' as const, label: '云端', icon: Cloud },
+  { value: 'local' as const, label: '本地', icon: MonitorCog }
+]
+
+const typeTabs = computed(() => {
+  const suffix = activeView.value === 'tasks' ? '任务' : ''
+  return [
+    { value: 'video' as const, label: `视频增强${suffix}`, icon: FileVideo },
+    { value: 'image' as const, label: `图片增强${suffix}`, icon: FileImage },
+    { value: 'subtitle-erasure' as const, label: `字幕擦除${suffix}`, icon: Eraser }
+  ]
+})
+
 function updateQuery(updates: Record<string, string>, clearKeys: string[] = []) {
   const query = {
     ...route.query,
@@ -98,79 +117,24 @@ function switchMode(mode: EnhanceMode) {
       class="min-h-16"
     >
       <template #actions>
-        <div
-          class="flex rounded-xl bg-muted/25 p-1"
-          role="tablist"
+        <SegmentedTabs
+          :model-value="activeView"
+          :items="VIEW_TABS"
           aria-label="媒体处理页面"
-        >
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="activeView === 'create'"
-            class="inline-flex h-8 items-center rounded-sm px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:translate-y-px"
-            :class="activeView === 'create' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-            @click="switchView('create')"
-          >
-            <WandSparkles class="mr-2 h-4 w-4" />
-            新建处理
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="activeView === 'tasks'"
-            class="inline-flex h-8 items-center rounded-sm px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:translate-y-px"
-            :class="activeView === 'tasks' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-            @click="switchView('tasks')"
-          >
-            <ListChecks class="mr-2 h-4 w-4" />
-            任务记录
-          </button>
-        </div>
+          @update:model-value="switchView"
+        />
       </template>
     </AppPageHeader>
 
     <div class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-muted/10 px-4 py-3 sm:px-6">
       <div class="flex items-center gap-3">
         <span class="hidden text-xs font-medium text-muted-foreground sm:inline">处理类型</span>
-        <div
-          class="flex rounded-xl bg-muted/25 p-0.5"
-          role="tablist"
+        <SegmentedTabs
+          :model-value="activeType"
+          :items="typeTabs"
           aria-label="处理类型"
-        >
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="activeType === 'video'"
-            class="inline-flex h-8 items-center rounded-sm px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px"
-            :class="activeType === 'video' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'"
-            @click="switchType('video')"
-          >
-            <FileVideo class="mr-2 h-4 w-4" />
-            {{ activeView === 'tasks' ? '视频增强任务' : '视频增强' }}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="activeType === 'image'"
-            class="inline-flex h-8 items-center rounded-sm px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px"
-            :class="activeType === 'image' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'"
-            @click="switchType('image')"
-          >
-            <FileImage class="mr-2 h-4 w-4" />
-            {{ activeView === 'tasks' ? '图片增强任务' : '图片增强' }}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="activeType === 'subtitle-erasure'"
-            class="inline-flex h-8 items-center rounded-sm px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px"
-            :class="activeType === 'subtitle-erasure' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'"
-            @click="switchType('subtitle-erasure')"
-          >
-            <Eraser class="mr-2 h-4 w-4" />
-            {{ activeView === 'tasks' ? '字幕擦除任务' : '字幕擦除' }}
-          </button>
-        </div>
+          @update:model-value="switchType"
+        />
       </div>
 
       <div
@@ -181,34 +145,12 @@ function switchMode(mode: EnhanceMode) {
           {{ activeMode === 'cloud' ? '效果更强，需要上传素材' : '无需上传，速度取决于设备性能' }}
         </span>
         <span class="hidden text-xs font-medium text-muted-foreground sm:inline">处理方式</span>
-        <div
-          class="flex rounded-xl bg-muted/25 p-0.5"
-          role="tablist"
+        <SegmentedTabs
+          :model-value="activeMode"
+          :items="MODE_TABS"
           aria-label="处理方式"
-        >
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="activeMode === 'cloud'"
-            class="inline-flex h-8 items-center rounded-sm px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px"
-            :class="activeMode === 'cloud' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'"
-            @click="switchMode('cloud')"
-          >
-            <Cloud class="mr-2 h-4 w-4" />
-            云端
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="activeMode === 'local'"
-            class="inline-flex h-8 items-center rounded-sm px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px"
-            :class="activeMode === 'local' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'"
-            @click="switchMode('local')"
-          >
-            <MonitorCog class="mr-2 h-4 w-4" />
-            本地
-          </button>
-        </div>
+          @update:model-value="switchMode"
+        />
       </div>
     </div>
 

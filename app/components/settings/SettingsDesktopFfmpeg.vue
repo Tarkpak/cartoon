@@ -38,8 +38,8 @@ onMounted(() => {
       <span
         class="rounded-full px-2 py-1 text-xs font-medium"
         :class="desktopFfmpegStatus?.available
-          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
-          : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'"
+          ? 'bg-success/10 text-success'
+          : 'bg-warning/10 text-warning'"
       >
         {{ desktopFfmpegStatusLabel }}
       </span>

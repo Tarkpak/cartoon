@@ -346,7 +346,7 @@ const sfxTracks = computed(() => props.audioTracks.filter(track => track.kind ==
               <div
                 v-for="track in group"
                 :key="track.id"
-                class="absolute inset-y-0 truncate rounded px-1.5 text-[11px] leading-5"
+                class="absolute inset-y-0 truncate rounded px-1.5 text-xs leading-5"
                 :class="track.kind === 'bgm' ? 'bg-primary/25 text-foreground' : 'bg-warning/25 text-foreground'"
                 :style="audioTrackStyle(track)"
                 :title="`${track.kind === 'bgm' ? 'BGM' : '音效'}：${track.name}`"
@@ -368,7 +368,7 @@ const sfxTracks = computed(() => props.audioTracks.filter(track => track.kind ==
           <div class="ml-16 h-full relative">
             <div
               v-if="subtitlesEnabled"
-              class="absolute inset-y-2 left-0 rounded bg-muted px-1.5 text-[11px] leading-6 text-muted-foreground"
+              class="absolute inset-y-2 left-0 rounded bg-muted px-1.5 text-xs leading-6 text-muted-foreground"
               :style="{ width: `${Math.max(timelineWidth - 2, 40)}px` }"
             >
               合成时叠加字幕

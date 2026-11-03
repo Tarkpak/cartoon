@@ -365,7 +365,7 @@ async function submitLocalEnhance() {
                           variant="ghost"
                           size="icon"
                           class="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          title="移除"
+                          v-tooltip="'移除'"
                           @click="removeQueueItem(item.id)"
                         >
                           <Trash2 class="h-4 w-4" />
@@ -401,9 +401,7 @@ async function submitLocalEnhance() {
               </div>
             </div>
 
-            <Alert v-if="errorMessage" variant="destructive">
-              <AlertDescription>{{ errorMessage }}</AlertDescription>
-            </Alert>
+            <p v-if="errorMessage" role="alert" class="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{{ errorMessage }}</p>
             <div class="flex justify-end">
               <Button :disabled="!canSubmit" @click="submitLocalEnhance">
                 <Loader2 v-if="processing" class="mr-2 h-4 w-4 animate-spin" />

@@ -121,9 +121,9 @@ function formatDateTime(value: unknown): string {
 }
 
 function statusClass(status: unknown): string {
-  if (status === 'Active') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (status === 'Active') return 'border-success/30 bg-success/10 text-success'
   if (status === 'Failed') return 'border-destructive/20 bg-destructive/5 text-destructive'
-  if (status === 'Processing') return 'border-blue-200 bg-blue-50 text-blue-700'
+  if (status === 'Processing') return 'border-info/30 bg-info/10 text-info'
   return 'border-muted bg-muted/30 text-muted-foreground'
 }
 
@@ -659,7 +659,7 @@ onMounted(() => {
                   </h3>
                   <span
                     v-if="selectedGroup"
-                    class="rounded border bg-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                    class="rounded border bg-muted/40 px-1.5 py-0.5 text-xs text-muted-foreground"
                   >
                     {{ normalizeDisplayText(selectedGroup.ProjectName, 'default') }}
                   </span>
@@ -675,15 +675,13 @@ onMounted(() => {
                   placeholder="素材名称"
                   @keydown.enter="refreshAssets({ resetPage: true })"
                 />
-                <select
+                <SelectField
                   v-model="assetStatusFilter"
-                  class="h-8 rounded-xl bg-muted/25 px-2 text-xs"
-                >
-                  <option value="">全部状态</option>
-                  <option value="Active">已启用</option>
-                  <option value="Processing">处理中</option>
-                  <option value="Failed">失败</option>
-                </select>
+                  size="sm"
+                  aria-label="素材状态"
+                  placeholder="全部状态"
+                  :options="[{ value: '', label: '全部状态' }, { value: 'Active', label: '已启用' }, { value: 'Processing', label: '处理中' }, { value: 'Failed', label: '失败' }]"
+                />
                 <Button
                   size="sm"
                   variant="outline"
@@ -813,7 +811,7 @@ onMounted(() => {
                           >
                             <Check
                               v-if="copiedAssetId === asset.Id"
-                              class="h-4 w-4 text-emerald-600"
+                              class="h-4 w-4 text-success"
                             />
                             <Copy
                               v-else

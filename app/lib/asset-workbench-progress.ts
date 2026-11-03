@@ -188,3 +188,33 @@ export function matchesSceneListFilter(status: SceneListStatus, filter: SceneLis
   if (filter === 'unfinished') return status !== 'done'
   return true
 }
+
+export interface QueueProgressSegment {
+  key: 'done' | 'running' | 'error' | 'pending'
+  label: string
+  count: number
+  /** Share of the bar, 0-100. */
+  percent: number
+}
+
+/** Segments for the stacked video progress bar; `total` falls back to the scene count. */
+export function buildQueueProgressSegments(summary: QueueSummary, sceneCount: number): {
+  total: number
+  segments: QueueProgressSegment[]
+} {
+  const total = Math.max(summary.total, sceneCount, summary.done + summary.running + summary.error)
+  const pending = Math.max(total - summary.done - summary.running - summary.error, 0)
+  const entries: Array<Omit<QueueProgressSegment, 'percent'>> = [
+    { key: 'done', label: '已完成', count: summary.done },
+    { key: 'running', label: '生成中', count: summary.running },
+    { key: 'error', label: '失败', count: summary.error },
+    { key: 'pending', label: '未开始', count: pending }
+  ]
+  return {
+    total,
+    segments: entries.map(entry => ({
+      ...entry,
+      percent: total > 0 ? (entry.count / total) * 100 : 0
+    }))
+  }
+}

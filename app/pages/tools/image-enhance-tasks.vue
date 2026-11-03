@@ -319,7 +319,7 @@ function taskStatusVariant(value: TaskStatus | string) {
               variant="outline"
               size="icon"
               class="shrink-0 bg-background"
-              title="复制任务 ID"
+              v-tooltip="'复制任务 ID'"
               @click="copyText(taskId)"
             >
               <Copy class="h-4 w-4" />
@@ -438,29 +438,21 @@ function taskStatusVariant(value: TaskStatus | string) {
           </Button>
         </div>
 
-        <div
+        <EmptyState
           v-if="recentTasks.length === 0"
-          class="flex min-h-56 flex-col items-center justify-center rounded-xl bg-muted/15 bg-muted/10 p-8 text-center"
+          :icon="FileImage"
+          title="暂无增强任务"
+          description="提交图片增强后，任务会出现在这里。"
+          class="min-h-56 rounded-xl bg-muted/10"
         >
-          <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <FileImage class="h-6 w-6" />
-          </div>
-          <div class="mt-4 text-base font-semibold text-foreground">
-            暂无增强任务
-          </div>
-          <div class="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">
-            提交图片增强后，任务会出现在这里。
-          </div>
-          <Button
-            size="sm"
-            class="mt-4"
-            as-child
-          >
-            <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'image', view: 'create' } }">
-              提交增强
-            </NuxtLink>
-          </Button>
-        </div>
+          <template #actions>
+            <Button size="sm" class="mt-1" as-child>
+              <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'image', view: 'create' } }">
+                提交增强
+              </NuxtLink>
+            </Button>
+          </template>
+        </EmptyState>
         <div
           v-else
           class="overflow-hidden rounded-xl bg-muted/25"

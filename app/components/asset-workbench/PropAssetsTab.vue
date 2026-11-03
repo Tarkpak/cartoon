@@ -104,6 +104,12 @@ const addPropDialogOpen = ref(false)
 const newPropName = ref('')
 const newPropDescription = ref('')
 const activeMediaTab = ref<PropAssetMediaType>('image')
+const mediaTabItems = computed(() => MEDIA_TABS.map(tab => ({
+  value: tab.key,
+  label: tab.label,
+  icon: tab.icon,
+  badge: mediaTabCounts.value[tab.key]
+})))
 
 const showMediaSubTabs = computed(() => {
   return props.allowVoiceUpload && props.enableMediaSubTabs && props.addCategory === 'other'
@@ -239,38 +245,13 @@ function updateField(assetId: string, field: 'name' | 'description', value: stri
   <div class="space-y-3">
     <!-- Toolbar -->
     <div class="flex flex-wrap items-center gap-2">
-      <div
+      <SegmentedTabs
         v-if="showMediaSubTabs"
-        class="inline-flex shrink-0 items-center gap-0.5 rounded-lg bg-muted/40 p-0.5"
-        role="tablist"
+        v-model="activeMediaTab"
+        :items="mediaTabItems"
+        size="sm"
         aria-label="素材类型"
-      >
-        <button
-          v-for="tab in MEDIA_TABS"
-          :key="tab.key"
-          type="button"
-          role="tab"
-          data-readonly-allowed
-          :aria-selected="activeMediaTab === tab.key"
-          class="inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors"
-          :class="activeMediaTab === tab.key
-            ? 'bg-background text-foreground shadow-sm'
-            : 'text-muted-foreground hover:text-foreground'"
-          @click="activeMediaTab = tab.key"
-        >
-          <component
-            :is="tab.icon"
-            class="h-3.5 w-3.5"
-          />
-          {{ tab.label }}
-          <span
-            class="min-w-[1rem] rounded-full px-1 text-[11px] tabular-nums"
-            :class="activeMediaTab === tab.key ? 'bg-muted text-foreground' : 'text-muted-foreground/70'"
-          >
-            {{ mediaTabCounts[tab.key] }}
-          </span>
-        </button>
-      </div>
+      />
 
       <div class="relative min-w-[12rem] flex-1">
         <Search class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -295,7 +276,7 @@ function updateField(assetId: string, field: 'name' | 'description', value: stri
 
     <div
       v-if="showVideoCapabilityWarning"
-      class="flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+      class="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning"
     >
       <AlertTriangle class="mt-px h-3.5 w-3.5 shrink-0" />
       当前分镜视频模型不支持视频参考，视频资产不会提交给模型。可在设置中切换到支持全模态参考的视频模型。

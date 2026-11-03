@@ -198,7 +198,7 @@ onMounted(() => {
             <label class="text-xs text-muted-foreground">Access Key</label>
             <span
               class="inline-flex items-center gap-1 text-xs"
-              :class="hasAccessKey ? 'text-emerald-600' : 'text-muted-foreground'"
+              :class="hasAccessKey ? 'text-success' : 'text-muted-foreground'"
             >
               <component
                 :is="hasAccessKey ? Check : X"
@@ -221,7 +221,7 @@ onMounted(() => {
             <label class="text-xs text-muted-foreground">Secret Key</label>
             <span
               class="inline-flex items-center gap-1 text-xs"
-              :class="hasSecretKey ? 'text-emerald-600' : 'text-muted-foreground'"
+              :class="hasSecretKey ? 'text-success' : 'text-muted-foreground'"
             >
               <component
                 :is="hasSecretKey ? Check : X"
@@ -248,7 +248,7 @@ onMounted(() => {
           <label class="text-xs text-muted-foreground">{{ provider === 'autodl' ? 'ComfyUI Token' : 'API Key' }}</label>
           <span
             class="inline-flex items-center gap-1 text-xs"
-            :class="hasApiKey ? 'text-emerald-600' : 'text-muted-foreground'"
+            :class="hasApiKey ? 'text-success' : 'text-muted-foreground'"
           >
             <component
               :is="hasApiKey ? Check : X"
@@ -295,7 +295,7 @@ onMounted(() => {
           <label class="text-xs text-muted-foreground">AI MediaKit API Key</label>
           <span
             class="inline-flex items-center gap-1 text-xs"
-            :class="hasMediakitApiKey ? 'text-emerald-600' : 'text-muted-foreground'"
+            :class="hasMediakitApiKey ? 'text-success' : 'text-muted-foreground'"
           >
             <component
               :is="hasMediakitApiKey ? Check : X"
@@ -331,7 +331,7 @@ onMounted(() => {
             <label class="text-xs text-muted-foreground">Access Key</label>
             <span
               class="inline-flex items-center gap-1 text-xs"
-              :class="hasArkAccessKey ? 'text-emerald-600' : 'text-muted-foreground'"
+              :class="hasArkAccessKey ? 'text-success' : 'text-muted-foreground'"
             >
               <component
                 :is="hasArkAccessKey ? Check : X"
@@ -354,7 +354,7 @@ onMounted(() => {
             <label class="text-xs text-muted-foreground">Secret Key</label>
             <span
               class="inline-flex items-center gap-1 text-xs"
-              :class="hasArkSecretKey ? 'text-emerald-600' : 'text-muted-foreground'"
+              :class="hasArkSecretKey ? 'text-success' : 'text-muted-foreground'"
             >
               <component
                 :is="hasArkSecretKey ? Check : X"
@@ -407,7 +407,7 @@ onMounted(() => {
         <p
           v-if="message || errorMessage"
           class="text-xs"
-          :class="errorMessage ? 'text-destructive' : 'text-emerald-600'"
+          :class="errorMessage ? 'text-destructive' : 'text-success'"
         >
           {{ errorMessage || message }}
         </p>

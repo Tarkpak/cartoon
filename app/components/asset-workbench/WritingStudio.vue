@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ChevronUp,
   Ellipsis,
+  FileClock,
   FileText,
   Focus,
   History,
@@ -18,10 +19,14 @@ import {
   Lock,
   Loader2,
   Pause,
+  Pin,
+  PinOff,
   Play,
   Plus,
+  RotateCcw,
   Search,
   Send,
+  ShieldCheck,
   Shrink,
   Sparkles,
   Square,
@@ -201,8 +206,8 @@ const autoSaveLabel = computed(() => ({
   error: '自动保存失败'
 }[autoSaveState.value]))
 const autoSaveTone = computed(() => ({
-  saved: 'bg-emerald-500',
-  dirty: 'bg-amber-500',
+  saved: 'bg-success',
+  dirty: 'bg-warning',
   saving: 'bg-primary animate-pulse',
   error: 'bg-destructive'
 }[autoSaveState.value]))
@@ -963,18 +968,18 @@ function formatVersionTime(value: string) {
           @click="activeView = item.key"
         >
           <span
-            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold tabular-nums"
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold tabular-nums"
             :class="activeView === item.key
               ? 'bg-primary text-primary-foreground'
               : item.done
-                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                ? 'bg-success/15 text-success'
                 : 'bg-muted text-muted-foreground'"
           >
             <Check v-if="item.done && !item.stale" class="h-3.5 w-3.5" :stroke-width="2.25" />
             <template v-else>{{ index + 1 }}</template>
           </span>
           <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ item.label }}</span>
-          <CircleAlert v-if="item.stale" class="h-3.5 w-3.5 shrink-0 text-amber-600" :stroke-width="2" />
+          <CircleAlert v-if="item.stale" class="h-3.5 w-3.5 shrink-0 text-warning" :stroke-width="2" />
         </button>
       </nav>
 
@@ -1012,7 +1017,7 @@ function formatVersionTime(value: string) {
           <Send class="h-4 w-4" />
           发布并进入解析
         </Button>
-        <p v-if="publicationBlockers.length" class="px-1 text-center text-[11px] leading-4 text-muted-foreground">
+        <p v-if="publicationBlockers.length" class="px-1 text-center text-xs leading-4 text-muted-foreground">
           {{ publicationBlockers.join(' · ') }}
         </p>
         <Button
@@ -1046,13 +1051,13 @@ function formatVersionTime(value: string) {
       </div>
       <div
         v-if="notice"
-        class="shrink-0 bg-amber-500/5 px-5 py-2.5 text-sm text-amber-700 dark:text-amber-300"
+        class="shrink-0 bg-warning/5 px-5 py-2.5 text-sm text-warning"
       >
         {{ notice }}
       </div>
       <div
         v-if="freshness.storyBibleStale || freshness.outlineStale || hasStaleDrafts || freshness.reviewStale"
-        class="flex shrink-0 items-center gap-2 bg-amber-500/5 px-5 py-2.5 text-sm text-amber-700 dark:text-amber-300"
+        class="flex shrink-0 items-center gap-2 bg-warning/5 px-5 py-2.5 text-sm text-warning"
       >
         <CircleAlert class="h-4 w-4 shrink-0" />
         上游内容已修改：带橙色标记的步骤需要重新确认或生成。
@@ -1115,7 +1120,7 @@ function formatVersionTime(value: string) {
             <h2 class="text-xl font-semibold tracking-tight">故事圣经</h2>
             <p
               v-if="freshness.storyBibleStale"
-              class="mt-1 text-xs text-amber-700 dark:text-amber-300"
+              class="mt-1 text-xs text-warning"
             >
               项目基础信息已变更，请重新生成或确认当前故事圣经。
             </p>
@@ -1351,9 +1356,9 @@ function formatVersionTime(value: string) {
               >
                 <span
                   class="h-1.5 w-1.5 shrink-0 rounded-full"
-                  :class="episode.draft.trim() ? 'bg-emerald-500' : 'bg-muted-foreground/30'"
+                  :class="episode.draft.trim() ? 'bg-success' : 'bg-muted-foreground/30'"
                 />
-                <span class="w-4 shrink-0 text-[11px] tabular-nums text-muted-foreground">{{ episode.index }}</span>
+                <span class="w-4 shrink-0 text-xs tabular-nums text-muted-foreground">{{ episode.index }}</span>
                 <span
                   class="min-w-0 truncate text-sm"
                   :class="selectedEpisode?.id === episode.id ? 'font-medium text-foreground' : 'text-foreground/80'"
@@ -1362,7 +1367,7 @@ function formatVersionTime(value: string) {
                 </span>
                 <CircleAlert
                   v-if="freshness.staleDraftIds.includes(episode.id)"
-                  class="h-3.5 w-3.5 shrink-0 text-amber-600"
+                  class="h-3.5 w-3.5 shrink-0 text-warning"
                 />
               </button>
               <div class="mr-0.5 hidden shrink-0 items-center group-hover:flex group-focus-within:flex">
@@ -1461,7 +1466,7 @@ function formatVersionTime(value: string) {
 
           <div
             v-if="freshness.outlineStale"
-            class="flex shrink-0 items-center justify-between gap-3 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300"
+            class="flex shrink-0 items-center justify-between gap-3 bg-warning/5 px-3 py-2 text-sm text-warning"
           >
             <span>故事圣经已变更，请逐集调整大纲或重新生成。</span>
             <Button size="sm" variant="outline" class="h-7 shrink-0" @click="confirmOutlineCurrent">
@@ -1487,7 +1492,7 @@ function formatVersionTime(value: string) {
 
           <div
             v-if="freshness.staleDraftIds.includes(selectedEpisode.id)"
-            class="flex shrink-0 flex-col gap-2 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300 sm:flex-row sm:items-center sm:justify-between"
+            class="flex shrink-0 flex-col gap-2 bg-warning/5 px-3 py-2 text-sm text-warning sm:flex-row sm:items-center sm:justify-between"
           >
             <span>本集正文基于旧的大纲或故事设定。人工修改不会自动解除该状态。</span>
             <Button size="sm" variant="outline" class="h-7 shrink-0" @click="confirmSelectedEpisodeCurrent">
@@ -1755,7 +1760,7 @@ function formatVersionTime(value: string) {
                     :aria-label="`选择修订：${task.issue}`"
                     @update:model-value="toggleReviewSelection(task.id)"
                   />
-                  <span class="text-[10px] text-muted-foreground">选择</span>
+                  <span class="text-2xs text-muted-foreground">选择</span>
                 </div>
                 <div class="min-w-0 flex-1" :class="reviewTaskResolved(task) ? 'opacity-60' : ''">
                   <div class="flex flex-wrap items-center gap-2">
@@ -1796,7 +1801,7 @@ function formatVersionTime(value: string) {
 
           <div
             v-if="reviewProgress.remaining === 0 && studio.review.score < SCRIPT_WRITING_REVIEW_PASS_SCORE"
-            class="flex flex-col gap-3 rounded-xl border-l-2 border-amber-500/50 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300 sm:flex-row sm:items-center sm:justify-between"
+            class="flex flex-col gap-3 rounded-xl border-l-2 border-warning/50 bg-warning/5 px-3 py-2 text-sm text-warning sm:flex-row sm:items-center sm:justify-between"
           >
             <span>整改已标记完成，但当前分数仍未达到通过线，请重新审校确认结果。</span>
             <Button size="sm" variant="outline" :disabled="isBusy" @click="reviewDrafts(reviewInstruction)">
@@ -1869,7 +1874,7 @@ function formatVersionTime(value: string) {
                 <span class="min-w-0 flex-1">
                   <span class="flex flex-wrap items-center gap-1.5">
                     <span class="truncate text-sm font-medium">{{ version.label }}</span>
-                    <Badge variant="outline" class="rounded-md px-1.5 py-0 text-[10px] font-medium">
+                    <Badge variant="outline" class="rounded-md px-1.5 py-0 text-2xs font-medium">
                       {{ version.kind === 'milestone' ? '里程碑' : '保护版本' }}
                     </Badge>
                     <Pin v-if="version.pinned" class="h-3 w-3 text-primary" fill="currentColor" />
@@ -1877,7 +1882,7 @@ function formatVersionTime(value: string) {
                   <span v-if="version.note" class="mt-1 line-clamp-2 block text-xs text-muted-foreground">
                     {{ version.note }}
                   </span>
-                  <span class="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span class="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
                     <span>{{ versionSourceLabel(version.source) }}</span>
                     <span class="tabular-nums">{{ formatVersionTime(version.createdAt) }}</span>
                   </span>
@@ -1951,19 +1956,19 @@ function formatVersionTime(value: string) {
               <p class="text-xs font-medium text-muted-foreground">版本内容预览</p>
               <div class="mt-2 space-y-3 rounded-2xl bg-muted/35 p-4">
                 <div>
-                  <p class="text-[11px] text-muted-foreground">核心创意</p>
+                  <p class="text-xs text-muted-foreground">核心创意</p>
                   <p class="mt-0.5 line-clamp-3 text-sm">
                     {{ selectedVersion.snapshot.brief?.idea || '未记录' }}
                   </p>
                 </div>
                 <div v-if="selectedVersion.snapshot.storyBible">
-                  <p class="text-[11px] text-muted-foreground">核心命题</p>
+                  <p class="text-xs text-muted-foreground">核心命题</p>
                   <p class="mt-0.5 line-clamp-3 text-sm">
                     {{ selectedVersion.snapshot.storyBible.premise || '未记录' }}
                   </p>
                 </div>
                 <div v-if="selectedVersion.snapshot.episodes.length">
-                  <p class="text-[11px] text-muted-foreground">分集</p>
+                  <p class="text-xs text-muted-foreground">分集</p>
                   <p class="mt-0.5 line-clamp-3 text-sm">
                     {{ selectedVersion.snapshot.episodes.slice(0, 5).map(item => `${item.index}. ${item.title}`).join('；') }}{{ selectedVersion.snapshot.episodes.length > 5 ? '…' : '' }}
                   </p>
@@ -2106,7 +2111,7 @@ function formatVersionTime(value: string) {
               v-for="(part, index) in pendingDraftDiff"
               :key="index"
               :class="part.added
-                ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                ? 'bg-success/15 text-success'
                 : part.removed
                   ? 'bg-destructive/10 text-destructive line-through'
                   : 'text-muted-foreground'"

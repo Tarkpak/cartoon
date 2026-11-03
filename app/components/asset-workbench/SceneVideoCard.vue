@@ -361,7 +361,7 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
                     >自动</span>
                     <span
                       v-if="option.locked"
-                      class="shrink-0 text-xs text-amber-600"
+                      class="shrink-0 text-xs text-warning"
                     >锁定</span>
                   </div>
                 </SelectItem>

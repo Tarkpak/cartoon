@@ -57,7 +57,7 @@ const sinceLastOutput = computed(() => Math.max(0, Math.floor(
         v-for="phase in phases"
         :key="phase.label"
         class="flex items-start gap-2"
-        :class="phase.status === 'error' ? 'text-destructive dark:text-red-400' : phase.status === 'running' ? 'text-foreground' : 'text-muted-foreground'"
+        :class="phase.status === 'error' ? 'text-destructive' : phase.status === 'running' ? 'text-foreground' : 'text-muted-foreground'"
         :aria-current="phase.status === 'running' || phase.status === 'error' ? 'step' : undefined"
       >
         <Check v-if="phase.status === 'done'" class="mt-px size-3.5 shrink-0 text-primary" aria-label="已完成" />
@@ -78,7 +78,7 @@ const sinceLastOutput = computed(() => Math.max(0, Math.floor(
       aria-live="polite"
       aria-atomic="true"
       class="mt-3 break-words border-t border-border/60 pt-2.5 leading-relaxed"
-      :class="failed ? 'text-destructive dark:text-red-400' : 'text-muted-foreground'"
+      :class="failed ? 'text-destructive' : 'text-muted-foreground'"
     >
       {{ state?.message || '任务已创建，等待模型响应…' }}
     </p>

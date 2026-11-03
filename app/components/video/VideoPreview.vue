@@ -135,10 +135,10 @@ const progressPercent = computed(() => {
     <!-- 错误状态 -->
     <div
       v-else-if="error"
-      class="aspect-video flex items-center justify-center bg-red-950/20"
+      class="aspect-video flex items-center justify-center bg-destructive/20"
     >
       <div class="text-center">
-        <p class="text-red-400 mb-3">
+        <p class="text-destructive mb-3">
           {{ error }}
         </p>
         <Button

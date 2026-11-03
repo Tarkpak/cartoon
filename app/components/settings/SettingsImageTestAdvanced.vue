@@ -124,7 +124,7 @@ async function upload(event: Event, key: 'mask' | 'markup') {
       <label v-if="options.sizeMode === 'size'" class="col-span-2 space-y-1.5 lg:col-span-2">
         <span class="text-xs text-muted-foreground">像素尺寸 · 宽 × 高</span>
         <Input v-model="options.size" class="h-9" placeholder="例如 1536x864" aria-label="像素尺寸" />
-        <p class="text-[11px] leading-relaxed" :class="pixelSizePreview.error ? 'text-destructive' : 'text-muted-foreground'" aria-live="polite">{{ pixelSizePreview.text }}</p>
+        <p class="text-xs leading-relaxed" :class="pixelSizePreview.error ? 'text-destructive' : 'text-muted-foreground'" aria-live="polite">{{ pixelSizePreview.text }}</p>
       </label>
       <label v-if="showResolution" class="space-y-1.5">
         <span class="text-xs text-muted-foreground">分辨率</span>
@@ -205,7 +205,7 @@ async function upload(event: Event, key: 'mask' | 'markup') {
           中间预览
           <Input v-model.number="options.partial_images" class="h-8 w-20" type="number" :min="0" :max="3" aria-label="中间预览数量" />
         </label>
-        <span v-if="options.stream" class="text-[11px] text-muted-foreground">请求完成后统一展示预览与最终图片</span>
+        <span v-if="options.stream" class="text-xs text-muted-foreground">请求完成后统一展示预览与最终图片</span>
       </div>
       <div v-if="hasReferences" class="mt-4 flex flex-wrap items-center gap-3 border-t border-border/60 pt-3">
         <template v-for="key in attachmentKinds" :key="key">
@@ -216,7 +216,7 @@ async function upload(event: Event, key: 'mask' | 'markup') {
           </label>
           <Button v-if="options[key]" type="button" variant="ghost" size="icon" class="h-7 w-7" :aria-label="key === 'mask' ? '移除蒙版' : '移除标注图'" @click="options[key] = ''"><X class="h-3.5 w-3.5" /></Button>
         </template>
-        <span class="text-[11px] text-muted-foreground">透明 PNG，尺寸与第一张参考图一致</span>
+        <span class="text-xs text-muted-foreground">透明 PNG，尺寸与第一张参考图一致</span>
       </div>
       <p v-if="uploadError" role="alert" class="mt-2 text-xs text-destructive">{{ uploadError }}</p>
     </details>

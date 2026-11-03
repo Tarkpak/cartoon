@@ -56,7 +56,7 @@ const categoryIcon = computed(() => resolveStyleCategoryIcon(props.stylePreset.c
       <!-- Default badge -->
       <div
         v-if="isDefault"
-        class="absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-yellow-500/90 px-1.5 py-0.5 text-xs font-medium text-white"
+        class="absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-warning/90 px-1.5 py-0.5 text-xs font-medium text-white"
       >
         <Star class="h-2.5 w-2.5" />
         默认
@@ -78,7 +78,7 @@ const categoryIcon = computed(() => resolveStyleCategoryIcon(props.stylePreset.c
           <Button
             variant="secondary"
             size="sm"
-            class="h-7 w-7 bg-white/90 p-0 text-destructive shadow-sm backdrop-blur-sm hover:bg-red-50"
+            class="h-7 w-7 bg-white/90 p-0 text-destructive shadow-sm backdrop-blur-sm hover:bg-destructive/10"
             :disabled="isDeleting"
             @click="$emit('delete', stylePreset.id)"
           >

@@ -363,7 +363,7 @@ async function confirmWritingTakeover() {
       </div>
       <div
         v-if="saveWarning"
-        class="shrink-0 bg-amber-500/5 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300"
+        class="shrink-0 bg-warning/5 px-4 py-2.5 text-sm text-warning"
       >
         {{ saveWarning }}
       </div>
@@ -437,7 +437,7 @@ async function confirmWritingTakeover() {
                     size="icon"
                     variant="ghost"
                     class="h-8 w-8 text-muted-foreground opacity-70 transition-opacity hover:text-destructive group-hover:opacity-100"
-                    title="删除项目"
+                    v-tooltip="'删除项目'"
                     aria-label="删除项目"
                     @click.stop="confirmDeleteProject(project, $event)"
                   >
@@ -454,13 +454,13 @@ async function confirmWritingTakeover() {
               </p>
 
               <div class="mt-4 flex flex-wrap items-center gap-2">
-                <span class="rounded-full bg-muted/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                <span class="rounded-full bg-muted/80 px-2.5 py-1 text-xs font-medium text-muted-foreground">
                   {{ project.totalScenes ? `${project.totalScenes} 个场景` : '尚未解析' }}
                 </span>
                 <span
-                  class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  class="rounded-full px-2.5 py-1 text-xs font-medium"
                   :class="project.status === 'completed'
-                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                    ? 'bg-success/10 text-success'
                     : project.status === 'in_progress'
                       ? 'bg-primary/10 text-primary'
                       : 'bg-muted text-muted-foreground'"
@@ -469,7 +469,7 @@ async function confirmWritingTakeover() {
                 </span>
                 <span
                   v-if="project.cloudSyncStatus"
-                  class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  class="rounded-full px-2.5 py-1 text-xs font-medium"
                   :class="project.cloudSyncStatus === 'conflict'
                     ? 'bg-destructive/10 text-destructive'
                     : 'bg-muted text-muted-foreground'"

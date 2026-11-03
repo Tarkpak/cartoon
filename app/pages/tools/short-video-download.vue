@@ -690,7 +690,7 @@ function getErrorMessage(error: unknown) {
                       variant="secondary"
                       size="icon"
                       class="absolute right-3 top-3 h-9 w-9 bg-background/85 shadow-sm backdrop-blur"
-                      :title="`下载第 ${currentImageIndex + 1} 张图片`"
+                      v-tooltip="`下载第 ${currentImageIndex + 1} 张图片`"
                       :aria-label="`下载第 ${currentImageIndex + 1} 张图片`"
                       :disabled="downloadingImage || !currentImageUrl"
                       @click="downloadCurrentImage"
@@ -761,7 +761,7 @@ function getErrorMessage(error: unknown) {
                     variant="secondary"
                     size="icon"
                     class="absolute right-3 top-3 h-9 w-9 bg-background/85 opacity-90 shadow-sm backdrop-blur transition-opacity hover:bg-background group-hover:opacity-100"
-                    title="全屏预览"
+                    v-tooltip="'全屏预览'"
                     aria-label="全屏预览"
                     @click="openPreviewFullscreen"
                   >
@@ -947,7 +947,7 @@ function getErrorMessage(error: unknown) {
                     variant="secondary"
                     size="icon"
                     class="absolute right-3 top-3 h-9 w-9 bg-background/85 shadow-sm backdrop-blur"
-                    :title="`下载第 ${historyImageIndex + 1} 张图片`"
+                    v-tooltip="`下载第 ${historyImageIndex + 1} 张图片`"
                     :aria-label="`下载第 ${historyImageIndex + 1} 张图片`"
                     :disabled="downloadingImage || downloading || !historyCurrentImageUrl"
                     @click="downloadHistoryCurrentImage(selectedHistoryItem)"
@@ -1024,7 +1024,7 @@ function getErrorMessage(error: unknown) {
                 variant="secondary"
                 size="icon"
                 class="absolute right-3 top-3 h-9 w-9 bg-background/80 opacity-90 shadow-sm backdrop-blur transition-opacity hover:bg-background group-hover:opacity-100"
-                title="全屏预览"
+                v-tooltip="'全屏预览'"
                 aria-label="全屏预览"
                 @click="openHistoryPreviewFullscreen"
               >
@@ -1147,7 +1147,7 @@ function getErrorMessage(error: unknown) {
             </Button>
             <DropdownMenu v-if="selectedHistoryItem.path || selectedHistoryItem.downloadDir">
               <DropdownMenuTrigger as-child>
-                <Button type="button" variant="outline" size="icon" title="打开下载结果" aria-label="打开下载结果">
+                <Button type="button" variant="outline" size="icon" v-tooltip="'打开下载结果'" aria-label="打开下载结果">
                   <MoreHorizontal class="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>

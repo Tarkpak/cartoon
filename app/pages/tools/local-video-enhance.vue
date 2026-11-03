@@ -390,7 +390,7 @@ async function submitLocalEnhance() {
                             variant="ghost"
                             size="icon"
                             class="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            title="移除"
+                            v-tooltip="'移除'"
                             @click="removeQueueItem(item.id)"
                           >
                             <Trash2 class="h-4 w-4" />

@@ -222,7 +222,7 @@ function formatEntryTime(entry: AssetVideoHistoryEntry): string {
                 </span>
                 <span
                   v-if="entry.id === previewEntryId"
-                  class="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-emerald-600"
+                  class="rounded-full bg-success/10 px-1.5 py-0.5 text-success"
                 >
                   预览中
                 </span>

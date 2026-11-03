@@ -229,7 +229,7 @@ function openImagePreview() {
         </span>
         <span
           v-if="!uploading && !generating"
-          class="px-3 text-center text-[11px] leading-tight text-muted-foreground/80"
+          class="px-3 text-center text-xs leading-tight text-muted-foreground/80"
         >
           {{ uploadCopy.hint }}
         </span>
@@ -272,7 +272,7 @@ function openImagePreview() {
           </div>
           <button
             type="button"
-            class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-60"
+            class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium transition-colors disabled:opacity-60"
             :class="asset.voiceAsset?.locked
               ? 'bg-primary/15 text-primary hover:bg-primary/20'
               : 'bg-background/70 text-muted-foreground hover:text-foreground'"
@@ -326,7 +326,7 @@ function openImagePreview() {
         </button>
         <span
           v-if="durationText"
-          class="pointer-events-none absolute bottom-2 right-2 rounded bg-black/60 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white"
+          class="pointer-events-none absolute bottom-2 right-2 rounded bg-black/60 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white"
         >
           {{ durationText }}
         </span>
@@ -397,7 +397,7 @@ function openImagePreview() {
         {{ asset.description || '添加描述…' }}
       </button>
 
-      <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+      <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         <button
           v-if="mentionToken"
           type="button"

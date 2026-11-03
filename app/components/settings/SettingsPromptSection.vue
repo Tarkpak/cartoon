@@ -343,7 +343,7 @@ async function handleDirectorPreferencesSave(content: string) {
                     <span class="truncate">{{ selectedEditorOption.name }}</span>
                     <span
                       v-if="selectedEditorOption.isCustomized && !isActiveReadonlyPromptProfile"
-                      class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                      class="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning"
                     >
                       已自定义
                     </span>
@@ -365,7 +365,7 @@ async function handleDirectorPreferencesSave(content: string) {
                         <span class="truncate text-sm font-medium">{{ option.name }}</span>
                         <span
                           v-if="option.isCustomized && !isActiveReadonlyPromptProfile"
-                          class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                          class="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning"
                         >
                           已自定义
                         </span>

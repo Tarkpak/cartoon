@@ -58,6 +58,18 @@ function triggerVoiceUploadInput(characterId: string) {
   input?.click()
 }
 
+const LANGUAGE_OPTIONS = [
+  { value: 'mandarin', label: '普通话' },
+  { value: 'chongqing', label: '重庆方言' },
+  { value: 'dongbei', label: '东北话' },
+  { value: 'cantonese', label: '粤语' },
+  { value: 'sichuan', label: '四川话' },
+  { value: 'wu', label: '吴语' },
+  { value: 'english', label: '英语' },
+  { value: 'japanese', label: '日语' },
+  { value: 'custom', label: '自定义' }
+]
+
 const localDraft = reactive({
   name: '',
   role: '配角',
@@ -278,15 +290,13 @@ watch(
 </script>
 
 <template>
-  <div
+  <EmptyState
     v-if="characters.length === 0"
-    class="flex flex-col items-center justify-center gap-2 rounded-xl bg-muted/15 py-10 text-muted-foreground"
-  >
-    <User class="h-8 w-8 opacity-40" />
-    <p class="text-sm">
-      暂无角色资产
-    </p>
-  </div>
+    :icon="User"
+    title="暂无角色资产"
+    description="解析剧本后会自动提取登场角色；也可以点击右上角「添加角色」手动创建。"
+    class="rounded-xl bg-muted/15"
+  />
   <div
     v-else
     class="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3"
@@ -319,7 +329,7 @@ watch(
               v-else
               class="h-7 w-7 opacity-50"
             />
-            <span class="text-[11px]">{{ char.generating ? '正在生成角色图…' : '还没有角色图' }}</span>
+            <span class="text-xs">{{ char.generating ? '正在生成角色图…' : '还没有角色图' }}</span>
           </div>
           <div
             v-if="char.generating && char.baseImage"
@@ -337,14 +347,14 @@ watch(
             <span class="shrink-0 text-xs text-muted-foreground/70">{{ resolveCharacterRoleLabel(char.role) }}</span>
             <span
               v-if="!char.parentCharacterId && resolveVariantCount(char) > 0"
-              class="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+              class="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
             >
               {{ resolveVariantCount(char) }} 个变体
             </span>
           </div>
           <div
             v-if="char.variantName || char.parentCharacterId"
-            class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"
+            class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"
           >
             <span class="rounded bg-primary/10 px-1.5 py-0.5 text-primary">变体</span>
             <span v-if="char.variantName">{{ char.variantName }}</span>
@@ -363,9 +373,7 @@ watch(
                 class="h-8 text-xs"
                 placeholder="角色定位，如关键证人"
               />
-              <select v-model="localDraft.language" class="h-8 w-full rounded-md border bg-background px-2 text-xs">
-                <option value="mandarin">普通话</option><option value="chongqing">重庆方言</option><option value="dongbei">东北话</option><option value="cantonese">粤语</option><option value="sichuan">四川话</option><option value="wu">吴语</option><option value="english">英语</option><option value="japanese">日语</option><option value="custom">自定义</option>
-              </select>
+              <SelectField v-model="localDraft.language" size="sm" aria-label="角色语言" :options="LANGUAGE_OPTIONS" />
               <Input v-if="localDraft.language === 'custom' || localDraft.languageNote" v-model="localDraft.languageNote" class="h-8 text-xs" placeholder="语言补充要求" />
               <Textarea
                 v-model="localDraft.appearance"
@@ -396,7 +404,7 @@ watch(
               <button
                 type="button"
                 data-asset-tab
-                class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 :class="char.voiceAsset?.audioUrl ? 'bg-primary/10 text-primary hover:bg-primary/15' : 'bg-muted text-muted-foreground hover:text-foreground'"
                 :aria-expanded="isVoiceExpanded(char.id)"
                 @click="toggleVoiceExpanded(char.id)"
@@ -410,7 +418,7 @@ watch(
               </button>
               <span
                 v-if="char.arkAsset?.status"
-                class="inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
+                class="inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs"
                 :class="resolveArkAssetClass(char)"
                 :title="char.arkAsset?.assetId || char.arkAsset?.errorMessage || ''"
               >
@@ -511,12 +519,12 @@ watch(
                 </p>
                 <span
                   v-if="resolveVariantArkReadyCount(resolveCharacterVariants(char)) > 0"
-                  class="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700"
+                  class="rounded-full border border-success/30 bg-success/10 px-1.5 py-0.5 text-xs font-medium text-success"
                 >
                   {{ resolveVariantArkReadyCount(resolveCharacterVariants(char)) }} 已入库
                 </span>
               </div>
-              <p class="text-[11px] text-muted-foreground">
+              <p class="text-xs text-muted-foreground">
                 {{ resolveVariantReadyCount(resolveCharacterVariants(char)) }}/{{ resolveVariantCount(char) }} 已就绪
               </p>
             </div>
@@ -555,7 +563,7 @@ watch(
             </div>
             <span
               v-if="resolveVariantCount(char) > 5"
-              class="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+              class="rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
             >
               +{{ resolveVariantCount(char) - 5 }}
             </span>
@@ -598,14 +606,14 @@ watch(
                       <span class="truncate text-xs font-medium">{{ variant.name }}</span>
                       <span
                         v-if="variant.variantName"
-                        class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                        class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary"
                       >
                         {{ variant.variantName }}
                       </span>
-                      <span class="text-[11px] text-muted-foreground">{{ resolveStatusText(variant) }}</span>
+                      <span class="text-xs text-muted-foreground">{{ resolveStatusText(variant) }}</span>
                     </div>
                     <span
-                      class="inline-flex max-w-[46%] shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-medium"
+                      class="inline-flex max-w-[46%] shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs font-medium"
                       :class="resolveArkAssetClass(variant)"
                       :title="variant.arkAsset?.assetId || variant.arkAsset?.errorMessage || '未绑定虚拟人像'"
                     >

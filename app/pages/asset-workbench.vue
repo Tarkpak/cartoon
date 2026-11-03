@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import ProjectEditSessionBanner from '@/components/projects/ProjectEditSessionBanner.vue'
 import ProjectMembersDialog from '@/components/projects/ProjectMembersDialog.vue'
+import ProjectCollaboratorsMenu from '@/components/projects/ProjectCollaboratorsMenu.vue'
 import ProjectConflictDialog from '@/components/projects/ProjectConflictDialog.vue'
-import { Users } from 'lucide-vue-next'
 import { useDebounceFn } from '@vueuse/core'
 import type { CharacterVoiceAsset } from '#shared/types/character'
 import type { LibraryAsset } from '#shared/types/library'
@@ -262,6 +262,10 @@ const {
 const { confirm } = useConfirm()
 const canEditProject = computed(() => projectEditable.value && (!projectAccess.value || projectAccessCan(projectAccess.value, 'edit')))
 const canExportProject = computed(() => !projectAccess.value || projectAccessCan(projectAccess.value, 'export'))
+const readOnlyHint = computed(() => {
+  if (!projectAccess.value || projectAccessCan(projectAccess.value, 'edit') || acquiringEditSession.value) return null
+  return `当前以只读权限打开项目。你可以查看内容${canExportProject.value ? '并导出结果' : ''}，修改和生成操作已受限。`
+})
 const projectMembersOpen = ref(false)
 
 const selectedSceneId = ref<string>('')
@@ -3861,6 +3865,7 @@ function reportWorkbenchActivity() {
       :auto-run-error="autoRunError"
       :save-error="saveError"
       :save-warning="saveWarning"
+      :read-only-hint="readOnlyHint"
       @back="router.push('/projects')"
       @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
     >
@@ -3874,27 +3879,31 @@ function reportWorkbenchActivity() {
         <ProjectEditSessionBanner
           compact
           :session="editSession"
-          :participants="collaborationParticipants"
           :busy="acquiringEditSession"
-          @retry="requestProjectEditing()"
-          @takeover="confirmProjectTakeover"
-          @download-backup="downloadEditBackup()"
         />
-        <Button v-if="projectId && projectAccessCan(projectAccess, 'manage_members')" variant="outline" size="sm" class="h-8 shrink-0 gap-1.5 px-2.5 text-xs" @click="projectMembersOpen = true">
-          <Users class="h-4 w-4" />项目成员
-        </Button>
+        <ProjectCollaboratorsMenu
+          v-if="projectId"
+          :session="editSession"
+          :participants="collaborationParticipants"
+          :can-manage="projectAccessCan(projectAccess, 'manage_members')"
+          @manage="projectMembersOpen = true"
+        />
       </template>
     </AssetWorkbenchHeaderBar>
 
+    <!-- Only takes a row when the session needs action (locked, offline, conflict). -->
+    <ProjectEditSessionBanner
+      alert-only
+      :session="editSession"
+      :participants="collaborationParticipants"
+      :busy="acquiringEditSession"
+      @retry="requestProjectEditing()"
+      @takeover="confirmProjectTakeover"
+      @download-backup="downloadEditBackup()"
+    />
+
     <ProjectMembersDialog v-if="projectId" v-model:open="projectMembersOpen" :project-id="projectId" />
     <ProjectConflictDialog :preview="collaborationMergePreview" :busy="saving" :error="saveError" @cancel="cancelProjectMerge" @apply="applyProjectMerge" />
-
-    <div
-      v-if="projectAccess && !projectAccessCan(projectAccess, 'edit') && !acquiringEditSession"
-      class="shrink-0 rounded-md bg-muted/45 px-3 py-2 text-xs text-muted-foreground"
-    >
-      当前以只读权限打开项目。你可以查看内容{{ canExportProject ? '并导出结果' : '' }}，修改和生成操作已受限。
-    </div>
 
     <AssetWorkbenchParseStage
       v-if="activeAutoStage === 'parse'"
@@ -4044,6 +4053,7 @@ function reportWorkbenchActivity() {
           :set-scene-chat-composer-text="setSceneChatComposerText"
           :exporting-script-docx="exportingScriptDocx"
           :on-export-formatted-script-docx="handleExportFormattedScriptDocx"
+          :on-go-to-parse="() => selectAutoStage('parse')"
           :on-parse-episode="(episodeId) => handleParseSingleEpisode({ id: episodeId })"
           :on-select-scene="selectScene"
           :on-open-scene-edit="openSceneEditWhenEditable"

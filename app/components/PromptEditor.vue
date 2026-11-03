@@ -5,6 +5,7 @@ import {
   TriangleAlert
 } from 'lucide-vue-next'
 import { EditorContent } from '@tiptap/vue-3'
+import { onKeyStroke } from '@vueuse/core'
 import type { PromptTemplate } from '#shared/types/prompt-template'
 import { getPromptVariableTag as getVariableTag } from '@/lib/prompt-editor'
 import { usePromptTemplateEditor } from '@/composables/usePromptTemplateEditor'
@@ -102,6 +103,13 @@ async function confirmRestoreVersion() {
     pendingRestoreVersionId.value = ''
   }
 }
+
+// Escape leaves fullscreen, unless a dialog on top (history, confirm) owns it.
+onKeyStroke('Escape', () => {
+  if (!isFullscreen.value) return
+  if (document.querySelector('[role="dialog"][data-state="open"]')) return
+  isFullscreen.value = false
+})
 </script>
 
 <template>
@@ -161,7 +169,7 @@ async function confirmRestoreVersion() {
         >
           <div
             v-if="variableValidation.undefinedVars.length > 0"
-            class="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400"
+            class="flex items-center gap-2 text-sm text-warning"
           >
             <AlertTriangle class="h-4 w-4 flex-shrink-0" />
             <span>未定义的变量: {{ variableValidation.undefinedVars.map(v => getVariableTag(v)).join(', ') }}</span>
@@ -187,8 +195,8 @@ async function confirmRestoreVersion() {
               :key="idx"
               :class="[
                 'px-2 py-0.5 whitespace-pre-wrap',
-                line.type === 'add' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : '',
-                line.type === 'remove' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' : ''
+                line.type === 'add' ? 'bg-success/10 text-success' : '',
+                line.type === 'remove' ? 'bg-destructive/10 text-destructive' : ''
               ]"
             >
               <span class="inline-block w-6 text-muted-foreground">{{ line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ' }}</span>

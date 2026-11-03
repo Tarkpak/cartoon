@@ -143,7 +143,7 @@ defineProps<{
               : { left: `${sceneDescriptionMentionPosition?.left ?? 0}px`, top: `${sceneDescriptionMentionPosition?.top ?? 0}px` }"
             @mousedown.prevent
           >
-            <div class="flex items-center justify-between border-b px-3 py-1.5 text-[11px] text-muted-foreground">
+            <div class="flex items-center justify-between border-b px-3 py-1.5 text-xs text-muted-foreground">
               <span>引用资产</span>
               <span class="flex items-center gap-1">
                 <kbd class="rounded border bg-muted px-1 font-sans">↑↓</kbd>选择
@@ -173,7 +173,7 @@ defineProps<{
                 >
                 <div
                   v-else
-                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-[11px] text-muted-foreground"
+                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-xs text-muted-foreground"
                 >
                   {{ resolveAssetTypeLabel(item.asset.type) }}
                 </div>
@@ -187,7 +187,7 @@ defineProps<{
                 </div>
                 <Badge
                   variant="secondary"
-                  class="shrink-0 px-1.5 py-0 text-[11px] font-normal"
+                  class="shrink-0 px-1.5 py-0 text-xs font-normal"
                 >
                   {{ resolveAssetTypeLabel(item.asset.type) }}
                 </Badge>

@@ -58,9 +58,9 @@ const emit = defineEmits<{
 
 const statusConfig = {
   pending: { icon: Circle, color: 'text-muted-foreground', bg: 'bg-muted', label: '待处理', spin: false },
-  generating: { icon: Loader2, color: 'text-blue-500', bg: 'bg-blue-100', label: '生成中', spin: true },
-  completed: { icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-100', label: '已完成', spin: false },
-  failed: { icon: Circle, color: 'text-red-500', bg: 'bg-red-100', label: '失败', spin: false }
+  generating: { icon: Loader2, color: 'text-info', bg: 'bg-info/10', label: '生成中', spin: true },
+  completed: { icon: CheckCircle2, color: 'text-success', bg: 'bg-success/10', label: '已完成', spin: false },
+  failed: { icon: Circle, color: 'text-destructive', bg: 'bg-destructive/10', label: '失败', spin: false }
 }
 
 // 景别标签映射
@@ -173,7 +173,7 @@ const transitionLabel = computed(() => {
     class="border rounded-xl p-4 cursor-pointer transition group"
     :class="[
       active ? 'border-primary bg-accent shadow-md' : 'hover:bg-muted/35 hover:bg-accent/50',
-      scene.status === 'failed' ? 'border-red-200' : ''
+      scene.status === 'failed' ? 'border-destructive/30' : ''
     ]"
     @click="emit('click', scene)"
   >
@@ -264,7 +264,7 @@ const transitionLabel = computed(() => {
       <Badge
         v-if="shotTypeLabel"
         variant="outline"
-        class="text-xs bg-blue-50 border-blue-200 text-blue-700"
+        class="text-xs bg-muted/40 text-foreground/80"
       >
         <Camera class="w-3 h-3 mr-1" />
         {{ shotTypeLabel }}
@@ -272,7 +272,7 @@ const transitionLabel = computed(() => {
       <Badge
         v-if="cameraMovementLabel && cameraMovementLabel !== '定镜'"
         variant="outline"
-        class="text-xs bg-green-50 border-green-200 text-green-700"
+        class="text-xs bg-muted/40 text-foreground/80"
       >
         <Move class="w-3 h-3 mr-1" />
         {{ cameraMovementLabel }}
@@ -280,7 +280,7 @@ const transitionLabel = computed(() => {
       <Badge
         v-if="cameraAngleLabel && scene.cameraAngle !== 'eye_level'"
         variant="outline"
-        class="text-xs bg-cyan-50 border-cyan-200 text-cyan-700"
+        class="text-xs bg-muted/40 text-foreground/80"
       >
         <Camera class="w-3 h-3 mr-1" />
         {{ cameraAngleLabel }}
@@ -288,7 +288,7 @@ const transitionLabel = computed(() => {
       <Badge
         v-if="speedEffectLabel && scene.speedEffect !== 'normal'"
         variant="outline"
-        class="text-xs bg-amber-50 border-amber-200 text-amber-700"
+        class="text-xs bg-muted/40 text-foreground/80"
       >
         <Gauge class="w-3 h-3 mr-1" />
         {{ speedEffectLabel }}
@@ -296,7 +296,7 @@ const transitionLabel = computed(() => {
       <Badge
         v-if="transitionLabel && transitionLabel !== '硬切'"
         variant="outline"
-        class="text-xs bg-purple-50 border-purple-200 text-purple-700"
+        class="text-xs bg-muted/40 text-foreground/80"
       >
         <Layers class="w-3 h-3 mr-1" />
         {{ transitionLabel }}
@@ -336,7 +336,7 @@ const transitionLabel = computed(() => {
       class="mt-3"
     >
       <div class="h-1 bg-muted rounded-full overflow-hidden">
-        <div class="h-full bg-blue-500 animate-pulse w-1/2" />
+        <div class="h-full bg-info animate-pulse w-1/2" />
       </div>
     </div>
   </div>

@@ -115,12 +115,14 @@ declare global {
   const useDesktopFfmpeg: typeof import('./app/composables/useDesktopFfmpeg')['useDesktopFfmpeg']
   const useDesktopUpdater: typeof import('./app/composables/useDesktopUpdater')['useDesktopUpdater']
   const useGenerationCompletionNotification: typeof import('./app/composables/useGenerationCompletionNotification')['useGenerationCompletionNotification']
+  const useGlobalTasks: typeof import('./app/composables/useGlobalTasks')['useGlobalTasks']
   const useHead: typeof import('./app/composables/useNuxtCompat')['useHead']
   const useId: typeof import('vue')['useId']
   const useImagePromptReferenceEditor: typeof import('./app/composables/useImagePromptReferenceEditor')['useImagePromptReferenceEditor']
   const useImagePromptReferenceMentions: typeof import('./app/composables/useImagePromptReferenceMentions')['useImagePromptReferenceMentions']
   const useIncrementalList: typeof import('./app/composables/useIncrementalList')['useIncrementalList']
   const useLink: typeof import('vue-router')['useLink']
+  const useModalOverlay: typeof import('./app/composables/useModalOverlay')['useModalOverlay']
   const useModel: typeof import('vue')['useModel']
   const useModelDebugLogs: typeof import('./app/composables/useModelDebugLogs')['useModelDebugLogs']
   const useModelReasoningSettings: typeof import('./app/composables/useModelReasoningSettings')['useModelReasoningSettings']
@@ -331,12 +333,14 @@ declare module 'vue' {
     readonly useDesktopFfmpeg: UnwrapRef<typeof import('./app/composables/useDesktopFfmpeg')['useDesktopFfmpeg']>
     readonly useDesktopUpdater: UnwrapRef<typeof import('./app/composables/useDesktopUpdater')['useDesktopUpdater']>
     readonly useGenerationCompletionNotification: UnwrapRef<typeof import('./app/composables/useGenerationCompletionNotification')['useGenerationCompletionNotification']>
+    readonly useGlobalTasks: UnwrapRef<typeof import('./app/composables/useGlobalTasks')['useGlobalTasks']>
     readonly useHead: UnwrapRef<typeof import('./app/composables/useNuxtCompat')['useHead']>
     readonly useId: UnwrapRef<typeof import('vue')['useId']>
     readonly useImagePromptReferenceEditor: UnwrapRef<typeof import('./app/composables/useImagePromptReferenceEditor')['useImagePromptReferenceEditor']>
     readonly useImagePromptReferenceMentions: UnwrapRef<typeof import('./app/composables/useImagePromptReferenceMentions')['useImagePromptReferenceMentions']>
     readonly useIncrementalList: UnwrapRef<typeof import('./app/composables/useIncrementalList')['useIncrementalList']>
     readonly useLink: UnwrapRef<typeof import('vue-router')['useLink']>
+    readonly useModalOverlay: UnwrapRef<typeof import('./app/composables/useModalOverlay')['useModalOverlay']>
     readonly useModel: UnwrapRef<typeof import('vue')['useModel']>
     readonly useModelDebugLogs: UnwrapRef<typeof import('./app/composables/useModelDebugLogs')['useModelDebugLogs']>
     readonly useModelReasoningSettings: UnwrapRef<typeof import('./app/composables/useModelReasoningSettings')['useModelReasoningSettings']>

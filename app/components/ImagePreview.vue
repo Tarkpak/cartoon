@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useCachedOverlayActive } from '@/composables/useCachedOverlayActive'
+import { useModalOverlay } from '@/composables/useModalOverlay'
 
 const overlayActive = useCachedOverlayActive()
 
@@ -202,11 +203,16 @@ function download() {
   link.click()
 }
 
-// ESC 键关闭
+const previewRoot = ref<HTMLElement | null>(null)
+useModalOverlay({
+  open: computed(() => props.open && overlayActive.value),
+  root: previewRoot,
+  onClose: () => close()
+})
+
+// Zoom shortcuts (Escape is handled by useModalOverlay)
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    close()
-  } else if (e.key === '+' || e.key === '=') {
+  if (e.key === '+' || e.key === '=') {
     zoomIn()
   } else if (e.key === '-') {
     zoomOut()
@@ -246,7 +252,12 @@ onUnmounted(() => {
     >
       <div
         v-if="open && overlayActive"
-        class="pointer-events-auto fixed inset-0 z-[9999] flex items-center justify-center overscroll-none"
+        ref="previewRoot"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="alt"
+        tabindex="-1"
+        class="pointer-events-auto fixed inset-0 z-[9999] flex items-center justify-center overscroll-none focus:outline-none"
       >
         <!-- 背景遮罩 -->
         <div
@@ -260,7 +271,7 @@ onUnmounted(() => {
             variant="secondary"
             size="icon"
             class="h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 text-white"
-            title="缩小"
+            v-tooltip="'缩小'"
             aria-label="缩小"
             @click="zoomOut"
           >
@@ -273,7 +284,7 @@ onUnmounted(() => {
             variant="secondary"
             size="icon"
             class="h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 text-white"
-            title="放大"
+            v-tooltip="'放大'"
             aria-label="放大"
             @click="zoomIn"
           >
@@ -283,7 +294,7 @@ onUnmounted(() => {
             variant="secondary"
             size="icon"
             class="h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 text-white"
-            title="重置视图"
+            v-tooltip="'重置视图'"
             aria-label="重置视图"
             @click="resetState"
           >
@@ -293,7 +304,7 @@ onUnmounted(() => {
             variant="secondary"
             size="icon"
             class="h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 text-white"
-            title="旋转"
+            v-tooltip="'旋转'"
             aria-label="旋转"
             @click="rotate"
           >
@@ -303,7 +314,7 @@ onUnmounted(() => {
             variant="secondary"
             size="icon"
             class="h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 text-white"
-            title="下载"
+            v-tooltip="'下载'"
             aria-label="下载"
             @click="download"
           >
@@ -313,7 +324,7 @@ onUnmounted(() => {
             variant="secondary"
             size="icon"
             class="h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 text-white"
-            title="关闭"
+            v-tooltip="'关闭'"
             aria-label="关闭"
             @click="close"
           >

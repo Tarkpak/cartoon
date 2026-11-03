@@ -400,9 +400,9 @@ function profileStatusLabel(profile: VoiceProfile): string {
 }
 
 function statusClass(status: string): string {
-  if (status === 'completed' || status === 'ready' || status === 'active') return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+  if (status === 'completed' || status === 'ready' || status === 'active') return 'bg-success/10 text-success'
   if (status === 'failed' || status === 'not_found') return 'bg-destructive/10 text-destructive'
-  return 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+  return 'bg-warning/10 text-warning'
 }
 
 function profileStatusClass(profile: VoiceProfile): string {
@@ -719,25 +719,11 @@ onBeforeUnmount(() => {
       description="使用官方音色或参考素材生成声音，并将结果直接沉淀到个人资源库。"
     >
       <template #actions>
-        <div
-          class="flex rounded-xl bg-muted/25 p-1"
-          role="tablist"
+        <SegmentedTabs
+          v-model="activeView"
+          :items="viewOptions"
           aria-label="声音工作台页面"
-        >
-          <button
-            v-for="item in viewOptions"
-            :key="item.value"
-            type="button"
-            role="tab"
-            :aria-selected="activeView === item.value"
-            class="inline-flex h-8 min-w-0 items-center rounded-sm px-3 text-sm font-medium text-muted-foreground transition-[color,background-color,box-shadow,transform] duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:translate-y-px"
-            :class="activeView === item.value ? 'bg-background text-foreground shadow-sm' : ''"
-            @click="activeView = item.value"
-          >
-            <component :is="item.icon" class="mr-2 h-4 w-4 shrink-0" />
-            <span class="truncate">{{ item.label }}</span>
-          </button>
-        </div>
+        />
       </template>
     </AppPageHeader>
 
@@ -746,30 +732,20 @@ onBeforeUnmount(() => {
       class="flex shrink-0 flex-wrap items-center gap-3 border-b bg-muted/10 px-4 py-3 sm:px-6"
     >
       <span class="hidden text-xs font-medium text-muted-foreground sm:inline">生成方式</span>
-      <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1 rounded-xl bg-muted/25 p-0.5 sm:flex-none" role="tablist" aria-label="声音生成方式">
-        <button
-          v-for="item in modeOptions"
-          :key="item.value"
-          type="button"
-          role="tab"
-          :aria-selected="generationMode === item.value"
-          class="inline-flex h-8 min-w-0 items-center rounded-sm px-3 text-sm text-muted-foreground transition-[color,background-color,transform] duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px"
-          :class="generationMode === item.value ? 'bg-accent font-medium text-foreground' : ''"
-          @click="generationMode = item.value"
-        >
-          <component :is="item.icon" class="mr-2 h-4 w-4 shrink-0" />
-          <span class="truncate">{{ item.label }}</span>
-        </button>
-      </div>
+      <SegmentedTabs
+        v-model="generationMode"
+        :items="modeOptions"
+        aria-label="声音生成方式"
+      />
     </div>
 
     <AppPageContent scroll inner-class="w-full max-w-6xl space-y-5">
       <div
         v-if="health && !health.configured"
-        class="flex flex-col gap-3 border border-amber-500/30 bg-amber-500/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+        class="flex flex-col gap-3 border border-warning/30 bg-warning/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
       >
         <div class="flex items-start gap-3">
-          <CircleAlert class="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <CircleAlert class="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <div>
             <p class="text-sm font-medium">豆包语音尚未配置</p>
             <p class="mt-0.5 text-xs text-muted-foreground">请联系管理员在后台供应商管理中配置豆包语音 API Key。</p>
@@ -958,9 +934,9 @@ onBeforeUnmount(() => {
         <div v-else-if="activeView === 'clone'" class="grid gap-5 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
           <section class="space-y-5 border bg-background p-5 shadow-sm">
             <div><h2 class="text-base font-semibold">创建固定音色</h2><p class="mt-1 text-xs text-muted-foreground">录制或上传清晰的单人声音样本，先训练试听，确认效果后再决定是否付费启用。</p></div>
-            <div class="border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-xs leading-5">
+            <div class="border border-warning/30 bg-warning/5 px-3 py-3 text-xs leading-5">
               <div class="flex items-start gap-2">
-                <CircleAlert class="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <CircleAlert class="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                 <div class="min-w-0">
                   <p class="font-medium text-foreground">后付费音色：¥138 / 个</p>
                   <p class="mt-1 text-muted-foreground">提交训练不会立即收取槽位费；首次正式生成语音时收费，生成内容另按用量计费。正式调用后音色会锁定，不能再次训练；试听音色 7 天内未正式调用会由火山引擎删除。</p>
@@ -1010,16 +986,16 @@ onBeforeUnmount(() => {
             <div v-if="profiles.length === 0" class="flex min-h-56 flex-col items-center justify-center border border-dashed text-muted-foreground"><MicVocal class="mb-2 h-6 w-6" /><p class="text-sm">还没有复刻音色</p></div>
             <div class="grid gap-3 md:grid-cols-2">
               <article v-for="profile in profiles" :key="profile.id" class="space-y-3 border bg-background p-4 shadow-sm">
-                <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h3 class="truncate text-sm font-semibold">{{ profile.name }}</h3><p class="mt-1 truncate font-mono text-[11px] text-muted-foreground">{{ profile.speakerId }}</p></div><span class="shrink-0 px-2 py-1 text-[11px]" :class="profileStatusClass(profile)">{{ profileStatusLabel(profile) }}</span></div>
+                <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h3 class="truncate text-sm font-semibold">{{ profile.name }}</h3><p class="mt-1 truncate font-mono text-xs text-muted-foreground">{{ profile.speakerId }}</p></div><span class="shrink-0 px-2 py-1 text-xs" :class="profileStatusClass(profile)">{{ profileStatusLabel(profile) }}</span></div>
                 <audio v-if="profile.previewAudioUrl || profile.sourceAudioUrl" class="h-9 w-full" controls preload="metadata" :src="profile.previewAudioUrl || profile.sourceAudioUrl" />
                 <p v-if="profile.errorMessage" class="text-xs text-destructive">{{ profile.errorMessage }}</p>
                 <div class="flex items-center justify-between gap-3 border-t pt-3">
                   <span class="text-xs text-muted-foreground">{{ formatDate(profile.updatedAt) }}</span>
                   <div class="flex items-center gap-1">
                     <Button v-if="(profile.status === 'ready' || profile.status === 'active') && !profile.activatedAt" size="sm" class="gap-1.5 transition-transform active:scale-[0.96]" :disabled="activatingProfileId === profile.id" @click="activateProfile(profile)"><Loader2 v-if="activatingProfileId === profile.id" class="h-3.5 w-3.5 animate-spin" /><Check v-else class="h-3.5 w-3.5" />¥138 启用</Button>
-                    <span v-else-if="profile.activatedAt" class="inline-flex items-center gap-1 text-xs text-emerald-600"><Check class="h-3.5 w-3.5" />已启用</span>
-                    <Button size="icon" variant="ghost" class="h-8 w-8 active:scale-[0.96] transition-transform" title="刷新状态" @click="refreshProfile(profile)"><Loader2 v-if="refreshingProfileId === profile.id" class="h-4 w-4 animate-spin" /><RefreshCw v-else class="h-4 w-4" /></Button>
-                    <Button size="icon" variant="ghost" class="h-8 w-8 text-muted-foreground hover:text-destructive active:scale-[0.96] transition-transform" title="归档" @click="archiveProfile(profile)"><Archive class="h-4 w-4" /></Button>
+                    <span v-else-if="profile.activatedAt" class="inline-flex items-center gap-1 text-xs text-success"><Check class="h-3.5 w-3.5" />已启用</span>
+                    <Button size="icon" variant="ghost" class="h-8 w-8 active:scale-[0.96] transition-transform" v-tooltip="'刷新状态'" @click="refreshProfile(profile)"><Loader2 v-if="refreshingProfileId === profile.id" class="h-4 w-4 animate-spin" /><RefreshCw v-else class="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" class="h-8 w-8 text-muted-foreground hover:text-destructive active:scale-[0.96] transition-transform" v-tooltip="'归档'" @click="archiveProfile(profile)"><Archive class="h-4 w-4" /></Button>
                   </div>
                 </div>
               </article>
@@ -1043,16 +1019,15 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-if="tasks.length === 0" class="flex min-h-56 flex-col items-center justify-center rounded-xl bg-muted/15 bg-muted/10 p-8 text-center">
-            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <History class="h-6 w-6" />
-            </div>
-            <p class="mt-4 text-base font-semibold">暂无声音任务</p>
-            <p class="mt-1 text-sm text-muted-foreground">提交声音生成后，任务会出现在这里。</p>
-            <Button size="sm" class="mt-4" @click="activeView = 'generate'">
-              提交生成
-            </Button>
-          </div>
+          <EmptyState
+            v-if="tasks.length === 0"
+            :icon="History"
+            title="暂无声音任务"
+            description="提交声音生成后，任务会出现在这里。"
+            action-label="提交生成"
+            class="min-h-56 rounded-xl bg-muted/10"
+            @action="activeView = 'generate'"
+          />
 
           <div v-else class="overflow-hidden rounded-xl bg-muted/25">
             <div class="hidden grid-cols-[minmax(0,1.5fr)_minmax(220px,1fr)_120px_150px] gap-4 border-b bg-muted/30 px-4 py-2.5 text-xs font-medium text-muted-foreground lg:grid">
@@ -1078,19 +1053,19 @@ onBeforeUnmount(() => {
                 {{ task.status === 'failed' ? '未生成音频' : '等待生成结果' }}
               </div>
               <div class="flex items-center gap-2 lg:block">
-                <span class="inline-flex px-2 py-1 text-[11px]" :class="statusClass(task.status)">{{ taskStatusLabel(task.status) }}</span>
+                <span class="inline-flex px-2 py-1 text-xs" :class="statusClass(task.status)">{{ taskStatusLabel(task.status) }}</span>
                 <span class="text-xs text-muted-foreground lg:mt-1 lg:block">{{ formatDuration(task.durationMs) }}</span>
               </div>
               <div class="flex flex-wrap items-center justify-end gap-1">
                 <a v-if="task.audioUrl" :href="task.audioUrl" download>
-                  <Button size="icon" variant="ghost" class="h-8 w-8 active:scale-[0.96] transition-transform" title="下载">
+                  <Button size="icon" variant="ghost" class="h-8 w-8 active:scale-[0.96] transition-transform" v-tooltip="'下载'">
                     <Download class="h-4 w-4" />
                   </Button>
                 </a>
                 <Button v-if="task.status === 'failed'" size="sm" variant="outline" class="gap-1.5 active:scale-[0.96] transition-transform" @click="retryTask(task)">
                   <RotateCcw class="h-3.5 w-3.5" />重试
                 </Button>
-                <span v-if="task.resultAssetId" class="inline-flex items-center gap-1 text-xs text-emerald-600">
+                <span v-if="task.resultAssetId" class="inline-flex items-center gap-1 text-xs text-success">
                   <Check class="h-3.5 w-3.5" />已入库
                 </span>
               </div>

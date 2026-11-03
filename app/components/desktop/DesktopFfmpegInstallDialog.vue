@@ -53,7 +53,7 @@ function handleOpenChange(nextOpen: boolean) {
     <DialogContent class="sm:max-w-lg">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
-          <AlertTriangle class="h-5 w-5 text-amber-500" />
+          <AlertTriangle class="h-5 w-5 text-warning" />
           未检测到 FFmpeg
         </DialogTitle>
         <DialogDescription>

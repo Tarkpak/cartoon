@@ -309,7 +309,7 @@ watch(() => [props.open, props.projectId] as const, ([open]) => {
                   </SelectContent>
                 </Select>
                 <Badge v-else variant="outline">{{ PROJECT_ROLE_LABELS[member.role] }}</Badge>
-                <Button v-if="canManage && member.userId !== currentUserId" variant="ghost" size="icon" class="h-8 w-8 text-muted-foreground hover:text-destructive" aria-label="移除项目成员" title="移除成员" :disabled="!!savingUserId" @click="removeMember(member)">
+                <Button v-if="canManage && member.userId !== currentUserId" variant="ghost" size="icon" class="h-8 w-8 text-muted-foreground hover:text-destructive" aria-label="移除项目成员" v-tooltip="'移除成员'" :disabled="!!savingUserId" @click="removeMember(member)">
                   <Trash2 class="h-4 w-4" />
                 </Button>
               </div>

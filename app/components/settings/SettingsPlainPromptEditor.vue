@@ -119,7 +119,7 @@ async function reset() {
           </h2>
           <span
             v-if="hasChanges"
-            class="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+            class="rounded bg-warning/10 px-2 py-0.5 text-xs text-warning"
           >
             未保存
           </span>
@@ -131,7 +131,7 @@ async function reset() {
           </span>
           <span
             v-else-if="template.isCustomized"
-            class="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+            class="rounded bg-warning/10 px-2 py-0.5 text-xs text-warning"
           >
             已自定义
           </span>
@@ -197,7 +197,7 @@ async function reset() {
       <Textarea
         v-model="localContent"
         :readonly="readonly"
-        class="min-h-[18rem] flex-1 resize-none font-mono text-[13px] leading-6"
+        class="min-h-[18rem] flex-1 resize-none font-mono text-sm leading-6"
         placeholder="输入提示词正文，或导入 .md / .txt 文件"
         @keydown.ctrl.s.prevent="save"
         @keydown.meta.s.prevent="save"

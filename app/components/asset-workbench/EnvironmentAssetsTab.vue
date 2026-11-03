@@ -45,9 +45,9 @@ function triggerUploadInput(assetId: string) {
 }
 
 function resolveStatusColor(status: string): string {
-  if (status === 'done') return 'bg-emerald-500'
+  if (status === 'done') return 'bg-success'
   if (status === 'error') return 'bg-destructive'
-  if (status === 'generating') return 'bg-blue-500'
+  if (status === 'generating') return 'bg-info'
   return 'bg-muted-foreground/40'
 }
 

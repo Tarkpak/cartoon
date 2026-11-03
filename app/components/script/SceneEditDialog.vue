@@ -763,7 +763,7 @@ function handleSceneAssetUpload(event: Event) {
                   size="icon"
                   variant="ghost"
                   class="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                  :title="`从场景移除${row.character.name}`"
+                  v-tooltip="`从场景移除${row.character.name}`"
                   @click="removeSceneCharacter(row.index)"
                 >
                   <Trash2 class="h-4 w-4" />

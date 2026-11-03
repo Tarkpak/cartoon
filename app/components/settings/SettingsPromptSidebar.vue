@@ -222,7 +222,7 @@ function toSelectString(value: unknown): string {
 
                   <span
                     v-if="template.isCustomized && !props.activeProfileReadonly"
-                    class="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                    class="rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning"
                   >
                     已自定义
                   </span>

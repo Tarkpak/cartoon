@@ -388,7 +388,7 @@ function handleRunFinal() {
             />
             <div
               v-else
-              class="flex h-full w-full items-center justify-center px-6 text-center text-xs text-gray-400"
+              class="flex h-full w-full items-center justify-center px-6 text-center text-xs text-white/50"
             >
               还没有可合成的分镜视频，先在「分镜视频」中生成。
             </div>
@@ -580,7 +580,7 @@ function handleRunFinal() {
             </IconActionButton>
           </div>
           <label class="mt-2 block max-w-[200px] space-y-1">
-            <span class="text-[11px] text-muted-foreground">音量</span>
+            <span class="text-xs text-muted-foreground">音量</span>
             <Input
               type="number"
               min="0"
@@ -610,7 +610,7 @@ function handleRunFinal() {
             </IconActionButton>
           </div>
           <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <label class="space-y-1"><span class="text-[11px] text-muted-foreground">开始秒数</span><Input
+            <label class="space-y-1"><span class="text-xs text-muted-foreground">开始秒数</span><Input
               type="number"
               min="0"
               step="0.1"
@@ -622,7 +622,7 @@ function handleRunFinal() {
             <label
               v-if="track.kind === 'sfx'"
               class="space-y-1"
-            ><span class="text-[11px] text-muted-foreground">播放时长</span><Input
+            ><span class="text-xs text-muted-foreground">播放时长</span><Input
               type="number"
               min="0.1"
               step="0.1"
@@ -630,7 +630,7 @@ function handleRunFinal() {
               :model-value="String(track.duration || 1)"
               @update:model-value="updateAudioTrack(track.id, { duration: Math.max(0.1, Number($event) || 1) })"
             /></label>
-            <label class="space-y-1"><span class="text-[11px] text-muted-foreground">音量</span><Input
+            <label class="space-y-1"><span class="text-xs text-muted-foreground">音量</span><Input
               type="number"
               min="0"
               max="1"

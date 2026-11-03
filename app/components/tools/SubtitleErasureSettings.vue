@@ -30,15 +30,13 @@ const selectClass = 'h-10 w-full rounded-md border border-input bg-background px
           <fieldset :disabled="disabled" class="space-y-5 disabled:opacity-60">
             <div class="grid gap-4 sm:grid-cols-3">
               <label class="space-y-2 text-sm"><span>算法版本</span>
-                <select aria-label="算法版本" v-model="settings.model_version" :class="selectClass">
-                  <option value="v4">v4 · 默认算法</option><option value="v5">v5 · 更快，优化 AI 视频</option><option value="v5.6">v5.6 · 减少闪烁，支持多语种</option>
-                </select>
+                <SelectField v-model="settings.model_version" aria-label="算法版本" :disabled="disabled" class="h-10" :options="[{ value: 'v4', label: 'v4 · 默认算法' }, { value: 'v5', label: 'v5 · 更快，优化 AI 视频' }, { value: 'v5.6', label: 'v5.6 · 减少闪烁，支持多语种' }]" />
               </label>
               <label class="space-y-2 text-sm"><span>擦除模式</span>
-                <select aria-label="擦除模式" v-model="settings.mode" :class="selectClass"><option value="Subtitle">Subtitle · 仅字幕</option><option value="Text">Text · 字幕及其他文字</option></select>
+                <SelectField v-model="settings.mode" aria-label="擦除模式" :disabled="disabled" class="h-10" :options="[{ value: 'Subtitle', label: 'Subtitle · 仅字幕' }, { value: 'Text', label: 'Text · 字幕及其他文字' }]" />
               </label>
               <label class="space-y-2 text-sm"><span>输出编码</span>
-                <select aria-label="输出编码" v-model="settings.output_encode_mode" :class="selectClass"><option value="Quality">Quality · 画质优先</option><option value="Size">Size · 大小优先</option></select>
+                <SelectField v-model="settings.output_encode_mode" aria-label="输出编码" :disabled="disabled" class="h-10" :options="[{ value: 'Quality', label: 'Quality · 画质优先' }, { value: 'Size', label: 'Size · 大小优先' }]" />
               </label>
             </div>
             <p class="text-xs leading-5 text-muted-foreground">{{ settings.mode === 'Subtitle' ? '仅擦除画面下半部分的字幕；自定义区域也只在下半部分内生效。' : '检测全画面字幕、人名等文字，不包含牌匾等场景文字；可设置区域缩小范围。' }} v5.6 处理耗时较 v5 明显增加。输入最高 2K，输出最高 1080P。</p>
@@ -50,7 +48,7 @@ const selectClass = 'h-10 w-full rounded-md border border-input bg-background px
                   <ErasureLocationEditor v-model="settings.erase_ratio_location" />
                 </div>
                 <label class="block space-y-2 text-sm"><span>处理时间范围</span>
-                  <select aria-label="处理时间范围" v-model="settings.time_segment_filter.mode" :class="selectClass"><option value="all">整段视频</option><option value="selected">仅擦除指定时间段</option><option value="skip">跳过指定时间段</option></select>
+                  <SelectField v-model="settings.time_segment_filter.mode" aria-label="处理时间范围" :disabled="disabled" class="h-10" :options="[{ value: 'all', label: '整段视频' }, { value: 'selected', label: '仅擦除指定时间段' }, { value: 'skip', label: '跳过指定时间段' }]" />
                 </label>
                 <div v-if="settings.time_segment_filter.mode !== 'all'" class="space-y-3">
                   <div v-for="(segment, index) in settings.time_segment_filter.segments" :key="index" class="space-y-3 rounded-lg border p-3">

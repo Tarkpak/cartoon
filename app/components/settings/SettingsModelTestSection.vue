@@ -251,7 +251,7 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
                         size-class="h-4 w-4"
                       />
                       <span class="flex-1 truncate">{{ group.displayName }}</span>
-                      <span class="text-[11px] font-normal text-muted-foreground/70">{{ group.models.length }}</span>
+                      <span class="text-xs font-normal text-muted-foreground/70">{{ group.models.length }}</span>
                     </SelectLabel>
                     <SelectItem
                       v-for="model in group.models"
@@ -282,15 +282,15 @@ function setPromptEditorElement(element: Element | ComponentPublicInstance | nul
                         >
                           <span
                             v-if="modelSupportsThinking(model)"
-                            class="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                            class="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary"
                           >思考</span>
                           <span
                             v-if="modelSupportsReferenceImage(model)"
-                            class="rounded bg-cyan-500/10 px-1.5 py-0.5 text-[11px] text-cyan-700 dark:text-cyan-300"
+                            class="rounded bg-info/10 px-1.5 py-0.5 text-xs text-info"
                           >参考图</span>
                           <span
                             v-if="getModelMaxDuration(model)"
-                            class="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                            class="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
                           >{{ getModelMaxDuration(model) }}s</span>
                         </div>
                       </div>

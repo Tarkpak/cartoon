@@ -41,9 +41,9 @@ const statusIcons = {
 
 const statusColors = {
   pending: 'text-muted-foreground',
-  processing: 'text-blue-500',
-  completed: 'text-green-500',
-  failed: 'text-red-500'
+  processing: 'text-info',
+  completed: 'text-success',
+  failed: 'text-destructive'
 }
 </script>
 
@@ -104,7 +104,7 @@ const statusColors = {
           >
             <Progress
               :model-value="step.progress || 0"
-              class="h-1 [&>div]:bg-blue-500"
+              class="h-1 [&>div]:bg-info"
             />
           </div>
 
@@ -131,9 +131,9 @@ const statusColors = {
         <div
           class="w-8 h-8 rounded-full flex items-center justify-center"
           :class="{
-            'bg-green-100': step.status === 'completed',
-            'bg-blue-100': step.status === 'processing',
-            'bg-red-100': step.status === 'failed',
+            'bg-success/10': step.status === 'completed',
+            'bg-info/10': step.status === 'processing',
+            'bg-destructive/10': step.status === 'failed',
             'bg-muted': step.status === 'pending'
           }"
         >

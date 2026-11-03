@@ -207,6 +207,14 @@ const similarImageIds = computed(() => {
 
 const imageAssets = computed(() => assets.value.filter(asset => asset.mediaType === 'image'))
 const voiceAssets = computed(() => assets.value.filter(asset => asset.category === 'character_voice'))
+const imageAssetOptions = computed(() => imageAssets.value.map(asset => ({ value: asset.id, label: asset.name })))
+const imageAssetOptionsWithEmpty = computed(() => [{ value: '', label: '未设置' }, ...imageAssetOptions.value])
+const MEMBER_PERMISSION_OPTIONS = [
+  { value: '', label: '不共享' },
+  { value: 'view', label: '查看' },
+  { value: 'use', label: '使用' },
+  { value: 'edit', label: '编辑' }
+]
 const editableFilteredAssets = computed(() => filteredAssets.value.filter(asset => asset.permission === 'edit'))
 const allSelected = computed(() => editableFilteredAssets.value.length > 0 && editableFilteredAssets.value.every(asset => selectedIds.value.includes(asset.id)))
 const selectedAssets = computed(() => assets.value.filter(asset => selectedIds.value.includes(asset.id)))
@@ -687,7 +695,7 @@ onMounted(() => void loadAssets())
               {{ option[1] }}
             </button>
           </div>
-          <Button variant="ghost" size="icon" title="刷新" @click="loadAssets">
+          <Button variant="ghost" size="icon" v-tooltip="'刷新'" @click="loadAssets">
             <RefreshCw class="h-4 w-4" :class="loading ? 'animate-spin' : ''" />
           </Button>
         </div>
@@ -699,9 +707,7 @@ onMounted(() => void loadAssets())
           <span class="text-sm text-muted-foreground">已选 {{ selectedIds.length }} 项</span>
           <Button size="sm" variant="outline" class="gap-1.5" @click="batchFavorite"><Heart class="h-3.5 w-3.5" />收藏</Button>
           <Button size="sm" variant="outline" class="gap-1.5" @click="batchDialogOpen = true"><Tags class="h-3.5 w-3.5" />标签</Button>
-          <select v-model="batchCategory" :disabled="batchCategoryOptions.length === 0" class="h-8 rounded-xl bg-muted/25 px-2 text-xs">
-            <option v-for="category in batchCategoryOptions" :key="category.id" :value="category.id">{{ category.label }}</option>
-          </select>
+          <SelectField v-model="batchCategory" size="sm" class="w-36" aria-label="批量分类" :disabled="batchCategoryOptions.length === 0" :options="batchCategoryOptions.map(category => ({ value: category.id, label: category.label }))" />
           <Button size="sm" variant="outline" :disabled="saving || batchCategoryOptions.length === 0" @click="applyBatchCategory">分类</Button>
           <Button v-if="!showRecycleBin" size="sm" variant="destructive" class="gap-1.5" :disabled="saving" @click="batchDelete"><Trash2 class="h-3.5 w-3.5" />删除</Button>
           <Button size="sm" variant="ghost" class="ml-auto" @click="selectedIds = []"><X class="mr-1 h-3.5 w-3.5" />取消</Button>
@@ -715,12 +721,17 @@ onMounted(() => void loadAssets())
           <div v-for="index in 10" :key="index" class="aspect-[4/5] animate-pulse rounded-xl bg-muted/30/60" />
         </div>
 
-        <div v-else-if="filteredAssets.length === 0" class="flex flex-1 flex-col items-center justify-center px-6 text-center">
-          <FolderOpen class="mb-4 h-10 w-10 text-muted-foreground" />
-          <h2 class="text-base font-semibold">暂无匹配资源</h2>
-          <p class="mt-1 max-w-sm text-sm text-muted-foreground">上传图片或音频，也可以将网上的资源地址导入为稳定的云端文件。</p>
-          <Button class="mt-4 gap-2" @click="uploadInput?.click()"><Plus class="h-4 w-4" />添加资源</Button>
-        </div>
+        <EmptyState
+          v-else-if="filteredAssets.length === 0"
+          :icon="FolderOpen"
+          title="暂无匹配资源"
+          description="上传图片或音频，也可以将网上的资源地址导入为稳定的云端文件。"
+          class="flex-1"
+        >
+          <template #actions>
+            <Button class="mt-1 gap-2" @click="uploadInput?.click()"><Plus class="h-4 w-4" />添加资源</Button>
+          </template>
+        </EmptyState>
 
         <div v-else class="grid flex-1 auto-rows-max grid-cols-2 gap-3 overflow-y-auto p-3 md:grid-cols-3 md:p-5 xl:grid-cols-4 2xl:grid-cols-5">
           <article v-for="asset in filteredAssets" :key="asset.id" class="group relative min-w-0 overflow-hidden rounded-xl bg-muted/25 transition-colors hover:bg-muted/35">
@@ -749,16 +760,16 @@ onMounted(() => void loadAssets())
                 <button v-else-if="asset.deletedAt && asset.permission === 'edit'" type="button" class="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title="恢复" @click="restoreAsset(asset)"><RotateCcw class="h-4 w-4" /></button>
               </div>
               <div v-if="asset.tags.length" class="flex min-h-5 flex-wrap gap-1">
-                <span v-for="tag in asset.tags.slice(0, 3)" :key="tag" class="max-w-24 truncate rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{{ tag }}</span>
+                <span v-for="tag in asset.tags.slice(0, 3)" :key="tag" class="max-w-24 truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{{ tag }}</span>
               </div>
-              <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+              <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span v-if="asset.permission !== 'edit'">{{ asset.permission === 'use' ? '可使用' : '仅查看' }}</span>
                 <span>使用 {{ asset.useCount }} 次</span>
                 <span v-if="asset.lastUsedAt">最近 {{ formatDate(asset.lastUsedAt) }}</span>
                 <span v-if="asset.sizeBytes">{{ (asset.sizeBytes / 1024 / 1024).toFixed(asset.sizeBytes >= 1024 * 1024 ? 1 : 2) }} MB</span>
                 <span v-if="asset.mimeType">{{ asset.mimeType.split('/').at(-1)?.toUpperCase() }}</span>
               </div>
-              <div v-if="exactDuplicateIds.has(asset.id) || similarImageIds.has(asset.id) || licenseState(asset)" class="flex flex-wrap gap-1.5 text-[11px]">
+              <div v-if="exactDuplicateIds.has(asset.id) || similarImageIds.has(asset.id) || licenseState(asset)" class="flex flex-wrap gap-1.5 text-xs">
                 <span v-if="exactDuplicateIds.has(asset.id)" class="inline-flex items-center gap-1 text-destructive"><Copy class="h-3 w-3" />重复素材</span>
                 <span v-else-if="similarImageIds.has(asset.id)" class="inline-flex items-center gap-1 text-warning"><Copy class="h-3 w-3" />相似图片</span>
                 <span v-if="licenseState(asset)" class="inline-flex items-center gap-1" :class="licenseState(asset) === 'expired' ? 'text-destructive' : 'text-warning'"><AlertTriangle class="h-3 w-3" />{{ licenseState(asset) === 'expired' ? '授权已到期' : '授权即将到期' }}</span>
@@ -782,7 +793,7 @@ onMounted(() => void loadAssets())
         <div class="space-y-3">
           <div v-for="(item, index) in pendingImports" :key="`${item.fileName}-${index}`" class="grid gap-2 rounded-xl bg-muted/15 p-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
             <label class="min-w-0 space-y-1"><span class="text-xs text-muted-foreground">素材名称</span><Input v-model="item.name" /></label>
-            <label class="space-y-1"><span class="text-xs text-muted-foreground">分类</span><select v-model="item.category" class="h-10 w-full rounded-xl bg-muted/25 px-3 text-sm"><option v-for="category in categories.filter(option => option.id !== 'all' && libraryCategoryMediaType(option.id as LibraryAssetCategory) === item.mediaType)" :key="category.id" :value="category.id">{{ category.label }}</option></select></label>
+            <label class="space-y-1"><span class="text-xs text-muted-foreground">分类</span><SelectField v-model="item.category" class="h-10" aria-label="分类" :options="categories.filter(option => option.id !== 'all' && libraryCategoryMediaType(option.id as LibraryAssetCategory) === item.mediaType).map(category => ({ value: category.id, label: category.label }))" /></label>
             <p class="truncate text-xs text-muted-foreground sm:col-span-2" :title="item.fileName">{{ item.fileName }} · {{ item.mimeType || '未知格式' }} · {{ (item.sizeBytes / 1024 / 1024).toFixed(2) }} MB<span v-if="item.durationMs"> · {{ formatDuration(item.durationMs) }}</span></p>
           </div>
         </div>
@@ -801,12 +812,12 @@ onMounted(() => void loadAssets())
         <DialogHeader><DialogTitle>编辑资源</DialogTitle><DialogDescription>管理分类、标签、角色包、授权信息和团队权限。</DialogDescription></DialogHeader>
         <div class="grid gap-4 md:grid-cols-2">
           <label class="space-y-2"><span class="text-sm font-medium">名称</span><Input v-model="editForm.name" /></label>
-          <label class="space-y-2"><span class="text-sm font-medium">分类</span><select v-model="editForm.category" class="h-10 w-full rounded-xl bg-muted/25 px-3 text-sm"><option v-for="category in categories.filter(item => item.id !== 'all')" :key="category.id" :value="category.id">{{ category.label }}</option></select></label>
+          <label class="space-y-2"><span class="text-sm font-medium">分类</span><SelectField v-model="editForm.category" class="h-10" aria-label="分类" :options="categories.filter(item => item.id !== 'all').map(category => ({ value: category.id, label: category.label }))" /></label>
           <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">描述</span><textarea v-model="editForm.description" rows="3" class="w-full rounded-xl bg-muted/25 px-3 py-2 text-sm" /></label>
           <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">标签</span><Input v-model="editForm.tagsText" placeholder="用逗号分隔" /></label>
           <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">原始来源网址</span><Input v-model="editForm.sourceUrl" type="url" placeholder="https://" /></label>
           <label class="space-y-2"><span class="text-sm font-medium">授权到期日</span><Input v-model="editForm.licenseExpiresAt" type="date" /></label>
-          <label class="space-y-2"><span class="text-sm font-medium">可见性</span><select v-model="editForm.visibility" class="h-10 w-full rounded-xl bg-muted/25 px-3 text-sm"><option value="private">仅自己</option><option value="shared">指定成员</option></select></label>
+          <label class="space-y-2"><span class="text-sm font-medium">可见性</span><SelectField v-model="editForm.visibility" class="h-10" aria-label="可见性" :options="[{ value: 'private', label: '仅自己' }, { value: 'shared', label: '指定成员' }]" /></label>
           <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">来源与授权备注</span><textarea v-model="editForm.copyrightNote" rows="3" class="w-full rounded-xl bg-muted/25 px-3 py-2 text-sm" /></label>
 
           <div v-if="editingAsset?.permission === 'edit'" class="space-y-3 border-t pt-4 md:col-span-2">
@@ -834,22 +845,22 @@ onMounted(() => void loadAssets())
           <template v-if="editForm.category === 'character'">
             <div class="md:col-span-2 border-t pt-4"><div class="flex items-center gap-2"><Package class="h-4 w-4" /><h3 class="text-sm font-semibold">角色包</h3></div></div>
             <label class="space-y-2"><span class="text-sm font-medium">角色名</span><Input v-model="editForm.characterName" /></label>
-            <label class="space-y-2"><span class="text-sm font-medium">关联音色</span><select v-model="editForm.voiceAssetId" class="h-10 w-full rounded-xl bg-muted/25 px-3 text-sm"><option value="">不关联</option><option v-for="asset in voiceAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
+            <label class="space-y-2"><span class="text-sm font-medium">关联音色</span><SelectField v-model="editForm.voiceAssetId" class="h-10" aria-label="关联音色" :options="[{ value: '', label: '不关联' }, ...voiceAssets.map(asset => ({ value: asset.id, label: asset.name }))]" /></label>
             <label class="space-y-2"><span class="text-sm font-medium">性别</span><Input v-model="editForm.gender" /></label>
             <label class="space-y-2"><span class="text-sm font-medium">年龄感</span><Input v-model="editForm.age" type="number" min="1" /></label>
             <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">服装</span><Input v-model="editForm.clothing" /></label>
             <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">外观描述</span><textarea v-model="editForm.appearance" rows="3" class="w-full rounded-xl bg-muted/25 px-3 py-2 text-sm" /></label>
             <label class="space-y-2 md:col-span-2"><span class="text-sm font-medium">生成提示词</span><textarea v-model="editForm.generationPrompt" rows="3" class="w-full rounded-xl bg-muted/25 px-3 py-2 text-sm" /></label>
-            <label v-for="view in [['frontAssetId', '正面'], ['sideAssetId', '侧面'], ['backAssetId', '背面']]" :key="view[0]" class="space-y-2"><span class="text-sm font-medium">{{ view[1] }}图</span><select v-model="editForm[view[0] as 'frontAssetId']" class="h-10 w-full rounded-xl bg-muted/25 px-3 text-sm"><option value="">未设置</option><option v-for="asset in imageAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
-            <label class="space-y-2"><span class="text-sm font-medium">表情参考</span><select v-model="editForm.expressionAssetIds" multiple class="min-h-28 w-full rounded-xl bg-muted/25 px-3 py-2 text-sm"><option v-for="asset in imageAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
-            <label class="space-y-2"><span class="text-sm font-medium">动作参考</span><select v-model="editForm.poseAssetIds" multiple class="min-h-28 w-full rounded-xl bg-muted/25 px-3 py-2 text-sm"><option v-for="asset in imageAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
+            <label v-for="view in [['frontAssetId', '正面'], ['sideAssetId', '侧面'], ['backAssetId', '背面']]" :key="view[0]" class="space-y-2"><span class="text-sm font-medium">{{ view[1] }}图</span><SelectField v-model="editForm[view[0] as 'frontAssetId']" class="h-10" :aria-label="`${view[1]}图`" :options="imageAssetOptionsWithEmpty" /></label>
+            <label class="space-y-2"><span class="text-sm font-medium">表情参考</span><ChipMultiSelect v-model="editForm.expressionAssetIds" aria-label="表情参考" empty-text="暂无图片素材" :options="imageAssetOptions" /></label>
+            <label class="space-y-2"><span class="text-sm font-medium">动作参考</span><ChipMultiSelect v-model="editForm.poseAssetIds" aria-label="动作参考" empty-text="暂无图片素材" :options="imageAssetOptions" /></label>
           </template>
 
           <div v-if="editingAsset?.permission === 'edit'" class="md:col-span-2 border-t pt-4">
             <div class="mb-3 flex items-center gap-2"><Users class="h-4 w-4" /><h3 class="text-sm font-semibold">团队共享</h3></div>
             <div v-if="members.length === 0" class="text-sm text-muted-foreground">暂无可共享成员</div>
             <div v-else class="grid gap-2 sm:grid-cols-2">
-              <label v-for="member in members" :key="member.id" class="flex items-center gap-3 rounded-xl bg-muted/15 p-3"><div class="min-w-0 flex-1"><p class="truncate text-sm font-medium">{{ member.displayName }}</p><p class="truncate text-xs text-muted-foreground">{{ member.account }}</p></div><select v-model="memberPermissions[member.id]" class="h-8 rounded-lg border-0 bg-muted/55 px-2 text-xs"><option value="">不共享</option><option value="view">查看</option><option value="use">使用</option><option value="edit">编辑</option></select></label>
+              <label v-for="member in members" :key="member.id" class="flex items-center gap-3 rounded-xl bg-muted/15 p-3"><div class="min-w-0 flex-1"><p class="truncate text-sm font-medium">{{ member.displayName }}</p><p class="truncate text-xs text-muted-foreground">{{ member.account }}</p></div><SelectField v-model="memberPermissions[member.id]" size="sm" class="w-24" :aria-label="`${member.displayName} 的权限`" :options="MEMBER_PERMISSION_OPTIONS" /></label>
             </div>
           </div>
         </div>

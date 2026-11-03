@@ -487,13 +487,14 @@ function handleThemeToggle(event: MouseEvent) {
               <span class="truncate text-xs font-medium text-foreground">
                 {{ currentUser?.displayName || currentUser?.account || '已登录' }}
               </span>
-              <span class="truncate text-[11px] tabular-nums text-muted-foreground">
+              <span class="truncate text-xs tabular-nums text-muted-foreground">
                 积分 {{ currentUserCreditBalance.toLocaleString('zh-CN') }}
               </span>
             </div>
             <span class="sr-only">{{ currentUserTitle }}</span>
           </div>
         </template>
+        <LayoutGlobalTaskCenter v-if="authenticated" />
         <IconActionButton
           :label="isDark ? '切换到浅色模式' : '切换到深色模式'"
           @click="handleThemeToggle"

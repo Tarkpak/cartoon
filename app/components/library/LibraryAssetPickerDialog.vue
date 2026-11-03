@@ -94,7 +94,7 @@ watch(() => props.open, (open) => {
       </div>
       <div v-if="selectedAsset && targets.length" class="grid gap-3 border-t pt-4 sm:grid-cols-[auto_1fr] sm:items-center">
         <label v-if="allowCreate" class="flex items-center gap-2 text-sm"><input v-model="createNew" type="checkbox" class="h-4 w-4 rounded border-0 bg-muted"> 作为新资产加入</label>
-        <select v-if="!createNew" v-model="targetId" class="h-9 rounded-xl bg-muted/25 px-3 text-sm"><option v-for="target in targets" :key="target.id" :value="target.id">替换：{{ target.name }}</option></select>
+        <SelectField v-if="!createNew" v-model="targetId" aria-label="替换目标" :options="targets.map(target => ({ value: target.id, label: `替换：${target.name}` }))" />
       </div>
       <DialogFooter>
         <Button variant="outline" @click="emit('update:open', false)">取消</Button>

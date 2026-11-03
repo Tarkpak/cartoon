@@ -21,7 +21,7 @@ const title = computed(() => durationExactLabel(props.value))
 const levelClasses: Record<DurationLevel, string> = {
   neutral: 'text-muted-foreground',
   normal: 'text-foreground',
-  warning: 'text-amber-700 dark:text-amber-400',
+  warning: 'text-warning',
   critical: 'text-destructive'
 }
 </script>

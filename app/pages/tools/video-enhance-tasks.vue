@@ -728,7 +728,7 @@ function taskStatusVariant(value: TaskStatus | string) {
               variant="outline"
               size="icon"
               class="shrink-0 bg-background"
-              title="复制任务 ID"
+              v-tooltip="'复制任务 ID'"
               @click="copyText(taskId)"
             >
               <Copy class="h-4 w-4" />
@@ -814,7 +814,7 @@ function taskStatusVariant(value: TaskStatus | string) {
         </div>
         <div
           v-if="localVideoUrl"
-          class="rounded-md bg-green-50 p-3 text-sm text-green-800 dark:bg-green-950/30 dark:text-green-200"
+          class="rounded-md bg-success/10 p-3 text-sm text-success"
         >
           已保存：{{ localVideoUrl }}
         </div>
@@ -889,7 +889,7 @@ function taskStatusVariant(value: TaskStatus | string) {
               variant="outline"
               size="icon"
               class="shrink-0"
-              title="打开下载目录"
+              v-tooltip="'打开下载目录'"
               aria-label="打开下载目录"
               @click="openDownloadDirectory"
             >
@@ -902,7 +902,7 @@ function taskStatusVariant(value: TaskStatus | string) {
                   variant="outline"
                   size="icon"
                   class="shrink-0"
-                  title="更多批量操作"
+                  v-tooltip="'更多批量操作'"
                   aria-label="更多批量操作"
                   :disabled="batchSaving || batchDownloading"
                 >
@@ -942,29 +942,21 @@ function taskStatusVariant(value: TaskStatus | string) {
           <Progress :model-value="batchDownloadProgress" />
         </div>
 
-        <div
+        <EmptyState
           v-if="recentTasks.length === 0"
-          class="flex min-h-56 flex-col items-center justify-center rounded-xl bg-muted/15 bg-muted/10 p-8 text-center"
+          :icon="FileVideo"
+          title="暂无增强任务"
+          description="提交视频增强后，任务会出现在这里。"
+          class="min-h-56 rounded-xl bg-muted/10"
         >
-          <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <FileVideo class="h-6 w-6" />
-          </div>
-          <div class="mt-4 text-base font-semibold text-foreground">
-            暂无增强任务
-          </div>
-          <div class="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">
-            提交视频增强后，任务会出现在这里。
-          </div>
-          <Button
-            size="sm"
-            class="mt-4"
-            as-child
-          >
-            <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video', view: 'create' } }">
-              提交增强
-            </NuxtLink>
-          </Button>
-        </div>
+          <template #actions>
+            <Button size="sm" class="mt-1" as-child>
+              <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'video', view: 'create' } }">
+                提交增强
+              </NuxtLink>
+            </Button>
+          </template>
+        </EmptyState>
         <div
           v-else
           class="overflow-hidden rounded-xl bg-muted/25"
@@ -1031,7 +1023,7 @@ function taskStatusVariant(value: TaskStatus | string) {
                 size="icon"
                 class="h-8 w-8"
                 :class="taskDownloadState(record.taskId)?.status === 'completed' ? 'text-success hover:text-success' : ''"
-                :title="isTopazResultExpired(record) ? 'Topaz 下载地址已过期' : taskDownloadState(record.taskId)?.status === 'failed' ? '重试下载' : taskDownloadState(record.taskId)?.status === 'completed' ? '下载完成，点击重新下载' : '下载结果'"
+                v-tooltip="isTopazResultExpired(record) ? 'Topaz 下载地址已过期' : taskDownloadState(record.taskId)?.status === 'failed' ? '重试下载' : taskDownloadState(record.taskId)?.status === 'completed' ? '下载完成，点击重新下载' : '下载结果'"
                 :aria-label="isTopazResultExpired(record) ? 'Topaz 下载地址已过期' : taskDownloadState(record.taskId)?.status === 'failed' ? '重试下载' : '下载结果'"
                 :disabled="batchDownloading || taskDownloadState(record.taskId)?.status === 'downloading' || isTopazResultExpired(record)"
                 @click="downloadTaskResult(record)"
@@ -1056,7 +1048,7 @@ function taskStatusVariant(value: TaskStatus | string) {
                 variant="ghost"
                 size="icon"
                 class="h-8 w-8 text-muted-foreground"
-                title="打开下载目录"
+                v-tooltip="'打开下载目录'"
                 aria-label="打开下载目录"
                 @click="openDownloadDirectory"
               >
@@ -1069,7 +1061,7 @@ function taskStatusVariant(value: TaskStatus | string) {
                     variant="ghost"
                     size="icon"
                     class="h-8 w-8 text-muted-foreground"
-                    title="更多操作"
+                    v-tooltip="'更多操作'"
                     aria-label="更多操作"
                     :disabled="batchSaving || deletingAsset.startsWith(`${record.taskId}:`)"
                   >

@@ -279,7 +279,7 @@ onMounted(() => {
               </h4>
               <span
                 class="inline-flex items-center gap-1 text-xs"
-                :class="provider.hasApiKey ? 'text-emerald-600' : 'text-muted-foreground'"
+                :class="provider.hasApiKey ? 'text-success' : 'text-muted-foreground'"
               >
                 <component
                   :is="provider.hasApiKey ? Check : X"
@@ -349,7 +349,7 @@ onMounted(() => {
           </p>
           <p
             v-if="provider.modelsSyncError"
-            class="text-xs text-amber-600"
+            class="text-xs text-warning"
           >
             上次同步失败：{{ provider.modelsSyncError }}
           </p>
@@ -359,7 +359,7 @@ onMounted(() => {
           <p
             v-if="providerForm(provider).message || providerForm(provider).errorMessage"
             class="text-xs"
-            :class="providerForm(provider).errorMessage ? 'text-destructive' : 'text-emerald-600'"
+            :class="providerForm(provider).errorMessage ? 'text-destructive' : 'text-success'"
           >
             {{ providerForm(provider).errorMessage || providerForm(provider).message }}
           </p>

@@ -220,6 +220,11 @@ const contentTabs = computed(() => {
   }
   return tabs
 })
+const contentTabItems = computed(() => contentTabs.value.map(tab => ({
+  value: tab.key,
+  label: tab.label,
+  badge: tab.badge
+})))
 const detectedRoleCandidates = computed(() => {
   return parseVideoImportRoleCandidates(scriptDraft.value || activeTask.value?.scriptText || '')
 })
@@ -644,7 +649,7 @@ async function handleDeleteTask(taskId: string) {
                   :class="step.state === 'upcoming' ? 'bg-border' : 'bg-primary/60'"
                 />
                 <span
-                  class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold transition-colors"
+                  class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-2xs font-semibold transition-colors"
                   :class="{
                     'border-primary bg-primary text-primary-foreground': step.state === 'complete',
                     'border-primary bg-background text-primary ring-4 ring-primary/10': step.state === 'current',
@@ -655,7 +660,7 @@ async function handleDeleteTask(taskId: string) {
                   {{ step.state === 'complete' ? '✓' : index + 1 }}
                 </span>
                 <span
-                  class="relative z-10 hidden truncate bg-card/90 px-1 text-[11px] sm:inline"
+                  class="relative z-10 hidden truncate bg-card/90 px-1 text-xs sm:inline"
                   :class="['current', 'failed'].includes(step.state) ? 'font-semibold text-foreground' : 'text-muted-foreground'"
                 >
                   {{ step.label }}
@@ -749,24 +754,13 @@ async function handleDeleteTask(taskId: string) {
           v-if="selectedTask"
           class="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-0"
         >
-          <div class="flex min-h-10 shrink-0 items-end gap-6 border-b" role="tablist" aria-label="任务内容">
-            <button
-              v-for="tab in contentTabs"
-              :key="tab.key"
-              type="button"
-              role="tab"
-              :aria-selected="contentView === tab.key"
-              class="relative flex h-10 items-center gap-2 whitespace-nowrap px-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              :class="contentView === tab.key ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground'"
-              @click="contentView = tab.key"
-            >
-              {{ tab.label }}
-              <Badge v-if="tab.badge" variant="secondary" class="h-5 rounded px-1.5 text-[10px]">
-                {{ tab.badge }}
-              </Badge>
-              <span v-if="contentView === tab.key" class="absolute inset-x-0 bottom-[-1px] h-0.5 bg-primary" />
-            </button>
-          </div>
+          <SegmentedTabs
+            v-model="contentView"
+            :items="contentTabItems"
+            variant="underline"
+            aria-label="任务内容"
+            class="shrink-0"
+          />
 
           <section v-show="contentView === 'subtitle'" class="flex min-h-0 flex-1 flex-col pt-3" role="tabpanel">
             <div
@@ -778,7 +772,7 @@ async function handleDeleteTask(taskId: string) {
                 class="max-h-44 overflow-y-auto border-b bg-muted/15 p-2 lg:max-h-none lg:min-h-0 lg:border-b-0 lg:border-r"
                 aria-label="分集导航"
               >
-                <div class="px-2 pb-1.5 pt-1 text-[11px] font-medium text-muted-foreground">分集</div>
+                <div class="px-2 pb-1.5 pt-1 text-xs font-medium text-muted-foreground">分集</div>
                 <button
                   v-for="episode in seriesEpisodes"
                   :key="episode.id"
@@ -793,7 +787,7 @@ async function handleDeleteTask(taskId: string) {
                     <Loader2 v-if="runningStatuses.has(episode.status)" class="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
                     <AlertCircle v-else-if="episode.status === 'failed'" class="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
                     <Ban v-else-if="episode.status === 'cancelled'" class="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-                    <CheckCircle2 v-else class="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                    <CheckCircle2 v-else class="h-3.5 w-3.5 text-success" aria-hidden="true" />
                   </span>
                 </button>
               </aside>
@@ -801,7 +795,7 @@ async function handleDeleteTask(taskId: string) {
                 <Textarea
                   id="subtitle-editor"
                   v-model="subtitleDraft"
-                  class="min-h-[30rem] w-full self-stretch resize-none rounded-none border-0 bg-background px-6 py-5 text-[15px] leading-7 shadow-none focus-visible:ring-2 md:px-10 xl:px-14 2xl:px-16 lg:min-h-0"
+                  class="min-h-[30rem] w-full self-stretch resize-none rounded-none border-0 bg-background px-6 py-5 text-base leading-7 shadow-none focus-visible:ring-2 md:px-10 xl:px-14 2xl:px-16 lg:min-h-0"
                   :class="canEditSubtitle ? '' : 'bg-muted/30'"
                   :disabled="!canEditSubtitle"
                   :placeholder="`识别完成后将显示字幕内容，你可以在此编辑修正。当前视频内容：${selectedImportContentLabel}`"
@@ -809,7 +803,7 @@ async function handleDeleteTask(taskId: string) {
               </div>
               <footer class="z-20 flex shrink-0 flex-col gap-3 border-t bg-background/95 px-4 py-3 shadow-[0_-8px_24px_hsl(var(--foreground)/0.05)] backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between" :class="subtitleHasEpisodeSections ? 'lg:col-span-2' : ''">
                 <div class="text-xs text-muted-foreground">
-                  <span v-if="subtitleHasChanges" class="font-medium text-amber-700 dark:text-amber-400">有未保存修改</span>
+                  <span v-if="subtitleHasChanges" class="font-medium text-warning">有未保存修改</span>
                   <span v-else>所有修改已保存</span>
                   <span v-if="showSubtitleNextStep"> · 继续时会自动保存</span>
                 </div>
@@ -850,7 +844,7 @@ async function handleDeleteTask(taskId: string) {
                 class="max-h-44 overflow-y-auto border-b bg-muted/15 p-2 lg:max-h-none lg:min-h-0 lg:border-b-0 lg:border-r"
                 aria-label="分集导航"
               >
-                <div class="px-2 pb-1.5 pt-1 text-[11px] font-medium text-muted-foreground">分集</div>
+                <div class="px-2 pb-1.5 pt-1 text-xs font-medium text-muted-foreground">分集</div>
                 <button
                   v-for="episode in seriesEpisodes"
                   :key="episode.id"
@@ -865,7 +859,7 @@ async function handleDeleteTask(taskId: string) {
                     <Loader2 v-if="runningStatuses.has(episode.status)" class="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
                     <AlertCircle v-else-if="episode.status === 'failed'" class="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
                     <Ban v-else-if="episode.status === 'cancelled'" class="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-                    <CheckCircle2 v-else class="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                    <CheckCircle2 v-else class="h-3.5 w-3.5 text-success" aria-hidden="true" />
                   </span>
                 </button>
               </aside>
@@ -873,7 +867,7 @@ async function handleDeleteTask(taskId: string) {
                 <Textarea
                   id="script-editor"
                   v-model="scriptDraft"
-                  class="min-h-[30rem] w-full self-stretch resize-none rounded-none border-0 bg-background px-6 py-5 text-[15px] leading-7 shadow-none focus-visible:ring-2 md:px-10 xl:px-14 2xl:px-16 lg:min-h-0"
+                  class="min-h-[30rem] w-full self-stretch resize-none rounded-none border-0 bg-background px-6 py-5 text-base leading-7 shadow-none focus-visible:ring-2 md:px-10 xl:px-14 2xl:px-16 lg:min-h-0"
                   :class="canEditScript ? '' : 'bg-muted/30'"
                   :disabled="!canEditScript"
                   :placeholder="`从字幕生成的${scriptContentLabel}将显示在这里，确认无误后即可创建项目`"
@@ -881,7 +875,7 @@ async function handleDeleteTask(taskId: string) {
               </div>
               <footer class="z-20 flex shrink-0 flex-col gap-3 border-t bg-background/95 px-4 py-3 shadow-[0_-8px_24px_hsl(var(--foreground)/0.05)] backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between" :class="scriptHasEpisodeSections ? 'lg:col-span-2' : ''">
                 <div class="text-xs text-muted-foreground">
-                  <span v-if="scriptHasChanges" class="font-medium text-amber-700 dark:text-amber-400">有未保存修改</span>
+                  <span v-if="scriptHasChanges" class="font-medium text-warning">有未保存修改</span>
                   <span v-else>所有修改已保存</span>
                   <span v-if="showScriptNextStep"> · 创建项目时会自动保存</span>
                 </div>
@@ -1037,7 +1031,7 @@ async function handleDeleteTask(taskId: string) {
           <div>
             <div
               v-if="selectedTask.status === 'imported'"
-              class="flex items-center justify-between gap-3 rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300"
+              class="flex items-center justify-between gap-3 rounded-xl bg-success/10 px-4 py-3 text-sm text-success"
             >
               <div class="flex items-center gap-2">
                 <CheckCircle2 class="h-4 w-4 shrink-0" />
@@ -1046,7 +1040,7 @@ async function handleDeleteTask(taskId: string) {
               <Button
                 size="sm"
                 variant="outline"
-                class="gap-2 border-emerald-500/30 hover:bg-emerald-500/20"
+                class="gap-2 border-success/30 hover:bg-success/20"
                 @click="router.push('/projects')"
               >
                 <FolderInput class="h-4 w-4" />
@@ -1104,7 +1098,7 @@ async function handleDeleteTask(taskId: string) {
               <div class="truncate text-sm font-medium text-foreground" :title="item.currentLabel">
                 {{ item.currentLabel }}
               </div>
-              <div class="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+              <div class="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                 {{ item.aliases.length > 0 ? `别名：${item.aliases.join('、')}` : '暂无别名' }}
               </div>
             </div>

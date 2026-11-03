@@ -173,7 +173,7 @@ const fenceOptions = computed(() => ({
           <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span
               class="inline-block h-2 w-2 rounded-full"
-              :class="assetSummary.ready === assetSummary.total ? 'bg-emerald-500' : 'bg-amber-500'"
+              :class="assetSummary.ready === assetSummary.total ? 'bg-success' : 'bg-warning'"
               aria-hidden="true"
             />
             {{ assetSummary.label }} {{ assetSummary.ready }}/{{ assetSummary.total }}
@@ -187,10 +187,10 @@ const fenceOptions = computed(() => ({
           </div>
           <div
             v-if="assetSummary.missing > 0"
-            class="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"
+            class="flex items-center gap-1.5 text-xs text-warning"
           >
             <span
-              class="inline-block h-2 w-2 rounded-full bg-amber-500"
+              class="inline-block h-2 w-2 rounded-full bg-warning"
               aria-hidden="true"
             />
             {{ assetSummary.missingLabel || '待生成' }} {{ assetSummary.missing }}

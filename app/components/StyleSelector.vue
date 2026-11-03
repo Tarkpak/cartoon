@@ -183,7 +183,7 @@ onMounted(async () => {
         >
           <div
             v-if="style.id === defaultStyleId"
-            class="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded bg-amber-500/90 px-1.5 py-0.5 text-[11px] font-medium text-white"
+            class="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded bg-amber-500/90 px-1.5 py-0.5 text-xs font-medium text-white"
           >
             <Star class="h-3 w-3 fill-current" />
             默认
@@ -206,7 +206,7 @@ onMounted(async () => {
               <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ style.name }}</span>
               <span
                 v-if="style.isNew"
-                class="shrink-0 rounded bg-fuchsia-500 px-1 py-0.5 text-[10px] font-semibold text-white"
+                class="shrink-0 rounded bg-fuchsia-500 px-1 py-0.5 text-2xs font-semibold text-white"
               >NEW</span>
             </div>
             <p class="truncate text-xs text-muted-foreground">
@@ -260,7 +260,7 @@ onMounted(async () => {
           </h4>
           <p
             v-if="selectedStyle.id === defaultStyleId"
-            class="mt-0.5 text-xs text-amber-600"
+            class="mt-0.5 text-xs text-warning"
           >
             系统默认预设
           </p>

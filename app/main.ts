@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import App from './app.vue'
 import { router } from './router'
 import { installFrontendObservability } from './lib/observability'
+import { vTooltip } from './lib/tooltip-directive'
 import './assets/css/main.css'
 
 function applyInitialTheme() {
@@ -29,5 +30,6 @@ installFrontendObservability(app)
 app.use(createPinia())
 app.use(router)
 app.component('NuxtLink', RouterLink)
+app.directive('tooltip', vTooltip)
 
 app.mount('#app')

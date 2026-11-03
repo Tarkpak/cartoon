@@ -104,7 +104,7 @@ function formatVersionTime(timestamp: number) {
       class="mt-2 rounded-lg border bg-background/80 p-1.5 shadow-sm"
       @click.stop
     >
-      <p class="px-1.5 pb-1 text-[11px] text-muted-foreground">选择一个描述版本恢复</p>
+      <p class="px-1.5 pb-1 text-xs text-muted-foreground">选择一个描述版本恢复</p>
       <Button
         v-for="version in sortedHistory"
         :key="version.id"
@@ -115,7 +115,7 @@ function formatVersionTime(timestamp: number) {
         @click.stop="onSelectDescriptionVersion(version.id); historyOpen = false"
       >
         <span class="min-w-0 flex-1 truncate">{{ version.label || '描述版本' }}</span>
-        <span class="shrink-0 text-[10px] text-muted-foreground">{{ formatVersionTime(version.createdAt) }}</span>
+        <span class="shrink-0 text-2xs text-muted-foreground">{{ formatVersionTime(version.createdAt) }}</span>
       </Button>
     </div>
 
@@ -191,7 +191,7 @@ function formatVersionTime(timestamp: number) {
             size="icon"
             class="h-3.5 w-3.5 rounded-sm p-0"
             :aria-label="`移除 ${asset.name}`"
-            :title="`移除 ${asset.name}`"
+            v-tooltip="`移除 ${asset.name}`"
             @click.stop="onRemoveComposerAsset(asset.id)"
           >
             <X class="h-3 w-3" />

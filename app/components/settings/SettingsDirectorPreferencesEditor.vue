@@ -87,7 +87,7 @@ function save() {
           </h2>
           <span
             v-if="hasChanges"
-            class="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+            class="rounded bg-warning/10 px-2 py-0.5 text-xs text-warning"
           >
             未保存
           </span>
@@ -151,7 +151,7 @@ function save() {
     </header>
 
     <div class="flex items-start gap-2 border-b bg-muted/30 px-4 py-2.5 text-sm text-muted-foreground md:px-6">
-      <ShieldCheck class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+      <ShieldCheck class="mt-0.5 h-4 w-4 shrink-0 text-success" />
       <span>外层数据结构、资产字段和时长规则由系统保护；分镜描述的内容结构、标签和排版可由这里自定义。</span>
     </div>
 
@@ -166,7 +166,7 @@ function save() {
       <Textarea
         v-model="localContent"
         :readonly="readonly"
-        class="min-h-[18rem] flex-1 resize-none font-mono text-[13px] leading-6"
+        class="min-h-[18rem] flex-1 resize-none font-mono text-sm leading-6"
         :placeholder="readonly
           ? '默认方案使用系统内置提示词，无额外自定义内容'
           : '粘贴你的分镜提示词，或导入 .md / .txt 文件'"

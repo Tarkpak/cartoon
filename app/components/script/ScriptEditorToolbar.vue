@@ -51,7 +51,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         class="h-8 w-8"
-        title="撤销 (Ctrl+Z)"
+        v-tooltip="'撤销 (Ctrl+Z)'"
         :disabled="!canUndo"
         @click="$emit('action', 'undo')"
       >
@@ -61,7 +61,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         class="h-8 w-8"
-        title="重做 (Ctrl+Shift+Z)"
+        v-tooltip="'重做 (Ctrl+Shift+Z)'"
         :disabled="!canRedo"
         @click="$emit('action', 'redo')"
       >
@@ -74,7 +74,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         class="h-8 w-8"
-        title="加粗 (Ctrl+B)"
+        v-tooltip="'加粗 (Ctrl+B)'"
         @click="$emit('action', 'bold')"
       >
         <Bold class="h-4 w-4" />
@@ -83,7 +83,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         class="h-8 w-8"
-        title="斜体 (Ctrl+I)"
+        v-tooltip="'斜体 (Ctrl+I)'"
         @click="$emit('action', 'italic')"
       >
         <Italic class="h-4 w-4" />
@@ -92,7 +92,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         class="h-8 w-8"
-        title="引用"
+        v-tooltip="'引用'"
         @click="$emit('action', 'quote')"
       >
         <Quote class="h-4 w-4" />
@@ -101,7 +101,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         class="h-8 w-8"
-        title="标题1"
+        v-tooltip="'标题1'"
         @click="$emit('action', 'heading1')"
       >
         <Heading1 class="h-4 w-4" />
@@ -110,7 +110,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         class="h-8 w-8"
-        title="标题2"
+        v-tooltip="'标题2'"
         @click="$emit('action', 'heading2')"
       >
         <Heading2 class="h-4 w-4" />
@@ -119,7 +119,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         class="h-8 w-8"
-        title="列表"
+        v-tooltip="'列表'"
         @click="$emit('action', 'list')"
       >
         <List class="h-4 w-4" />
@@ -161,7 +161,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         class="h-8 w-8"
-        title="复制全文"
+        v-tooltip="'复制全文'"
         @click="$emit('action', 'copy')"
       >
         <Copy class="h-4 w-4" />
@@ -170,7 +170,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         class="h-8 w-8"
-        title="保存 (Ctrl+S)"
+        v-tooltip="'保存 (Ctrl+S)'"
         @click="$emit('action', 'save')"
       >
         <Save class="h-4 w-4" />

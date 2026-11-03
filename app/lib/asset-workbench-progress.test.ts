@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAutoStages, generatedEpisodePlans, matchesSceneListFilter, resolveSceneListStatus } from './asset-workbench-progress'
+import { buildAutoStages, buildQueueProgressSegments, generatedEpisodePlans, matchesSceneListFilter, resolveSceneListStatus } from './asset-workbench-progress'
 
 describe('workflow stage completion', () => {
   it('completes script planning before scenes exist and waits for asset preparation', () => {
@@ -42,5 +42,24 @@ describe('scene list status', () => {
     expect(matchesSceneListFilter('running', 'unfinished')).toBe(true)
     expect(matchesSceneListFilter('pending', 'error')).toBe(false)
     expect(matchesSceneListFilter('error', 'error')).toBe(true)
+  })
+})
+
+describe('queue progress segments', () => {
+  it('splits the bar into done, running, failed and not started', () => {
+    const { total, segments } = buildQueueProgressSegments({ total: 0, done: 2, running: 1, error: 1 }, 8)
+    expect(total).toBe(8)
+    expect(segments.map(segment => [segment.key, segment.count, segment.percent])).toEqual([
+      ['done', 2, 25],
+      ['running', 1, 12.5],
+      ['error', 1, 12.5],
+      ['pending', 4, 50]
+    ])
+  })
+
+  it('handles an empty queue', () => {
+    const { total, segments } = buildQueueProgressSegments({ total: 0, done: 0, running: 0, error: 0 }, 0)
+    expect(total).toBe(0)
+    expect(segments.every(segment => segment.percent === 0)).toBe(true)
   })
 })

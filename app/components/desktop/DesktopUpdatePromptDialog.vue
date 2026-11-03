@@ -244,7 +244,7 @@ onBeforeUnmount(() => {
     <DialogContent class="max-h-[90vh] overflow-hidden sm:max-w-xl">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
-          <TriangleAlert class="h-5 w-5 text-amber-500" />
+          <TriangleAlert class="h-5 w-5 text-warning" />
           {{ updateTitle }}
         </DialogTitle>
         <DialogDescription>
@@ -286,7 +286,7 @@ onBeforeUnmount(() => {
 
         <div
           v-if="isForceUpdate"
-          class="flex items-start gap-2 rounded-xl border-0 bg-amber-500/8 p-3 text-sm text-amber-700 dark:text-amber-300"
+          class="flex items-start gap-2 rounded-xl border-0 bg-warning/10 p-3 text-sm text-warning"
         >
           <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
           <span>当前版本低于后台允许的最低版本，需要更新后继续使用。</span>
@@ -294,7 +294,7 @@ onBeforeUnmount(() => {
 
         <div
           v-if="activeClientUpdate && !activeClientUpdate.downloadUrl"
-          class="flex items-start gap-2 rounded-xl border-0 bg-amber-500/8 p-3 text-sm text-amber-700 dark:text-amber-300"
+          class="flex items-start gap-2 rounded-xl border-0 bg-warning/10 p-3 text-sm text-warning"
         >
           <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
           <span>后台没有配置下载地址，请联系管理员获取安装包。</span>
@@ -414,7 +414,7 @@ onBeforeUnmount(() => {
             <p class="whitespace-pre-wrap text-xs leading-5 text-muted-foreground">
               {{ activeUpdateBody || '这个版本没有提供更新说明。' }}
             </p>
-            <p v-if="formattedUpdateDate" class="mt-2 text-[11px] text-muted-foreground">
+            <p v-if="formattedUpdateDate" class="mt-2 text-xs text-muted-foreground">
               发布时间：{{ formattedUpdateDate }}
             </p>
           </div>

@@ -418,7 +418,7 @@ async function submitTask() {
                         variant="ghost"
                         size="icon"
                         class="h-8 w-8 text-muted-foreground hover:text-destructive"
-                        title="移除"
+                        v-tooltip="'移除'"
                         @click="removeQueueItem(item.id)"
                       >
                         <Trash2 class="h-4 w-4" />
@@ -530,9 +530,7 @@ async function submitTask() {
             <div class="rounded-md bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
               当前适合：{{ activeKindOption?.bestFor }}
             </div>
-            <Alert v-if="errorMessage" variant="destructive">
-              <AlertDescription>{{ errorMessage }}</AlertDescription>
-            </Alert>
+            <p v-if="errorMessage" role="alert" class="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{{ errorMessage }}</p>
             <Button class="w-full" :disabled="!canSubmit" @click="submitTask">
               <Loader2 v-if="activeQueue" class="mr-2 h-4 w-4 animate-spin" />
               <WandSparkles v-else class="mr-2 h-4 w-4" />

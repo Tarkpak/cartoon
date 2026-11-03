@@ -143,7 +143,7 @@ const emit = defineEmits<{
                 >思考</span>
                 <span
                   v-if="modelSupportsReferenceImage(model)"
-                  class="rounded bg-cyan-500/10 px-1 py-0.5 text-xs text-cyan-600 dark:text-cyan-400"
+                  class="rounded bg-info/10 px-1 py-0.5 text-xs text-info"
                 >参考图</span>
                 <span
                   v-if="getModelMaxDuration(model)"

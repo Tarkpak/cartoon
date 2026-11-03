@@ -162,7 +162,7 @@ function applyDefaultStyle() {
             aria-hidden="true"
           />
           <span
-            class="flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold"
+            class="flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold"
             :class="createStep === step.key
               ? 'bg-primary text-primary-foreground'
               : step.key === 'basic' ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'"

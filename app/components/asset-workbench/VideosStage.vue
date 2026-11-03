@@ -3,7 +3,13 @@ import AssetWorkbenchParseProgress from './ParseProgress.vue'
 import { onActivated, onDeactivated } from 'vue'
 import { useIntervalFn, useStorage } from '@vueuse/core'
 import { invoke, isTauri } from '@tauri-apps/api/core'
-import { Check, ChevronLeft, ChevronRight, Download, Eraser, FileDown, FolderOpen, Loader2, Play } from 'lucide-vue-next'
+import { Check, ChevronLeft, ChevronRight, Clapperboard, Download, Ellipsis, Eraser, FileDown, FolderOpen, Loader2, Play } from 'lucide-vue-next'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { isSelectedEpisodeParsing, shouldShowEpisodeParseProgress, type ParseProgressDisplayState } from '~/lib/asset-workbench-parse-progress'
 import type { ScriptParseMode } from '#shared/types/script'
 import type { SceneData } from '~/composables/useAssetWorkbench'
@@ -23,6 +29,7 @@ import { ensureVideoHistoryEntry } from '~/lib/asset-history'
 import { resolveVideoPreviewAspectRatio } from '~/lib/video-preview-aspect-ratio'
 import { vReadOnlyFence } from '~/lib/read-only-fence'
 import {
+  buildQueueProgressSegments,
   matchesSceneListFilter,
   resolveSceneListStatus,
   type SceneListFilter,
@@ -141,6 +148,7 @@ const props = defineProps<{
   setSceneChatMentionListRef: (element: unknown) => void
   setSceneChatComposerText: (value: string) => void
   onExportFormattedScriptDocx: () => void
+  onGoToParse?: () => void
   onParseEpisode: (episodeId: string) => void | Promise<void>
   onSelectScene: (sceneId: string) => void
   onOpenSceneEdit: (scene: SceneData) => void
@@ -680,6 +688,30 @@ watch(() => props.selectedSceneId, (sceneId) => {
   }
 })
 
+const queueProgress = computed(() => buildQueueProgressSegments(props.queueSummary, props.scenes.length))
+const QUEUE_SEGMENT_CLASS: Record<string, string> = {
+  done: 'bg-success',
+  running: 'bg-primary motion-safe:animate-pulse',
+  error: 'bg-destructive',
+  pending: 'bg-muted-foreground/20'
+}
+const queueProgressTitle = computed(() => queueProgress.value.segments
+  .filter(segment => segment.count > 0)
+  .map(segment => `${segment.label} ${segment.count}`)
+  .join(' · '))
+
+// Jump to the first failed scene (switching episode if needed) with the list filtered to failures.
+function showFailedScenes() {
+  const failed = props.scenes.find(scene => resolveSceneListStatus(scene, props.isSceneBusy(scene)) === 'error')
+  if (!failed) return
+  const episodeId = resolveSceneEpisodeMeta(failed).id
+  if (selectedEpisodeId.value !== episodeId) handleSelectEpisode(episodeId)
+  void nextTick(() => {
+    sceneListFilter.value = 'error'
+    focusScene(failed.id)
+  })
+}
+
 function resolveSceneThumbnail(scene: SceneData): string | undefined {
   return scene.firstFrame || props.resolveSceneReferenceImage(scene)
 }
@@ -778,76 +810,94 @@ watch(episodeDirectoryCollapsed, (value) => {
 </script>
 
 <template>
-  <div
+  <EmptyState
     v-if="scenes.length === 0 && episodeCount === 0"
-    class="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground"
-  >
-    <p class="text-sm">
-      {{ emptyProjectMessage }}
-    </p>
-  </div>
+    :icon="Clapperboard"
+    title="还没有可生成视频的场景"
+    :description="emptyProjectMessage"
+    :action-label="onGoToParse ? (isOriginExplainer ? '去镜头规划' : '去解析剧本') : undefined"
+    class="flex-1"
+    @action="onGoToParse?.()"
+  />
   <template v-else>
     <Teleport to="#workbench-stage-toolbar">
       <div v-if="toolbarActive && componentActive" v-read-only-fence="fenceOptions" class="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <div
-          class="flex flex-wrap items-center gap-2"
-          aria-live="polite"
-        >
-          <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <div class="flex min-w-0 flex-1 items-center gap-3">
+          <!-- Stacked progress: done / running / failed / not started -->
+          <div
+            class="flex h-1.5 w-40 shrink-0 overflow-hidden rounded-full bg-muted sm:w-56"
+            role="img"
+            :aria-label="`分镜视频进度：${queueProgressTitle || '暂无'}`"
+            v-tooltip="queueProgressTitle"
+          >
             <span
-              class="inline-block h-2 w-2 rounded-full bg-muted-foreground/40"
-              aria-hidden="true"
+              v-for="segment in queueProgress.segments"
+              v-show="segment.count > 0"
+              :key="segment.key"
+              class="h-full transition-[width] duration-300 ease-out motion-reduce:transition-none"
+              :class="QUEUE_SEGMENT_CLASS[segment.key]"
+              :style="{ width: `${segment.percent}%` }"
             />
-            场景 {{ scenes.length }}
-          </div>
-          <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span class="inline-block h-2 w-2 rounded-full bg-muted-foreground/40" aria-hidden="true" />
-            分集 {{ episodeCount }}
-          </div>
-          <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span class="inline-block h-2 w-2 rounded-full bg-primary/60" aria-hidden="true" />
-            环境图就绪 {{ readySceneCount }}
-          </div>
-          <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span class="inline-block h-2 w-2 rounded-full bg-success" aria-hidden="true" />
-            视频完成 {{ queueSummary.done }}
           </div>
           <div
-            v-if="queueSummary.error > 0"
-            class="flex items-center gap-1.5 text-xs text-destructive"
+            class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+            aria-live="polite"
           >
-            <span class="inline-block h-2 w-2 rounded-full bg-destructive" />
-            失败 {{ queueSummary.error }}
-          </div>
-          <div
-            v-if="queueSummary.running > 0"
-            class="flex items-center gap-1.5 text-xs text-muted-foreground"
-          >
-            <Loader2 class="h-3 w-3 animate-spin text-primary" />
-            运行中 {{ queueSummary.running }}
+            <span class="tabular-nums">
+              <span class="font-medium text-foreground">{{ queueSummary.done }}</span> / {{ queueProgress.total }} 已出片
+            </span>
+            <span
+              v-if="queueSummary.running > 0"
+              class="inline-flex items-center gap-1 tabular-nums"
+            >
+              <Loader2 class="h-3 w-3 animate-spin text-primary" />
+              {{ queueSummary.running }} 生成中
+            </span>
+            <button
+              v-if="queueSummary.error > 0"
+              type="button"
+              data-readonly-allowed
+              class="rounded px-1 tabular-nums text-destructive underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              @click="showFailedScenes"
+            >
+              {{ queueSummary.error }} 失败，查看
+            </button>
+            <span class="hidden tabular-nums lg:inline">
+              {{ episodeCount }} 集 · {{ scenes.length }} 场景 · 环境图就绪 {{ readySceneCount }}
+            </span>
           </div>
         </div>
 
-        <div class="ml-auto flex flex-wrap items-center justify-end gap-3">
-          <Button
-            data-export
-            size="sm"
-            variant="ghost"
-            class="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
-            :disabled="canExport === false || exportingScriptDocx || scenes.length === 0"
-            @click="onExportFormattedScriptDocx()"
-          >
-            <Loader2
-              v-if="exportingScriptDocx"
-              class="h-3.5 w-3.5 animate-spin"
-            />
-            <FileDown
-              v-else
-              class="h-3.5 w-3.5"
-            />
-            导出格式化 DOCX
-          </Button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button
+              data-export
+              size="sm"
+              variant="ghost"
+              class="h-7 w-7 shrink-0 p-0 text-muted-foreground"
+              aria-label="更多操作"
+              v-tooltip="'更多操作'"
+            >
+              <Loader2
+                v-if="exportingScriptDocx"
+                class="h-3.5 w-3.5 animate-spin"
+              />
+              <Ellipsis
+                v-else
+                class="h-4 w-4"
+              />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              :disabled="canExport === false || exportingScriptDocx || scenes.length === 0"
+              @select="onExportFormattedScriptDocx()"
+            >
+              <FileDown class="mr-2 h-4 w-4" />
+              导出格式化 DOCX
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </Teleport>
 
@@ -902,10 +952,7 @@ watch(episodeDirectoryCollapsed, (value) => {
                   : 'border-border/70 bg-background text-foreground/80 hover:border-foreground/30 hover:bg-muted/60'"
                 @click="handleSelectEpisode(episode.id)"
               >
-                <div
-                  class="truncate font-medium"
-                  :title="resolveEpisodeDisplayTitle(episode)"
-                >
+                <div class="truncate font-medium">
                   {{ resolveEpisodeDisplayTitle(episode) }}
                 </div>
                 <div class="mt-0.5 text-xs text-muted-foreground">
@@ -1227,7 +1274,7 @@ watch(episodeDirectoryCollapsed, (value) => {
                 v-else
                 class="flex h-full w-full items-center justify-center"
               >
-                <span class="text-xs text-gray-400">等待生成视频</span>
+                <span class="text-xs text-white/50">等待生成视频</span>
               </div>
             </div>
           </div>

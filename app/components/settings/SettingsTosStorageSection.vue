@@ -169,7 +169,7 @@ onMounted(() => {
               <label class="text-xs text-muted-foreground">Secret Key</label>
               <span
                 class="inline-flex items-center gap-1 text-xs"
-                :class="hasSecretKey ? 'text-emerald-600' : 'text-muted-foreground'"
+                :class="hasSecretKey ? 'text-success' : 'text-muted-foreground'"
               >
                 <component
                   :is="hasSecretKey ? Check : X"
@@ -227,7 +227,7 @@ onMounted(() => {
               <label class="text-xs text-muted-foreground">Security Token（可选）</label>
               <span
                 class="inline-flex items-center gap-1 text-xs"
-                :class="hasSecurityToken ? 'text-emerald-600' : 'text-muted-foreground'"
+                :class="hasSecurityToken ? 'text-success' : 'text-muted-foreground'"
               >
                 <component
                   :is="hasSecurityToken ? Check : X"
@@ -274,7 +274,7 @@ onMounted(() => {
           <p
             v-if="message || errorMessage"
             class="text-xs"
-            :class="errorMessage ? 'text-destructive' : 'text-emerald-600'"
+            :class="errorMessage ? 'text-destructive' : 'text-success'"
           >
             {{ errorMessage || message }}
           </p>

@@ -122,7 +122,7 @@ onMounted(() => {
 
     <div
       v-else-if="statusMessage && !hasUpdate"
-      class="flex items-start gap-2 rounded-xl bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-400"
+      class="flex items-start gap-2 rounded-xl bg-success/10 p-3 text-sm text-success"
     >
       <CheckCircle2 class="mt-0.5 h-4 w-4 shrink-0" />
       {{ statusMessage }}

@@ -556,7 +556,7 @@ function formatSeconds(value?: number | null) {
                   v-if="showBatchActions"
                   type="checkbox"
                   :checked="selectedTaskIds.has(task.id)"
-                  class="mt-1 h-4 w-4 shrink-0 rounded border-gray-300"
+                  class="mt-1 h-4 w-4 shrink-0 rounded border-input"
                   @click.stop="toggleTaskSelection(task.id)"
                 />
                 <div class="min-w-0">
@@ -612,7 +612,7 @@ function formatSeconds(value?: number | null) {
                 class="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 :disabled="deletingTaskId !== null"
                 :aria-label="`删除任务 ${task.originalFilename}`"
-                title="删除任务"
+                v-tooltip="'删除任务'"
                 @click="handleDeleteTask(task)"
               >
                 <Trash2 class="h-4 w-4" />
@@ -620,16 +620,13 @@ function formatSeconds(value?: number | null) {
             </div>
           </div>
 
-          <div
+          <EmptyState
             v-if="tasks.length === 0"
-            class="flex h-full min-h-[360px] flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground"
-          >
-            <FileVideo class="h-14 w-14 opacity-20" />
-            <div>
-              <div class="text-base font-medium text-foreground">暂无转换任务</div>
-              <div class="mt-1">选择视频或剧集文件夹开始转换</div>
-            </div>
-          </div>
+            :icon="FileVideo"
+            title="暂无转换任务"
+            description="选择视频文件或剧集文件夹，即可开始转换为项目。"
+            class="h-full min-h-[360px]"
+          />
         </CardContent>
       </Card>
     </AppPageContent>

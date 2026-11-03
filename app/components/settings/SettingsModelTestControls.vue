@@ -293,13 +293,13 @@ const videoReferenceMaterialReady = computed(() => {
       <div class="flex flex-wrap items-center gap-2">
         <span
           v-if="activeTab === 'image' && !usesUnifiedImageControls && props.currentImageModelRequiresReference && props.referenceImages.length === 0"
-          class="text-xs text-amber-600 dark:text-amber-400"
+          class="text-xs text-warning"
         >需要参考图</span>
         <span
           v-if="activeTab === 'video'
             && props.currentVideoModelRequiresReference
             && !videoReferenceMaterialReady"
-          class="text-xs text-amber-600 dark:text-amber-400"
+          class="text-xs text-warning"
         >需要视频参考素材</span>
         <Button
           size="sm"

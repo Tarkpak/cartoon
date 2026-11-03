@@ -62,6 +62,11 @@ const status = ref<ProcessStatus>('idle')
 const uploadProgress = ref(0)
 const errorMessage = ref('')
 const result = ref<AsrResult | null>(null)
+const RESULT_VIEW_TABS: Array<{ value: ResultView, label: string }> = [
+  { value: 'text', label: '纯文本' },
+  { value: 'srt', label: 'SRT 字幕' },
+  { value: 'segments', label: '时间轴' }
+]
 const resultView = ref<ResultView>('text')
 const resultSectionRef = ref<HTMLElement | null>(null)
 const historyItems = ref<AsrResult[]>([])
@@ -331,7 +336,7 @@ function downloadResult(format: 'txt' | 'srt') {
           v-if="selectedFile && !processing"
           variant="ghost"
           size="icon"
-          title="重新选择文件"
+          v-tooltip="'重新选择文件'"
           aria-label="重新选择文件"
           @click="resetWorkbench"
         >
@@ -415,7 +420,7 @@ function downloadResult(format: 'txt' | 'srt') {
                   variant="ghost"
                   size="icon"
                   class="h-9 w-9 shrink-0"
-                  title="更换文件"
+                  v-tooltip="'更换文件'"
                   aria-label="更换文件"
                   @click="triggerFileInput"
                 >
@@ -500,20 +505,12 @@ function downloadResult(format: 'txt' | 'srt') {
           </div>
         </CardHeader>
         <CardContent class="pt-6">
-          <div class="mb-4 flex w-fit rounded-xl bg-muted/25 p-1" role="tablist" aria-label="识别结果格式">
-            <button
-              v-for="option in ([['text', '纯文本'], ['srt', 'SRT 字幕'], ['segments', '时间轴']] as const)"
-              :key="option[0]"
-              type="button"
-              role="tab"
-              :aria-selected="resultView === option[0]"
-              class="h-8 rounded-sm px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              :class="resultView === option[0] ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-              @click="resultView = option[0]"
-            >
-              {{ option[1] }}
-            </button>
-          </div>
+          <SegmentedTabs
+            v-model="resultView"
+            :items="RESULT_VIEW_TABS"
+            aria-label="识别结果格式"
+            class="mb-4"
+          />
 
           <pre
             v-if="resultView !== 'segments'"
@@ -585,15 +582,13 @@ function downloadResult(format: 'txt' | 'srt') {
           </article>
         </div>
 
-        <div
+        <EmptyState
           v-else-if="!loadingHistory"
-          class="flex items-center gap-3 py-5 text-muted-foreground"
-        >
-          <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-muted">
-            <History class="h-4 w-4" />
-          </div>
-          <p class="text-sm font-medium text-foreground">暂无识别记录</p>
-        </div>
+          :icon="History"
+          title="暂无识别记录"
+          description="上传音频或视频完成识别后，结果会保存在这里。"
+          compact
+        />
       </section>
     </AppPageContent>
 
@@ -628,20 +623,11 @@ function downloadResult(format: 'txt' | 'srt') {
               </div>
             </div>
 
-            <div class="flex w-fit rounded-xl bg-muted/25 p-1" role="tablist" aria-label="历史识别结果格式">
-              <button
-                v-for="option in ([['text', '纯文本'], ['srt', 'SRT 字幕'], ['segments', '时间轴']] as const)"
-                :key="option[0]"
-                type="button"
-                role="tab"
-                :aria-selected="historyResultView === option[0]"
-                class="h-8 rounded-sm px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                :class="historyResultView === option[0] ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-                @click="historyResultView = option[0]"
-              >
-                {{ option[1] }}
-              </button>
-            </div>
+            <SegmentedTabs
+              v-model="historyResultView"
+              :items="RESULT_VIEW_TABS"
+              aria-label="历史识别结果格式"
+            />
 
             <pre
               v-if="historyResultView !== 'segments'"

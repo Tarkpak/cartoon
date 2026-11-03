@@ -31,7 +31,7 @@ const emit = defineEmits<{
         </div>
         <span
           v-if="variableValidation.isValid"
-          class="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"
+          class="text-xs text-success flex items-center gap-1"
         >
           <CheckCircle2 class="h-3 w-3" />
           校验通过
@@ -49,7 +49,7 @@ const emit = defineEmits<{
             :class="[
               'w-full h-auto min-w-0 justify-start p-2 rounded border transition-colors flex-col items-start gap-1 whitespace-normal text-left',
               isVarUnused(variable.name)
-                ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20'
+                ? 'border-warning/30 bg-warning/10'
                 : 'hover:bg-muted'
             ]"
             :disabled="readonly"

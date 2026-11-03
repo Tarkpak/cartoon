@@ -52,7 +52,7 @@ const emit = defineEmits<{
           <slot v-else />
           <span
             v-if="props.badge"
-            class="absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-muted px-0.5 text-[9px] font-medium leading-[14px] tabular-nums text-muted-foreground"
+            class="absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-muted px-0.5 text-2xs font-medium leading-[14px] tabular-nums text-muted-foreground"
             aria-hidden="true"
           >
             {{ props.badge }}

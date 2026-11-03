@@ -36,7 +36,7 @@ const label = computed(() => {
       </span>
       <span
         v-if="character.locked"
-        class="shrink-0 text-amber-600"
+        class="shrink-0 text-warning"
       >
         锁定
       </span>

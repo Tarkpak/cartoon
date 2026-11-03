@@ -297,7 +297,7 @@ async function copyTaskId() {
           @click="statusFilter = filter[0]"
         >
           {{ filter[1] }}
-          <span class="ml-1.5 font-mono text-[11px] tabular-nums opacity-70">{{ statusCounts[filter[0]] }}</span>
+          <span class="ml-1.5 font-mono text-xs tabular-nums opacity-70">{{ statusCounts[filter[0]] }}</span>
         </Button>
         <Button
           variant="ghost"
@@ -330,13 +330,21 @@ async function copyTaskId() {
             <Loader2 class="h-4 w-4 animate-spin" />
             正在读取
           </div>
-          <div v-else-if="!filteredTasks.length" class="flex flex-col items-center px-6 py-16 text-center">
-            <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
-              <FileVideo class="h-5 w-5 text-muted-foreground" />
-            </span>
-            <p class="mt-3 text-sm font-medium">暂无匹配任务</p>
-            <p class="mt-1 text-xs text-muted-foreground">提交视频后，处理记录会显示在这里。</p>
-          </div>
+          <EmptyState
+            v-else-if="!filteredTasks.length"
+            :icon="FileVideo"
+            title="暂无匹配任务"
+            description="提交视频后，处理记录会显示在这里。"
+            class="py-16"
+          >
+            <template #actions>
+              <Button size="sm" class="mt-1" as-child>
+                <NuxtLink :to="{ path: '/tools/enhance', query: { type: 'subtitle-erasure', view: 'create' } }">
+                  去擦除字幕
+                </NuxtLink>
+              </Button>
+            </template>
+          </EmptyState>
           <div v-else class="max-h-[640px] space-y-1 overflow-y-auto p-2 pt-0">
             <button
               v-for="task in filteredTasks"
@@ -377,7 +385,7 @@ async function copyTaskId() {
                   @click="copyTaskId"
                 >
                   <span class="truncate">{{ selectedTask.taskId }}</span>
-                  <Check v-if="copied" class="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                  <Check v-if="copied" class="h-3.5 w-3.5 shrink-0 text-success" />
                   <Copy v-else class="h-3.5 w-3.5 shrink-0" />
                 </button>
               </div>
@@ -441,7 +449,7 @@ async function copyTaskId() {
                   @click="saveResult"
                 >
                   <Loader2 v-if="saving" class="mr-2 h-4 w-4 animate-spin" />
-                  <Check v-else-if="selectedTask.savedVideoUrl" class="mr-2 h-4 w-4 text-emerald-500" />
+                  <Check v-else-if="selectedTask.savedVideoUrl" class="mr-2 h-4 w-4 text-success" />
                   <Save v-else class="mr-2 h-4 w-4" />
                   {{ selectedTask.savedVideoUrl ? '已保存到素材存储' : '保存到素材存储' }}
                 </Button>

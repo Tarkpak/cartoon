@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { X, Loader2 } from 'lucide-vue-next'
-import { onKeyStroke } from '@vueuse/core'
 import type { PromptVersion } from '#shared/types/prompt-template'
 import { formatPromptVersionDate } from '@/lib/prompt-editor'
 
-const props = defineProps<{
+defineProps<{
   open: boolean
   loading: boolean
   versions: PromptVersion[]
@@ -14,31 +13,18 @@ const emit = defineEmits<{
   (e: 'update:open', open: boolean): void
   (e: 'restore', versionId: string): void
 }>()
-
-onKeyStroke('Escape', () => {
-  if (props.open) emit('update:open', false)
-})
 </script>
 
 <template>
-  <Transition name="history-drawer">
-  <div
-    v-if="open"
-    class="fixed inset-0 z-50 flex justify-end"
-    role="dialog"
-    aria-modal="true"
-    aria-label="版本历史"
-    @click.self="emit('update:open', false)"
+  <Dialog
+    :open="open"
+    @update:open="emit('update:open', $event)"
   >
-    <div
-      class="absolute inset-0 bg-black/40 backdrop-blur-[2px] dark:bg-black/60"
-      @click="emit('update:open', false)"
-    />
-    <div class="history-panel relative flex h-full w-96 max-w-[calc(100vw-2rem)] flex-col bg-popover shadow-[-16px_0_48px_rgb(0_0_0/0.18)]">
+    <SheetContent aria-describedby="">
       <div class="flex items-center justify-between p-4 border-b">
-        <h3 class="font-semibold">
+        <DialogTitle>
           版本历史
-        </h3>
+        </DialogTitle>
         <IconActionButton
           label="关闭"
           @click="emit('update:open', false)"
@@ -92,39 +78,6 @@ onKeyStroke('Escape', () => {
           </div>
         </div>
       </div>
-    </div>
-  </div>
-  </Transition>
+    </SheetContent>
+  </Dialog>
 </template>
-
-<style scoped>
-/* Scrim fades while the panel slides in from the right. */
-.history-drawer-enter-active,
-.history-drawer-leave-active {
-  transition: opacity 200ms ease-out;
-}
-
-.history-drawer-enter-active .history-panel,
-.history-drawer-leave-active .history-panel {
-  transition: transform 200ms ease-out;
-}
-
-.history-drawer-enter-from,
-.history-drawer-leave-to {
-  opacity: 0;
-}
-
-.history-drawer-enter-from .history-panel,
-.history-drawer-leave-to .history-panel {
-  transform: translateX(24px);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .history-drawer-enter-active,
-  .history-drawer-leave-active,
-  .history-drawer-enter-active .history-panel,
-  .history-drawer-leave-active .history-panel {
-    transition: none;
-  }
-}
-</style>

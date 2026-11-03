@@ -41,19 +41,19 @@ defineEmits<{
           </span>
           <span
             v-if="template.isCustomized && !readonly"
-            class="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+            class="rounded bg-warning/10 px-2 py-0.5 text-xs text-warning"
           >
             已修改
           </span>
           <span
             v-if="hasChanges"
-            class="rounded bg-red-100 px-2 py-0.5 text-xs text-red-700 dark:bg-red-900 dark:text-red-300"
+            class="rounded bg-destructive/10 px-2 py-0.5 text-xs text-destructive"
           >
             未保存
           </span>
           <span
             v-if="readonly"
-            class="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            class="rounded bg-muted px-2 py-0.5 text-xs text-foreground"
           >
             默认配置只读
           </span>
@@ -67,7 +67,7 @@ defineEmits<{
         <Button
           variant="ghost"
           size="icon"
-          title="导入"
+          v-tooltip="'导入'"
           :disabled="readonly"
           @click="$emit('trigger-import')"
         >
@@ -76,7 +76,7 @@ defineEmits<{
         <Button
           variant="ghost"
           size="icon"
-          title="导出"
+          v-tooltip="'导出'"
           @click="$emit('export')"
         >
           <Download class="h-4 w-4" />
@@ -136,7 +136,7 @@ defineEmits<{
         <Button
           variant="ghost"
           size="icon"
-          :title="isFullscreen ? '退出全屏' : '全屏编辑'"
+          v-tooltip="isFullscreen ? '退出全屏' : '全屏编辑'"
           @click="$emit('toggle-fullscreen')"
         >
           <Minimize2

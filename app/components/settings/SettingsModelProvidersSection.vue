@@ -460,7 +460,7 @@ onMounted(() => {
             />
             <span
               class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-background"
-              :class="provider.configured ? 'bg-emerald-500' : 'bg-muted-foreground/40'"
+              :class="provider.configured ? 'bg-success' : 'bg-muted-foreground/40'"
             />
           </div>
 
@@ -497,7 +497,7 @@ onMounted(() => {
               <span
                 class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs"
                 :class="activeProviderSummary.configured
-                  ? 'bg-emerald-500/10 text-emerald-600'
+                  ? 'bg-success/10 text-success'
                   : 'bg-muted text-muted-foreground'"
               >
                 <component
@@ -510,7 +510,7 @@ onMounted(() => {
               <span
                 class="rounded px-1.5 py-0.5 text-xs"
                 :class="activeProviderSummary.supportedDynamicSync
-                  ? 'bg-blue-500/10 text-blue-600'
+                  ? 'bg-info/10 text-info'
                   : 'bg-muted text-muted-foreground'"
               >
                 {{ activeProviderSummary.supportedDynamicSync ? '官方 API 同步' : '本地能力表' }}
@@ -601,7 +601,7 @@ onMounted(() => {
                   <div>同步时间：{{ formatSyncedAt(activeProviderSummary.syncedAt) }}</div>
                   <div
                     v-if="activeProviderSummary.syncError"
-                    class="text-amber-600"
+                    class="text-warning"
                   >
                     同步失败：{{ activeProviderSummary.syncError }}
                   </div>

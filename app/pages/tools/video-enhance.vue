@@ -869,7 +869,7 @@ onBeforeRouteLeave(confirmDiscardQueue)
                             variant="ghost"
                             size="icon"
                             class="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            title="移除"
+                            v-tooltip="'移除'"
                             @click="removeQueueItem(item.id)"
                           >
                             <Trash2 class="h-4 w-4" />
@@ -1050,7 +1050,7 @@ onBeforeRouteLeave(confirmDiscardQueue)
 
           <div
             v-if="provider === 'mediakit' && kind === 'generative'"
-            class="rounded-xl bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
+            class="rounded-xl bg-warning/10 px-3 py-2 text-sm leading-6 text-warning"
           >
             大模型版本输入最高支持 1080p：短边需在 360-1080 像素之间，长边需在 360-1920 像素之间，且仅支持 SDR 视频。
           </div>

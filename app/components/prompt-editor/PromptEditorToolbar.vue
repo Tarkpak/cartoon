@@ -24,7 +24,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         :disabled="readonly || !canUndo"
-        title="撤销 (Ctrl+Z)"
+        v-tooltip="'撤销 (Ctrl+Z)'"
         @click="$emit('undo')"
       >
         <Undo2 class="h-4 w-4" />
@@ -33,7 +33,7 @@ defineEmits<{
         variant="ghost"
         size="icon"
         :disabled="readonly || !canRedo"
-        title="重做 (Ctrl+Y)"
+        v-tooltip="'重做 (Ctrl+Y)'"
         @click="$emit('redo')"
       >
         <Redo2 class="h-4 w-4" />

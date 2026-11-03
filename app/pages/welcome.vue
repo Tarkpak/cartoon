@@ -230,7 +230,7 @@ function finish(path: string) {
             class="rounded-xl bg-muted/25 p-3"
           >
             <div class="mb-2 flex items-center gap-2 text-muted-foreground">
-              <span class="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
+              <span class="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                 {{ index + 1 }}
               </span>
               <component

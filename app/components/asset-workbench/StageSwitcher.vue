@@ -31,7 +31,7 @@ const emit = defineEmits<{
         <div
           v-if="idx > 0"
           class="mx-1 h-px w-4 shrink-0 transition-colors duration-300"
-          :class="stages[idx - 1].status === 'done' ? 'bg-emerald-500/50' : 'bg-border'"
+          :class="stages[idx - 1].status === 'done' ? 'bg-success/50' : 'bg-border'"
           aria-hidden="true"
         />
         <button
@@ -53,8 +53,8 @@ const emit = defineEmits<{
             v-if="stage.progress !== undefined"
             class="pointer-events-none absolute inset-0 -z-10 origin-left transition-transform duration-300 ease-out motion-reduce:transition-none"
             :class="stage.hasError
-              ? 'bg-amber-500/30'
-              : activeStage === stage.key ? 'bg-emerald-400/35' : 'bg-emerald-500/20'"
+              ? 'bg-warning/30'
+              : activeStage === stage.key ? 'bg-success/35' : 'bg-success/20'"
             :style="{ transform: `scaleX(${stage.progress / 100})` }"
             aria-hidden="true"
           />
@@ -63,7 +63,7 @@ const emit = defineEmits<{
             :class="activeStage === stage.key
               ? 'bg-primary-foreground/20 text-primary-foreground'
               : stage.status === 'done'
-                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                ? 'bg-success/15 text-success'
                 : stage.status === 'running'
                   ? 'bg-primary/15 text-primary'
                   : 'bg-muted text-muted-foreground'"
@@ -98,7 +98,7 @@ const emit = defineEmits<{
     </p>
     <p
       v-if="saveWarning"
-      class="rounded-md bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300"
+      class="rounded-md bg-warning/10 px-3 py-1.5 text-xs text-warning"
     >
       {{ saveWarning }}
     </p>

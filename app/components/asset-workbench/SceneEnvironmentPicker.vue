@@ -69,7 +69,7 @@ function preview(image: string, label: string) {
         >
           <span class="min-w-0 flex-1">
             <span class="block text-xs font-medium leading-5">{{ selectedOption?.label || '自动匹配场景环境' }}</span>
-            <span class="block text-[11px] leading-5 text-muted-foreground">{{ modelValue === '__auto__' ? '按当前场景自动选择 · 点击更换' : '手动选择 · 点击更换环境' }}</span>
+            <span class="block text-xs leading-5 text-muted-foreground">{{ modelValue === '__auto__' ? '按当前场景自动选择 · 点击更换' : '手动选择 · 点击更换环境' }}</span>
           </span>
           <ChevronDown class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </button>
@@ -122,13 +122,13 @@ function preview(image: string, label: string) {
                       <ImageIcon class="h-7 w-7" :stroke-width="1.5" />
                       <span class="text-xs">环境图尚未就绪</span>
                     </div>
-                    <span v-if="modelValue === option.id" class="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground">
+                    <span v-if="modelValue === option.id" class="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-primary px-2 py-1 text-xs font-medium text-primary-foreground">
                       <Check class="h-3 w-3" />已选择
                     </span>
                   </div>
                   <div class="px-3 py-2.5">
                     <p class="break-words text-xs font-medium leading-5">{{ option.label }}</p>
-                    <p class="mt-1 text-[11px] text-muted-foreground">{{ option.hasReference ? '环境图已就绪' : '选择后需生成环境图' }}</p>
+                    <p class="mt-1 text-xs text-muted-foreground">{{ option.hasReference ? '环境图已就绪' : '选择后需生成环境图' }}</p>
                   </div>
                 </button>
                 <button
@@ -145,7 +145,7 @@ function preview(image: string, label: string) {
             </div>
             <p v-else class="py-12 text-center text-sm text-muted-foreground">没有找到匹配的环境，试试其他关键词或取消筛选</p>
           </div>
-          <p class="shrink-0 border-t px-4 py-2.5 text-[11px] text-muted-foreground">点击卡片选择 · 点击图片右上角放大查看</p>
+          <p class="shrink-0 border-t px-4 py-2.5 text-xs text-muted-foreground">点击卡片选择 · 点击图片右上角放大查看</p>
         </PopoverContent>
       </PopoverPortal>
     </PopoverRoot>
