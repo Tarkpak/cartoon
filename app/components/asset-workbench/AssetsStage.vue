@@ -15,6 +15,7 @@ import type {
   EnvironmentAssetCard,
   EnvironmentCropCaptureMode
 } from '~/lib/asset-workbench-types'
+import { isPropAssetMediaReady } from '~/lib/asset-workbench-prop-media'
 
 const componentActive = ref(true)
 onActivated(() => { componentActive.value = true })
@@ -48,6 +49,8 @@ const props = defineProps<{
   uploadingPropId: string | null
   uploadingPropVoiceId: string | null
   uploadingPropVideoId?: string | null
+  /** 当前分镜视频模型是否支持视频参考；null 表示未知 */
+  videoReferenceSupported?: boolean | null
   generatingPropId: string | null
   getCharacterSceneCount: (character: CharacterData) => number
   getEnvironmentSceneSummary: (asset: EnvironmentAssetCard) => string
@@ -144,10 +147,10 @@ const assetSummary = computed(() => {
     return { label: '环境图', total: assets.length, ready: count('done'), generating: count('generating'), missing: count('pending'), error: count('error') }
   }
   const assets = assetTab.value === 'props' ? propAssetsOfType.value : otherAssetsOfType.value
-  const ready = assets.filter(item => item.mediaType === 'voice' ? !!item.voiceAsset?.audioUrl : !!item.referenceImage).length
+  const ready = assets.filter(isPropAssetMediaReady).length
   const generating = assets.filter(item => item.id === props.generatingPropId).length
-  const missing = assets.filter(item => item.id !== props.generatingPropId && !(item.mediaType === 'voice' ? item.voiceAsset?.audioUrl : item.referenceImage)).length
-  return { label: assetTab.value === 'props' ? '道具图' : '其他素材', total: assets.length, ready, generating, missing, error: 0 }
+  const missing = assets.filter(item => item.id !== props.generatingPropId && !isPropAssetMediaReady(item)).length
+  return { label: assetTab.value === 'props' ? '道具图' : '其他素材', total: assets.length, ready, generating, missing, missingLabel: assetTab.value === 'props' ? '待生成' : '待补充', error: 0 }
 })
 
 // Personal-library exports do not change the project. Keep them and category
@@ -190,7 +193,7 @@ const fenceOptions = computed(() => ({
               class="inline-block h-2 w-2 rounded-full bg-amber-500"
               aria-hidden="true"
             />
-            待生成 {{ assetSummary.missing }}
+            {{ assetSummary.missingLabel || '待生成' }} {{ assetSummary.missing }}
           </div>
           <span v-if="assetSummary.error" class="text-xs text-destructive">失败 {{ assetSummary.error }}</span>
         </div>
@@ -327,6 +330,7 @@ const fenceOptions = computed(() => ({
         :uploading-prop-id="uploadingPropId"
         :uploading-prop-voice-id="uploadingPropVoiceId"
         :uploading-prop-video-id="uploadingPropVideoId"
+        :video-reference-supported="videoReferenceSupported ?? null"
         :generating-prop-id="generatingPropId"
         :get-prop-usage-count="getPropUsageCount"
         :allow-voice-upload="true"

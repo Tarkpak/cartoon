@@ -137,6 +137,7 @@ const PANORAMA_SOURCE_ASPECT_RATIO_BY_MODE: Record<string, string> = {
   cubemap_6x1: '6:1'
 }
 const supportsExplicitVoiceAudioReference = ref(false)
+const supportsVideoReference = ref<boolean | null>(null)
 const environmentPanoramaSourceAspectRatio = ref(DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO)
 
 function normalizeAspectRatioValue(value: unknown): string | null {
@@ -180,6 +181,7 @@ async function refreshVideoAudioReferenceCapability() {
             model: string
             provider: string
             supportAudioReference?: boolean
+            supportVideoReference?: boolean
           }>
         }>
         modelOptions?: {
@@ -196,12 +198,14 @@ async function refreshVideoAudioReferenceCapability() {
     const selectedModel = videoWorkflow?.selectedModel || ''
     const selectedModelConfig = videoWorkflow?.compatibleModels?.find(item => item.model === selectedModel)
     supportsExplicitVoiceAudioReference.value = selectedModelConfig?.supportAudioReference === true
+    supportsVideoReference.value = selectedModelConfig ? selectedModelConfig.supportVideoReference === true : null
     environmentPanoramaSourceAspectRatio.value = resolvePanoramaSourceAspectRatio(
       response.data?.modelOptions?.image_options
     )
   } catch (error) {
     console.warn('[asset-workbench] 读取视频模型能力失败，默认关闭显式音频引用标记:', error)
     supportsExplicitVoiceAudioReference.value = false
+    supportsVideoReference.value = null
     environmentPanoramaSourceAspectRatio.value = DEFAULT_ENVIRONMENT_PANORAMA_SOURCE_ASPECT_RATIO
   }
 }
@@ -3940,6 +3944,7 @@ function reportWorkbenchActivity() {
           :uploading-prop-id="uploadingPropId"
           :uploading-prop-voice-id="uploadingPropVoiceId"
           :uploading-prop-video-id="uploadingPropVideoId"
+          :video-reference-supported="supportsVideoReference"
           :generating-prop-id="generatingPropId"
           :get-character-scene-count="resolveCharacterSceneCount"
           :get-environment-scene-summary="resolveEnvironmentSceneSummary"

@@ -43,6 +43,7 @@ import type {
   SceneDescriptionRenderSegment
 } from '~/lib/asset-workbench-types'
 import { formatWorkflowStylePrompt } from '~/lib/workflow-style-prompt'
+import { isPropAssetMediaReady } from '~/lib/asset-workbench-prop-media'
 
 interface UseAssetWorkbenchPageStateOptions {
   scenes: Ref<SceneData[]>
@@ -280,11 +281,7 @@ export function useAssetWorkbenchPageState(options: UseAssetWorkbenchPageStateOp
         return {
           label: category === 'prop' ? '道具' : '其他素材',
           total: assets.length,
-          ready: assets.filter((asset) => {
-            if (asset.mediaType === 'voice') return !!asset.voiceAsset?.audioUrl?.trim()
-            if (asset.mediaType === 'video') return !!asset.videoAsset?.videoUrl?.trim()
-            return !!asset.referenceImage?.trim()
-          }).length
+          ready: assets.filter(isPropAssetMediaReady).length
         }
       })
     ]
