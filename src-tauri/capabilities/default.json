@@ -15,6 +15,7 @@
   "permissions": [
     "core:default",
     "core:app:allow-version",
+    "core:window:allow-start-dragging",
     "dialog:allow-open",
     "dialog:allow-save",
     "allow-check-ffmpeg-status",

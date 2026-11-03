@@ -1,11 +1,27 @@
 <script setup lang="ts">
-import { Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Images, Library, MicVocal, PenLine } from 'lucide-vue-next'
+import { Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Images, Library, MicVocal, PenLine, ChevronsUpDown, Monitor, Check } from 'lucide-vue-next'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import { createClickRipple } from '@/lib/ripple'
+import type { ThemePreference } from '@/composables/useTheme'
+import { hasOverlayTitlebar } from '@/lib/desktop-titlebar'
 
 const route = useRoute()
 const router = useRouter()
-const { isDark, toggleTheme, initTheme } = useTheme()
+const { isDark, preference: themePreference, colorMode, resolveTheme, setPreference, initTheme } = useTheme()
+
+const themeOptions = [
+  { value: 'system', label: '跟随系统', icon: Monitor },
+  { value: 'light', label: '浅色', icon: Sun },
+  { value: 'dark', label: '深色', icon: Moon }
+] as const satisfies ReadonlyArray<{ value: ThemePreference, label: string, icon: unknown }>
 const {
   currentUser,
   authenticated,
@@ -183,6 +199,16 @@ const hideSidebar = computed(() => route.meta.hideSidebar === true)
 
 const visualSidebarCollapsed = computed(() => isCollapsed.value || isNarrowSidebar.value)
 
+// macOS desktop: no native title bar. The traffic lights sit at (16, 18) above the sidebar logo
+// (src-tauri/src/lib.rs). Sidebar pages get a short drag strip that puts the page header's center on
+// the logo row's center; full-width pages need a taller strip because the lights overlap their left edge.
+// SPA only (no SSR), so this is resolved synchronously to avoid a layout shift on first paint.
+const overlayTitlebar = hasOverlayTitlebar()
+const titlebarStripClass = computed(() => {
+  if (!overlayTitlebar) return ''
+  return hideSidebar.value ? 'h-8' : 'h-5'
+})
+
 type ViewTransitionDocument = Document & {
   startViewTransition?: (updateCallback: () => void) => {
     ready: Promise<void>
@@ -244,30 +270,36 @@ async function handleCloudLogout() {
   await router.push('/login')
 }
 
-function handleThemeToggle(event: MouseEvent) {
-  if (typeof document === 'undefined' || typeof window === 'undefined') {
-    toggleTheme()
+function handleThemeToggle(event: Event) {
+  handleThemeSelect(colorMode.value === 'light' ? 'dark' : 'light', event)
+}
+
+// Accepts a click or a menu `select` event; the reveal animation grows from the trigger's
+// center and only plays when the visible light/dark mode actually changes.
+function handleThemeSelect(pref: ThemePreference, event: Event) {
+  const applyTheme = () => setPreference(pref)
+  if (typeof document === 'undefined' || typeof window === 'undefined' || resolveTheme(pref) === colorMode.value) {
+    applyTheme()
     return
   }
 
   const viewTransitionDocument = document as ViewTransitionDocument
   if (!viewTransitionDocument.startViewTransition) {
-    toggleTheme()
+    applyTheme()
     return
   }
 
   const trigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
   const rect = trigger?.getBoundingClientRect()
-  const x = rect ? rect.left + rect.width / 2 : event.clientX
-  const y = rect ? rect.top + rect.height / 2 : event.clientY
+  const pointer = event instanceof MouseEvent ? event : null
+  const x = rect ? rect.left + rect.width / 2 : pointer?.clientX ?? window.innerWidth / 2
+  const y = rect ? rect.top + rect.height / 2 : pointer?.clientY ?? window.innerHeight / 2
   const endRadius = Math.hypot(
     Math.max(x, window.innerWidth - x),
     Math.max(y, window.innerHeight - y)
   )
 
-  const transition = viewTransitionDocument.startViewTransition(() => {
-    toggleTheme()
-  })
+  const transition = viewTransitionDocument.startViewTransition(applyTheme)
 
   void transition.ready.then(() => {
     document.documentElement.animate(
@@ -299,8 +331,12 @@ function handleThemeToggle(event: MouseEvent) {
     >
       <!-- Logo with collapse toggle -->
       <div
-        class="theme-surface flex h-16 shrink-0 items-center"
-        :class="visualSidebarCollapsed ? 'justify-center px-2' : 'justify-start px-4'"
+        class="theme-surface flex shrink-0 items-center"
+        :class="[
+          visualSidebarCollapsed ? 'justify-center px-2' : 'justify-start px-4',
+          overlayTitlebar ? 'h-[4.75rem] pt-7' : 'h-16'
+        ]"
+        data-tauri-drag-region
       >
         <!-- Logo 图标按钮 - hover 时显示箭头 -->
         <button
@@ -463,51 +499,88 @@ function handleThemeToggle(event: MouseEvent) {
         </div>
       </nav>
 
-      <!-- Account: one compact row (stacked icons when the sidebar is collapsed). -->
+      <!-- Account: the user chip opens a menu holding theme + logout, so the name and credits get the row's width. -->
       <div
         class="shrink-0 border-t border-border/60 py-3"
-        :class="visualSidebarCollapsed ? 'flex flex-col items-center gap-1 px-2' : 'flex items-center gap-2 px-4'"
+        :class="visualSidebarCollapsed ? 'flex flex-col items-center gap-1 px-2' : 'flex items-center gap-1 px-3'"
       >
-        <template v-if="authenticated">
-          <div
-            class="flex min-w-0 items-center gap-2"
-            :class="visualSidebarCollapsed ? '' : 'flex-1'"
-            :title="currentUserTitle"
+        <DropdownMenu v-if="authenticated">
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              class="flex min-w-0 items-center gap-2 rounded-lg text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent"
+              :class="visualSidebarCollapsed ? 'p-1' : 'flex-1 px-1.5 py-1'"
+              :title="currentUserTitle"
+              :aria-label="`账号菜单：${currentUserTitle}`"
+            >
+              <span
+                class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
+                aria-hidden="true"
+              >
+                {{ currentUserInitial }}
+              </span>
+              <template v-if="!visualSidebarCollapsed">
+                <span class="flex min-w-0 flex-1 flex-col leading-tight">
+                  <span class="truncate text-xs font-medium text-foreground">
+                    {{ currentUser?.displayName || currentUser?.account || '已登录' }}
+                  </span>
+                  <span class="truncate text-xs tabular-nums text-muted-foreground">
+                    积分 {{ currentUserCreditBalance.toLocaleString('zh-CN') }}
+                  </span>
+                </span>
+                <ChevronsUpDown class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </template>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            :side="visualSidebarCollapsed ? 'right' : 'top'"
+            align="start"
+            class="w-52"
           >
-            <span
-              class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
-              aria-hidden="true"
-            >
-              {{ currentUserInitial }}
-            </span>
-            <div
-              v-if="!visualSidebarCollapsed"
-              class="flex min-w-0 flex-col leading-tight"
-            >
-              <span class="truncate text-xs font-medium text-foreground">
+            <DropdownMenuLabel class="flex flex-col gap-0.5 font-normal">
+              <span class="truncate text-sm font-medium text-foreground">
                 {{ currentUser?.displayName || currentUser?.account || '已登录' }}
               </span>
-              <span class="truncate text-xs tabular-nums text-muted-foreground">
+              <span class="text-xs tabular-nums text-muted-foreground">
                 积分 {{ currentUserCreditBalance.toLocaleString('zh-CN') }}
               </span>
-            </div>
-            <span class="sr-only">{{ currentUserTitle }}</span>
-          </div>
-        </template>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel class="py-1 text-xs font-normal text-muted-foreground">
+              外观
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              v-for="option in themeOptions"
+              :key="option.value"
+              :aria-checked="themePreference === option.value"
+              role="menuitemradio"
+              @select="handleThemeSelect(option.value, $event)"
+            >
+              <component :is="option.icon" />
+              {{ option.label }}
+              <Check
+                v-if="themePreference === option.value"
+                class="ml-auto text-primary"
+              />
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              destructive
+              @select="handleCloudLogout"
+            >
+              <LogOut />
+              退出登录
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <LayoutGlobalTaskCenter v-if="authenticated" />
         <IconActionButton
+          v-else
           :label="isDark ? '切换到浅色模式' : '切换到深色模式'"
           @click="handleThemeToggle"
         >
           <Sun class="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
           <Moon class="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-        </IconActionButton>
-        <IconActionButton
-          v-if="authenticated"
-          label="退出登录"
-          @click="handleCloudLogout"
-        >
-          <LogOut class="h-4 w-4" />
         </IconActionButton>
       </div>
     </aside>
@@ -517,6 +590,12 @@ function handleThemeToggle(event: MouseEvent) {
       class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       :class="hideSidebar ? '' : 'pl-4'"
     >
+      <div
+        v-if="titlebarStripClass"
+        class="shrink-0"
+        :class="titlebarStripClass"
+        data-tauri-drag-region
+      />
       <div class="min-h-0 flex-1 overflow-y-auto">
         <slot />
       </div>

@@ -21,6 +21,7 @@ const props = withDefaults(defineProps<{
       compact ? 'min-h-14 py-2' : 'min-h-16 py-3 md:py-0',
       props.class
     )"
+    data-tauri-drag-region
   >
     <div
       v-if="title || description || $slots.default"

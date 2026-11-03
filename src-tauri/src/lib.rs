@@ -273,6 +273,14 @@ fn create_main_window(app: &tauri::App) -> Result<(), String> {
     let window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url));
     #[cfg(target_os = "windows")]
     let window_builder = window_builder.additional_browser_args(WEBVIEW_DIRECT_NETWORK_ARGS);
+    // macOS: hide the native title bar and let the web content extend under the traffic lights;
+    // the frontend reserves room for them and marks drag regions (see app/lib/desktop-titlebar.ts).
+    #[cfg(target_os = "macos")]
+    let window_builder = window_builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        // Left edge lines up with the sidebar logo (px-4); keep in sync with app/layouts/default.vue.
+        .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
     window_builder
         .title("Playlet")
         .inner_size(1280.0, 860.0)

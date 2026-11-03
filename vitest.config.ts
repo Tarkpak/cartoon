@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 const appDir = fileURLToPath(new URL('./app/', import.meta.url))
 const sharedDir = fileURLToPath(new URL('./shared/', import.meta.url))
@@ -17,6 +17,8 @@ export default defineConfig({
     ]
   },
   test: {
-    environment: 'node'
+    environment: 'node',
+    // Agent worktrees under .claude/ hold full repo copies; their tests would resolve `@/` to this checkout.
+    exclude: [...configDefaults.exclude, '.claude/**']
   }
 })
