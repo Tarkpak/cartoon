@@ -5199,6 +5199,9 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
     spawn_image_enhance_task_poller(state.clone());
     spawn_model_call_log_sync_poller();
     spawn_project_sync_poller(state.clone());
+    if let Err(error) = resume_video_import_tasks(&state) {
+        eprintln!("恢复视频转项目任务失败: {}", error.message);
+    }
 
     let observability_state = state.clone();
     let router = Router::new()
@@ -5455,7 +5458,6 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/import/video/tasks/batch-delete",
             post(api_video_import_delete_batch),
         )
-        .route("/api/import/video/events", get(api_video_import_events))
         .route("/api/character/generate", post(api_character_generate))
         .route(
             "/api/character/voice/upload",

@@ -1,13 +1,11 @@
 use super::*;
 use crate::process_util::hidden_command;
 use axum::extract::Multipart;
-use axum::response::sse::{Event, KeepAlive, Sse};
 use chrono::Utc;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use reqwest::header::USER_AGENT;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::convert::Infallible;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path as FsPath, PathBuf};
@@ -30,7 +28,6 @@ const BCUT_UPLOAD_RETRY_BASE_DELAY_MS: u64 = 1_000;
 const BCUT_MAX_CONCURRENT_TRANSCRIPTIONS: usize = 2;
 static BCUT_TRANSCRIPTION_GATE: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> =
     std::sync::OnceLock::new();
-const SERIES_IMPORT_MAX_CONCURRENT_TASKS: usize = 2;
 const SHORT_CLIP_MAX_SECONDS: f64 = 60.0;
 const SHORT_CLIP_MIN_RATIO: f64 = 0.6;
 const SHORT_CLIP_SCRIPT_CHUNK_MAX_CHARS: usize = 6_000;
@@ -77,6 +74,11 @@ pub(super) struct VideoImportTextBody {
 pub(super) struct VideoImportRetryBody {
     #[serde(rename = "fromStep")]
     from_step: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct VideoImportGenerateBody {
+    force: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -395,6 +397,483 @@ impl SeriesDurationSummary {
     }
 }
 
+// ===========================================================================
+// 任务调度
+//
+// 所有耗时步骤（复制源文件、抽音频、ASR、生成剧本、解析建项目）都在后台作业里执行，
+// HTTP 接口只负责校验和“认领”状态，然后立即返回，前端轮询任务详情获取进度。
+// - 每个任务同一时刻最多一个后台作业（注册表 + 状态 CAS 双重保护）。
+// - 取消会直接 abort 正在运行的作业，而不只是在步骤之间检查。
+// - 应用重启后，识别阶段的任务自动续跑，生成/导入阶段的任务标记为失败，等待用户重试。
+// ===========================================================================
+
+const VIDEO_IMPORT_RUNNING_STATUSES: &[&str] = &[
+    "pending",
+    "extracting",
+    "transcribing",
+    "generating_script",
+    "importing",
+];
+const VIDEO_IMPORT_INTERRUPTED_MESSAGE: &str = "应用退出导致处理中断，请重试";
+const VIDEO_IMPORT_MAX_CONCURRENT_PREPARE_JOBS: usize = 2;
+
+struct VideoImportJobEntry {
+    job_id: u64,
+    handle: tokio::task::AbortHandle,
+}
+
+static VIDEO_IMPORT_JOBS: std::sync::OnceLock<
+    std::sync::Mutex<HashMap<String, VideoImportJobEntry>>,
+> = std::sync::OnceLock::new();
+static VIDEO_IMPORT_JOB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+static VIDEO_IMPORT_PREPARE_GATE: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> =
+    std::sync::OnceLock::new();
+
+fn video_import_jobs() -> std::sync::MutexGuard<'static, HashMap<String, VideoImportJobEntry>> {
+    VIDEO_IMPORT_JOBS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn is_video_import_job_running(task_id: &str) -> bool {
+    video_import_jobs().contains_key(task_id)
+}
+
+fn unregister_video_import_job(task_id: &str, job_id: u64) {
+    let mut jobs = video_import_jobs();
+    if jobs.get(task_id).is_some_and(|entry| entry.job_id == job_id) {
+        jobs.remove(task_id);
+    }
+}
+
+fn abort_video_import_job(task_id: &str) {
+    if let Some(entry) = video_import_jobs().remove(task_id) {
+        entry.handle.abort();
+    }
+}
+
+/// 启动后台作业。作业返回错误时把任务标记为失败（只覆盖仍处于运行态的任务，
+/// 不会覆盖作业内部已经写入的具体失败步骤，也不会覆盖已取消的任务）。
+fn spawn_video_import_job<F>(state: BackendState, task_id: String, job: F) -> Result<(), ApiError>
+where
+    F: std::future::Future<Output = Result<(), ApiError>> + Send + 'static,
+{
+    let job_id = VIDEO_IMPORT_JOB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut jobs = video_import_jobs();
+    if jobs.contains_key(&task_id) {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "任务正在处理中，请等待当前步骤完成",
+        ));
+    }
+    let job_state = state.clone();
+    let job_task_id = task_id.clone();
+    let handle = tokio::spawn(async move {
+        let result = job.await;
+        if let Err(error) = &result {
+            let _ = fail_video_import_task(&job_state, &job_task_id, &error.message);
+        }
+        unregister_video_import_job(&job_task_id, job_id);
+    });
+    // 持锁插入，保证作业即使瞬间结束也能找到并清除自己的注册项。
+    jobs.insert(
+        task_id.clone(),
+        VideoImportJobEntry {
+            job_id,
+            handle: handle.abort_handle(),
+        },
+    );
+    drop(jobs);
+
+    tokio::spawn(async move {
+        if let Err(error) = handle.await {
+            if error.is_panic() {
+                let _ = fail_video_import_task(&state, &task_id, "处理过程中发生内部错误，请重试");
+            }
+            unregister_video_import_job(&task_id, job_id);
+        }
+    });
+    Ok(())
+}
+
+fn sql_in_list(values: &[&str]) -> String {
+    values
+        .iter()
+        .map(|value| format!("'{}'", value.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// 原子地把任务从允许的状态迁移到新状态；状态不匹配时返回 409。
+fn claim_video_import_task(
+    conn: &Connection,
+    task_id: &str,
+    from: &[&str],
+    status: &str,
+    current_step: &str,
+    progress: i64,
+) -> Result<(), ApiError> {
+    let now = now_iso();
+    let sql = format!(
+        "UPDATE video_import_tasks
+         SET status = ?1, current_step = ?2, progress = ?3, error_message = NULL,
+             completed_at = NULL, cancelled_at = NULL,
+             started_at = COALESCE(started_at, ?4), updated_at = ?4
+         WHERE id = ?5 AND status IN ({})",
+        sql_in_list(from)
+    );
+    let changed = conn
+        .execute(&sql, params![status, current_step, progress, now, task_id])
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if changed > 0 {
+        return Ok(());
+    }
+    let current = load_task(conn, task_id)?;
+    Err(ApiError::new(
+        StatusCode::CONFLICT,
+        format!(
+            "任务当前状态为「{}」，无法执行该操作",
+            status_label_for_backend(&current.status)
+        ),
+    ))
+}
+
+/// 步骤完成时的状态迁移：只有任务仍处于 `expected` 状态时才写入（取消后不会被改回）。
+fn finish_video_import_task(
+    conn: &Connection,
+    task_id: &str,
+    expected: &str,
+    status: &str,
+    current_step: &str,
+    progress: i64,
+) -> Result<bool, ApiError> {
+    let now = now_iso();
+    let completed_at = if status == "imported" { Some(now.clone()) } else { None };
+    let changed = conn
+        .execute(
+            "UPDATE video_import_tasks
+             SET status = ?1, current_step = ?2, progress = ?3, error_message = NULL,
+                 completed_at = ?4, updated_at = ?5
+             WHERE id = ?6 AND status = ?7",
+            params![status, current_step, progress, completed_at, now, task_id, expected],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(changed > 0)
+}
+
+fn set_video_import_progress(state: &BackendState, task_id: &str, progress: i64) {
+    if let Ok(conn) = db_connection(state) {
+        let _ = conn.execute(
+            "UPDATE video_import_tasks SET progress = ?1, updated_at = ?2
+             WHERE id = ?3 AND status IN ('generating_script', 'importing')",
+            params![progress, now_iso(), task_id],
+        );
+    }
+}
+
+fn close_running_step_runs(
+    conn: &Connection,
+    task_id: Option<&str>,
+    status: &str,
+    message: Option<&str>,
+) -> Result<(), ApiError> {
+    let ended_at = now_iso();
+    let sql = "UPDATE video_import_step_runs
+         SET status = ?1, ended_at = ?2,
+             duration_ms = CAST((julianday(?2) - julianday(started_at)) * 86400000 AS INTEGER),
+             error_message = COALESCE(error_message, ?3)
+         WHERE status = 'running' AND (?4 IS NULL OR task_id = ?4)";
+    conn.execute(sql, params![status, ended_at, message, task_id])
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(())
+}
+
+/// 把仍处于运行态的任务标记为失败，失败步骤由当前状态推导。
+fn fail_video_import_task(
+    state: &BackendState,
+    task_id: &str,
+    message: &str,
+) -> Result<(), ApiError> {
+    let conn = db_connection(state)?;
+    let now = now_iso();
+    let sql = format!(
+        "UPDATE video_import_tasks
+         SET status = 'failed',
+             current_step = CASE status
+               WHEN 'transcribing' THEN 'transcribe'
+               WHEN 'generating_script' THEN 'generate_script'
+               WHEN 'importing' THEN 'import'
+               ELSE CASE WHEN current_step = 'copy_source' THEN 'copy_source' ELSE 'extract' END
+             END,
+             error_message = ?1, completed_at = ?2, updated_at = ?2
+         WHERE id = ?3 AND status IN ({})",
+        sql_in_list(VIDEO_IMPORT_RUNNING_STATUSES)
+    );
+    conn.execute(&sql, params![message, now, task_id])
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    close_running_step_runs(&conn, Some(task_id), "failed", Some(message))?;
+    release_unfinished_import_project(&conn, task_id)?;
+    Ok(())
+}
+
+fn video_import_prepare_gate() -> Arc<tokio::sync::Semaphore> {
+    VIDEO_IMPORT_PREPARE_GATE
+        .get_or_init(|| {
+            Arc::new(tokio::sync::Semaphore::new(
+                VIDEO_IMPORT_MAX_CONCURRENT_PREPARE_JOBS,
+            ))
+        })
+        .clone()
+}
+
+/// 应用启动时调用：恢复上次退出时中断的任务。
+pub(super) fn resume_video_import_tasks(state: &BackendState) -> Result<(), ApiError> {
+    let conn = db_connection(state)?;
+    let interrupted_ids = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM video_import_tasks WHERE status IN ('generating_script', 'importing')",
+            )
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        rows
+    };
+    for task_id in &interrupted_ids {
+        fail_video_import_task(state, task_id, VIDEO_IMPORT_INTERRUPTED_MESSAGE)?;
+    }
+    close_running_step_runs(&conn, None, "failed", Some(VIDEO_IMPORT_INTERRUPTED_MESSAGE))?;
+
+    let resumable = query_tasks(
+        &conn,
+        "SELECT id, original_filename, source_kind, source_path, status, current_step, progress, error_message, asr_provider, script_model_id, config_json, metadata_json, created_at, updated_at, started_at, completed_at, cancelled_at, series_id, episode_number, is_series_group
+         FROM video_import_tasks
+         WHERE status IN ('pending', 'extracting', 'transcribing') AND is_series_group = 0
+         ORDER BY created_at ASC",
+        &[],
+    )?;
+    for task in resumable {
+        conn.execute(
+            "UPDATE video_import_tasks SET status = 'pending', current_step = 'queued', updated_at = ?1 WHERE id = ?2",
+            params![now_iso(), task.id],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        spawn_prepare_job(state, &task.id, false)?;
+    }
+    Ok(())
+}
+
+// ===========================================================================
+// 识别阶段：复制源文件 -> 抽音频 -> ASR
+// ===========================================================================
+
+fn spawn_prepare_job(
+    state: &BackendState,
+    task_id: &str,
+    force_extract: bool,
+) -> Result<(), ApiError> {
+    let job_state = state.clone();
+    let job_task_id = task_id.to_string();
+    spawn_video_import_job(state.clone(), task_id.to_string(), async move {
+        run_prepare_job(job_state, job_task_id, force_extract).await
+    })
+}
+
+/// 执行一个被记录的步骤：失败时写入 step run 和任务失败状态。
+async fn run_tracked_step<T, F>(
+    state: &BackendState,
+    task_id: &str,
+    step: &str,
+    provider: Option<&str>,
+    failed_progress: i64,
+    future: F,
+) -> Result<(T, String), ApiError>
+where
+    F: std::future::Future<Output = Result<T, ApiError>>,
+{
+    let run_id = {
+        let conn = db_connection(state)?;
+        ensure_video_import_task_active(&conn, task_id)?;
+        start_step_run(&conn, task_id, step, provider)?
+    };
+    match future.await {
+        Ok(value) => Ok((value, run_id)),
+        Err(error) => {
+            let conn = db_connection(state)?;
+            finish_step_run(&conn, &run_id, "failed", None, Some(&error.message), json!({}))?;
+            update_task_status(
+                &conn,
+                task_id,
+                "failed",
+                step,
+                failed_progress,
+                Some(&error.message),
+            )?;
+            Err(error)
+        }
+    }
+}
+
+async fn run_prepare_job(
+    state: BackendState,
+    task_id: String,
+    force_extract: bool,
+) -> Result<(), ApiError> {
+    let _permit = video_import_prepare_gate()
+        .acquire_owned()
+        .await
+        .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "任务调度器不可用，请稍后重试"))?;
+    let task = {
+        let conn = db_connection(&state)?;
+        ensure_video_import_task_active(&conn, &task_id)?;
+        load_task(&conn, &task_id)?
+    };
+    let source_path = PathBuf::from(&task.source_path);
+
+    if !source_path.is_file() {
+        let original_path = parse_json_object(&task.metadata_json)
+            .get("originalPath")
+            .and_then(Value::as_str)
+            .map(PathBuf::from);
+        if let Some(original_path) = original_path {
+            {
+                let conn = db_connection(&state)?;
+                update_task_status(&conn, &task_id, "extracting", "copy_source", 5, None)?;
+            }
+            let copy_source = original_path.clone();
+            let copy_dest = source_path.clone();
+            let (_, run_id) = run_tracked_step(&state, &task_id, "copy_source", None, 5, async move {
+                tokio::task::spawn_blocking(move || link_or_copy_file(&copy_source, &copy_dest))
+                    .await
+                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            })
+            .await?;
+            let conn = db_connection(&state)?;
+            insert_artifact(
+                &conn,
+                &task_id,
+                "source_video",
+                &source_path,
+                Some("video/mp4"),
+                json!({
+                  "originalFilename": task.original_filename,
+                  "originalPath": original_path.to_string_lossy(),
+                  "seriesId": task.series_id,
+                  "episodeNumber": task.episode_number
+                }),
+            )?;
+            finish_step_run(
+                &conn,
+                &run_id,
+                "success",
+                None,
+                None,
+                json!({ "sourcePath": original_path.to_string_lossy(), "destPath": source_path.to_string_lossy() }),
+            )?;
+        }
+    }
+
+    let audio_path = task_dir(&state, &task_id).join("audio.wav");
+    let reuse_audio = !force_extract && audio_path.is_file() && {
+        let conn = db_connection(&state)?;
+        latest_artifact_info(&conn, &task_id, &["extracted_audio"])?.is_some()
+    };
+    if !reuse_audio {
+        {
+            let conn = db_connection(&state)?;
+            update_task_status(&conn, &task_id, "extracting", "extract", 10, None)?;
+        }
+        let (_, run_id) = run_tracked_step(
+            &state,
+            &task_id,
+            "extract",
+            None,
+            10,
+            extract_audio(source_path.clone(), audio_path.clone()),
+        )
+        .await?;
+        let conn = db_connection(&state)?;
+        ensure_video_import_task_active(&conn, &task_id)?;
+        insert_artifact(&conn, &task_id, "extracted_audio", &audio_path, Some("audio/wav"), json!({}))?;
+        finish_step_run(&conn, &run_id, "success", None, None, json!({}))?;
+    }
+
+    {
+        let conn = db_connection(&state)?;
+        update_task_status(&conn, &task_id, "transcribing", "transcribe", 35, None)?;
+    }
+    let (output, run_id) = run_tracked_step(
+        &state,
+        &task_id,
+        "transcribe",
+        Some("bcut"),
+        45,
+        transcribe_bcut_for_import(audio_path.clone(), &state, &task_id),
+    )
+    .await?;
+
+    let conn = db_connection(&state)?;
+    ensure_video_import_task_active(&conn, &task_id)?;
+    let dir = task_dir(&state, &task_id);
+    let raw_path = dir.join("asr-raw.json");
+    let txt_path = dir.join("subtitle.txt");
+    let srt_path = dir.join("subtitle.srt");
+    write_text_file(&raw_path, &output.raw.to_string())?;
+    write_text_file(&txt_path, &output.text)?;
+    write_text_file(&srt_path, &output.srt)?;
+    let segment_meta = json!({ "segmentCount": output.segments.len(), "taskId": output.task_id });
+    insert_artifact(&conn, &task_id, "asr_raw_json", &raw_path, Some("application/json"), json!({ "taskId": output.task_id }))?;
+    insert_artifact(&conn, &task_id, "subtitle_txt", &txt_path, Some("text/plain"), segment_meta.clone())?;
+    insert_artifact(&conn, &task_id, "subtitle_srt", &srt_path, Some("application/x-subrip"), segment_meta)?;
+    finish_step_run(
+        &conn,
+        &run_id,
+        "success",
+        Some(&output.task_id),
+        None,
+        json!({ "segmentCount": output.segments.len() }),
+    )?;
+    finish_video_import_task(&conn, &task_id, "transcribing", "subtitle_ready", "subtitle_ready", 55)?;
+    Ok(())
+}
+
+fn link_or_copy_file(source: &FsPath, dest: &FsPath) -> Result<(), ApiError> {
+    if !source.is_file() {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            format!(
+                "SOURCE_FILE_NOT_FOUND: 找不到源视频文件：{}，文件可能已被移动或删除",
+                source.display()
+            ),
+        ));
+    }
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
+    if dest.exists() {
+        let _ = fs::remove_file(dest);
+    }
+    // 同一磁盘优先硬链接，避免大视频的完整复制；跨盘或不支持时回退为复制。
+    if fs::hard_link(source, dest).is_ok() {
+        return Ok(());
+    }
+    fs::copy(source, dest).map(|_| ()).map_err(|error| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("复制视频文件失败: {}", error),
+        )
+    })
+}
+
+// ===========================================================================
+// 创建任务
+// ===========================================================================
+
 pub(super) async fn api_video_import_upload(
     State(state): State<BackendState>,
     mut multipart: Multipart,
@@ -404,111 +883,120 @@ pub(super) async fn api_video_import_upload(
     fs::create_dir_all(&task_dir)
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
-    let mut original_filename = String::new();
-    let mut source_path: Option<PathBuf> = None;
-    let mut config = json!({});
+    let result = async {
+        let mut original_filename = String::new();
+        let mut source: Option<(PathBuf, i64, String)> = None;
+        let mut config = json!({});
 
-    while let Some(mut field) = multipart
-        .next_field()
-        .await
-        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
-    {
-        let name = field.name().unwrap_or("").to_string();
-        if name == "config" {
-            let raw = field
-                .text()
-                .await
-                .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
-            if !raw.trim().is_empty() {
-                config = serde_json::from_str::<Value>(&raw)
-                    .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
-            }
-            continue;
-        }
-
-        if name != "video" {
-            continue;
-        }
-
-        let filename = field
-            .file_name()
-            .map(str::to_string)
-            .unwrap_or_else(|| "upload.mp4".to_string());
-        let extension = file_extension(&filename).unwrap_or_else(|| "mp4".to_string());
-        validate_video_extension(&extension)?;
-        original_filename = filename;
-
-        let output_path = task_dir.join(format!("source.{}", extension));
-        let mut file = File::create(&output_path)
-            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-        while let Some(chunk) = field
-            .chunk()
+        while let Some(mut field) = multipart
+            .next_field()
             .await
             .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
         {
-            file.write_all(&chunk).map_err(|error| {
+            let name = field.name().unwrap_or("").to_string();
+            if name == "config" {
+                let raw = field
+                    .text()
+                    .await
+                    .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+                if !raw.trim().is_empty() {
+                    config = serde_json::from_str::<Value>(&raw)
+                        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?;
+                }
+                continue;
+            }
+            if name != "video" {
+                continue;
+            }
+
+            let filename = field
+                .file_name()
+                .map(str::to_string)
+                .unwrap_or_else(|| "upload.mp4".to_string());
+            let extension = file_extension(&filename).unwrap_or_else(|| "mp4".to_string());
+            validate_video_extension(&extension)?;
+            original_filename = filename;
+
+            let output_path = task_dir.join(format!("source.{}", extension));
+            let mut file = File::create(&output_path).map_err(|error| {
                 ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
             })?;
+            let mut hasher = Sha256::new();
+            let mut size = 0_i64;
+            while let Some(chunk) = field
+                .chunk()
+                .await
+                .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error.to_string()))?
+            {
+                hasher.update(&chunk);
+                size += chunk.len() as i64;
+                file.write_all(&chunk).map_err(|error| {
+                    ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+                })?;
+            }
+            source = Some((output_path, size, format!("{:x}", hasher.finalize())));
         }
-        source_path = Some(output_path);
-    }
 
-    let source_path =
-        source_path.ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少 video 文件字段"))?;
-    if original_filename.trim().is_empty() {
-        original_filename = source_path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("upload.mp4")
-            .to_string();
-    }
-
-    let conn = db_connection(&state)?;
-    let now = now_iso();
-    conn.execute(
-        "INSERT INTO video_import_tasks (
-          id, original_filename, source_kind, source_path, status, current_step, progress,
-          asr_provider, config_json, metadata_json, created_at, updated_at
-        ) VALUES (?1, ?2, 'upload', ?3, 'pending', 'created', 0, 'bcut', ?4, '{}', ?5, ?6)",
-        params![
-            task_id,
-            original_filename,
-            source_path.to_string_lossy().to_string(),
-            config.to_string(),
-            now,
-            now
-        ],
-    )
-    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    insert_artifact(
-        &conn,
-        &task_id,
-        "source_video",
-        &source_path,
-        Some("video/mp4"),
-        json!({ "originalFilename": original_filename }),
-    )?;
-    drop(conn);
-
-    let background_state = state.clone();
-    let background_task_id = task_id.clone();
-    tokio::spawn(async move {
-        if let Err(error) =
-            run_initial_video_import_task(background_state.clone(), &background_task_id).await
-        {
-            let _ = mark_task_failed(
-                &background_state,
-                &background_task_id,
-                "processing",
-                &error.message,
-            );
+        let (source_path, size, sha256) =
+            source.ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少 video 文件字段"))?;
+        if original_filename.trim().is_empty() {
+            original_filename = "upload.mp4".to_string();
         }
-    });
+        let config = normalize_video_import_task_config(&config);
+
+        let conn = db_connection(&state)?;
+        let now = now_iso();
+        conn.execute(
+            "INSERT INTO video_import_tasks (
+              id, original_filename, source_kind, source_path, status, current_step, progress,
+              asr_provider, config_json, metadata_json, created_at, updated_at
+            ) VALUES (?1, ?2, 'upload', ?3, 'pending', 'queued', 0, 'bcut', ?4, '{}', ?5, ?5)",
+            params![
+                task_id,
+                original_filename,
+                source_path.to_string_lossy().to_string(),
+                config.to_string(),
+                now
+            ],
+        )
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        insert_artifact_record(
+            &conn,
+            &task_id,
+            "source_video",
+            &source_path,
+            Some("video/mp4"),
+            size,
+            &sha256,
+            json!({ "originalFilename": original_filename }),
+        )?;
+        Ok::<(), ApiError>(())
+    }
+    .await;
+
+    if let Err(error) = result {
+        let _ = fs::remove_dir_all(&task_dir);
+        return Err(error);
+    }
+    spawn_prepare_job(&state, &task_id, true)?;
 
     Ok(Json(json!({
       "success": true,
       "data": { "taskId": task_id }
     })))
+}
+
+fn normalize_video_import_task_config(raw: &Value) -> Value {
+    let mut config = raw.as_object().cloned().unwrap_or_default();
+    let script_parse_mode =
+        normalize_video_import_script_parse_mode(config.get("scriptParseMode").and_then(Value::as_str));
+    config.insert("scriptParseMode".to_string(), json!(script_parse_mode));
+    if let Some(aspect_ratio) = config.get("aspectRatio").and_then(Value::as_str) {
+        if !matches!(aspect_ratio, "16:9" | "9:16" | "1:1") {
+            config.remove("aspectRatio");
+        }
+    }
+    Value::Object(config)
 }
 
 pub(super) async fn api_video_import_upload_series(
@@ -519,28 +1007,26 @@ pub(super) async fn api_video_import_upload_series(
         .get("folderPath")
         .and_then(Value::as_str)
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "folderPath is required"))?;
-
-    let config = body
-        .get("config")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
+    let config = normalize_video_import_task_config(&body.get("config").cloned().unwrap_or_else(|| json!({})));
     let project_title = config
         .get("projectTitle")
         .and_then(Value::as_str)
         .unwrap_or("")
-        .trim();
+        .trim()
+        .to_string();
     let aspect_ratio = config
         .get("aspectRatio")
         .and_then(Value::as_str)
-        .unwrap_or("9:16");
-    let script_parse_mode = normalize_video_import_script_parse_mode(
-        config.get("scriptParseMode").and_then(Value::as_str),
-    );
+        .unwrap_or("9:16")
+        .to_string();
+    let script_parse_mode = config
+        .get("scriptParseMode")
+        .and_then(Value::as_str)
+        .unwrap_or("premium_drama")
+        .to_string();
 
     let folder = FsPath::new(folder_path);
     let video_files = scan_series_video_files(folder)?;
-
     if video_files.is_empty() {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -553,34 +1039,29 @@ pub(super) async fn api_video_import_upload_series(
     } else {
         "episodes"
     };
-
-    // Create series group task
     let series_id = format!("vimp_series_{}", Uuid::new_v4().simple());
     let series_title = if project_title.is_empty() {
         folder
             .file_name()
-            .and_then(|n| n.to_str())
+            .and_then(|name| name.to_str())
             .unwrap_or("未命名剧集")
             .to_string()
     } else {
-        project_title.to_string()
+        project_title
     };
 
-    let conn = db_connection(&state)?;
+    let mut conn = db_connection(&state)?;
     let now = now_iso();
-
-    // Create series group record
-    conn.execute(
-        "INSERT INTO video_import_tasks (id, original_filename, source_kind, source_path, status, current_step, progress, asr_provider, config_json, metadata_json, created_at, updated_at, is_series_group, series_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+    let tx = conn
+        .transaction()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    tx.execute(
+        "INSERT INTO video_import_tasks (id, original_filename, source_kind, source_path, status, current_step, progress, asr_provider, config_json, metadata_json, created_at, updated_at, is_series_group, series_id)
+         VALUES (?1, ?2, 'folder', ?3, 'pending', 'queued', 0, 'bcut', ?4, '{}', ?5, ?5, 1, ?1)",
         params![
             &series_id,
             &series_title,
-            "folder",
             folder_path,
-            "pending",
-            "created",
-            0,
-            "bcut",
             json!({
                 "projectTitle": series_title,
                 "aspectRatio": aspect_ratio,
@@ -588,105 +1069,49 @@ pub(super) async fn api_video_import_upload_series(
                 "episodeCount": video_files.len(),
                 "seriesImportMode": series_import_mode,
                 "durationSummary": duration_summary.to_json()
-            }).to_string(),
-            "{}",
-            &now,
-            &now,
-            1,
-            &series_id
+            })
+            .to_string(),
+            &now
         ],
     )
     .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
-    // Create episode tasks
     let mut episode_ids = Vec::new();
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(
-        SERIES_IMPORT_MAX_CONCURRENT_TASKS,
-    ));
     for (idx, (filename, path)) in video_files.iter().enumerate() {
         let episode_id = format!("vimp_{}", Uuid::new_v4().simple());
-        let episode_dir = state.data_dir.join(VIDEO_IMPORT_DIR).join(&episode_id);
-        fs::create_dir_all(&episode_dir)
-            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-
-        let dest_path = episode_dir.join(filename);
-        conn.execute(
-            "INSERT INTO video_import_tasks (id, original_filename, source_kind, source_path, status, current_step, progress, asr_provider, config_json, metadata_json, created_at, updated_at, series_id, episode_number, is_series_group) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        let dest_path = state
+            .data_dir
+            .join(VIDEO_IMPORT_DIR)
+            .join(&episode_id)
+            .join(filename);
+        tx.execute(
+            "INSERT INTO video_import_tasks (id, original_filename, source_kind, source_path, status, current_step, progress, asr_provider, config_json, metadata_json, created_at, updated_at, series_id, episode_number, is_series_group)
+             VALUES (?1, ?2, 'folder', ?3, 'pending', 'queued', 0, 'bcut', ?4, ?5, ?6, ?6, ?7, ?8, 0)",
             params![
                 &episode_id,
                 filename,
-                "folder",
                 dest_path.to_string_lossy().to_string(),
-                "pending",
-                "created",
-                0,
-                "bcut",
                 json!({
                     "projectTitle": format!("{} - 第{}集", series_title, idx + 1),
                     "aspectRatio": aspect_ratio,
                     "scriptParseMode": script_parse_mode
-                }).to_string(),
-                "{}",
-                &now,
+                })
+                .to_string(),
+                json!({ "originalPath": path.to_string_lossy() }).to_string(),
                 &now,
                 &series_id,
-                (idx + 1) as i64,
-                0
+                (idx + 1) as i64
             ],
         )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        episode_ids.push(episode_id);
+    }
+    tx.commit()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    drop(conn);
 
-        let copy_run_id = start_step_run(&conn, &episode_id, "copy_source", None)?;
-        if let Err(error) = fs::copy(path, &dest_path) {
-            let message = format!("复制视频文件失败: {}", error);
-            finish_step_run(
-                &conn,
-                &copy_run_id,
-                "failed",
-                None,
-                Some(&message),
-                json!({ "sourcePath": path.to_string_lossy(), "destPath": dest_path.to_string_lossy() }),
-            )?;
-            update_task_status(
-                &conn,
-                &episode_id,
-                "failed",
-                "copy_source",
-                0,
-                Some(&message),
-            )?;
-            return Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, message));
-        }
-        finish_step_run(
-            &conn,
-            &copy_run_id,
-            "success",
-            None,
-            None,
-            json!({ "sourcePath": path.to_string_lossy(), "destPath": dest_path.to_string_lossy() }),
-        )?;
-        insert_artifact(
-            &conn,
-            &episode_id,
-            "source_video",
-            &dest_path,
-            Some("video/mp4"),
-            json!({ "originalFilename": filename, "seriesId": series_id.as_str(), "episodeNumber": idx + 1 }),
-        )?;
-
-        episode_ids.push(episode_id.clone());
-
-        // Start processing episode
-        let state_clone = state.clone();
-        let semaphore_clone = Arc::clone(&semaphore);
-        tokio::spawn(async move {
-            let _permit = semaphore_clone.acquire_owned().await.ok();
-            if let Err(error) =
-                run_initial_video_import_task(state_clone.clone(), &episode_id).await
-            {
-                let _ = mark_task_failed(&state_clone, &episode_id, "processing", &error.message);
-            }
-        });
+    for episode_id in &episode_ids {
+        spawn_prepare_job(&state, episode_id, true)?;
     }
 
     Ok(Json(json!({
@@ -760,6 +1185,10 @@ pub(super) async fn api_video_import_preview_series(
     })))
 }
 
+// ===========================================================================
+// 查询
+// ===========================================================================
+
 pub(super) async fn api_video_import_tasks(
     State(state): State<BackendState>,
     Query(query): Query<VideoImportTasksQuery>,
@@ -771,14 +1200,26 @@ pub(super) async fn api_video_import_tasks(
 
     let mut sql = "SELECT id, original_filename, source_kind, source_path, status, current_step, progress, error_message, asr_provider, script_model_id, config_json, metadata_json, created_at, updated_at, started_at, completed_at, cancelled_at, series_id, episode_number, is_series_group FROM video_import_tasks WHERE (is_series_group = 1 OR series_id IS NULL)".to_string();
     let mut args = Vec::<String>::new();
-    if let Some(status) = query
+    match query
         .status
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        sql.push_str(" AND status = ?1");
-        args.push(status.to_string());
+        Some("running") => {
+            sql.push_str(&format!(
+                " AND status IN ({})",
+                sql_in_list(VIDEO_IMPORT_RUNNING_STATUSES)
+            ));
+        }
+        Some("waiting") => {
+            sql.push_str(" AND status IN ('subtitle_ready', 'script_ready')");
+        }
+        Some(status) => {
+            sql.push_str(" AND status = ?");
+            args.push(status.to_string());
+        }
+        None => {}
     }
     if let Some(search) = query
         .search
@@ -786,8 +1227,14 @@ pub(super) async fn api_video_import_tasks(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        sql.push_str(" AND (original_filename LIKE ? OR source_path LIKE ?)");
-        let pattern = format!("%{}%", search.replace('%', "\\%").replace('_', "\\_"));
+        sql.push_str(" AND (original_filename LIKE ? ESCAPE '\\' OR source_path LIKE ? ESCAPE '\\')");
+        let pattern = format!(
+            "%{}%",
+            search
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
         args.push(pattern.clone());
         args.push(pattern);
     }
@@ -809,28 +1256,53 @@ pub(super) async fn api_video_import_task(
     let conn = db_connection(&state)?;
     refresh_series_group_status(&conn, &id)?;
     let task = load_task(&conn, &id)?;
+    let is_group = task.is_series_group != 0;
     let artifacts = load_artifacts(&conn, &id)?;
     let step_runs = load_step_runs(&conn, &id)?;
-    let episodes = if task.is_series_group != 0 {
+    let episode_records = if is_group {
         load_series_episode_tasks(&conn, &id)?
-            .into_iter()
-            .map(task_to_json)
-            .collect::<Vec<_>>()
     } else {
         Vec::new()
     };
-    let subtitle = if task.is_series_group != 0 {
-        Some(build_series_subtitle_text(&conn, &id)?)
+
+    let (subtitle, subtitle_updated_at) = if is_group {
+        let mut latest: Option<String> = None;
+        for episode in &episode_records {
+            if let Some((_, created_at)) = latest_artifact_info(&conn, &episode.id, &["subtitle_txt"])? {
+                if latest.as_deref().is_none_or(|current| created_at.as_str() > current) {
+                    latest = Some(created_at);
+                }
+            }
+        }
+        (Some(build_series_subtitle_text(&conn, &id)?), latest)
     } else {
-        latest_artifact_text(&conn, &id, "subtitle_txt")?
+        let info = latest_artifact_info(&conn, &id, &["subtitle_txt"])?;
+        match info {
+            Some((path, created_at)) => (Some(read_artifact_text(&path)?), Some(created_at)),
+            None => (None, None),
+        }
     };
-    let script = latest_artifact_text(&conn, &id, "script_edited")?.or(latest_artifact_text(
-        &conn,
-        &id,
-        "script_draft",
-    )?);
+    let script_info = latest_artifact_info(&conn, &id, VIDEO_IMPORT_SCRIPT_KINDS)?;
+    let (script, script_updated_at) = match script_info {
+        Some((path, created_at)) => (Some(read_artifact_text(&path)?), Some(created_at)),
+        None => (None, None),
+    };
+    let script_outdated = match (&subtitle_updated_at, &script_updated_at) {
+        (Some(subtitle_at), Some(script_at)) => subtitle_at > script_at,
+        _ => false,
+    };
     let parse_result = latest_artifact_text(&conn, &id, "parse_result")?
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+    let project_id = imported_project_id(&conn, &id)?;
+    let episodes = episode_records
+        .into_iter()
+        .map(|episode| {
+            let running = is_video_import_job_running(&episode.id);
+            let mut value = task_to_json(episode);
+            value["jobRunning"] = json!(running);
+            value
+        })
+        .collect::<Vec<_>>();
 
     Ok(Json(json!({
       "success": true,
@@ -840,10 +1312,69 @@ pub(super) async fn api_video_import_task(
         "stepRuns": step_runs,
         "episodes": episodes,
         "subtitleText": subtitle,
+        "subtitleUpdatedAt": subtitle_updated_at,
         "scriptText": script,
-        "parseResult": parse_result
+        "scriptUpdatedAt": script_updated_at,
+        "scriptOutdated": script_outdated,
+        "parseResult": parse_result,
+        "projectId": project_id,
+        "jobRunning": is_video_import_job_running(&id)
       }
     })))
+}
+
+fn imported_project_id(conn: &Connection, task_id: &str) -> Result<Option<String>, ApiError> {
+    conn.query_row(
+        "SELECT p.project_id FROM video_import_projects p
+         WHERE p.import_id = ?1 AND EXISTS (SELECT 1 FROM projects WHERE id = p.project_id)
+         ORDER BY p.imported_at DESC LIMIT 1",
+        params![task_id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+// ===========================================================================
+// 编辑字幕 / 剧本
+// ===========================================================================
+
+const VIDEO_IMPORT_EDITABLE_STATUSES: &[&str] = &["subtitle_ready", "script_ready", "failed", "cancelled"];
+
+fn ensure_video_import_task_editable(task: &VideoImportTaskRecord) -> Result<(), ApiError> {
+    if is_video_import_job_running(&task.id) || !VIDEO_IMPORT_EDITABLE_STATUSES.contains(&task.status.as_str()) {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            format!(
+                "任务当前状态为「{}」，暂时不能修改",
+                status_label_for_backend(&task.status)
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn write_subtitle_edit(
+    conn: &Connection,
+    state: &BackendState,
+    task_id: &str,
+    text: &str,
+) -> Result<(), ApiError> {
+    let run_id = start_step_run(conn, task_id, "edit_subtitle", None)?;
+    let path = task_dir(state, task_id).join(format!(
+        "subtitle-edited-{}.txt",
+        Utc::now().timestamp_millis()
+    ));
+    let result = write_text_file(&path, text).and_then(|_| {
+        insert_artifact(conn, task_id, "subtitle_txt", &path, Some("text/plain"), json!({ "edited": true }))
+    });
+    match result {
+        Ok(()) => finish_step_run(conn, &run_id, "success", None, None, json!({ "path": path.to_string_lossy() })),
+        Err(error) => {
+            finish_step_run(conn, &run_id, "failed", None, Some(&error.message), json!({}))?;
+            Err(error)
+        }
+    }
 }
 
 pub(super) async fn api_video_import_subtitle_put(
@@ -858,51 +1389,80 @@ pub(super) async fn api_video_import_subtitle_put(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "字幕内容不能为空"))?;
     let conn = db_connection(&state)?;
-    ensure_task_exists(&conn, &id)?;
-    let run_id = start_step_run(&conn, &id, "edit_subtitle", None)?;
-    let path = task_dir(&state, &id).join(format!(
-        "subtitle-edited-{}.txt",
-        Utc::now().timestamp_millis()
-    ));
-    if let Err(error) = write_text_file(&path, text) {
-        finish_step_run(
-            &conn,
-            &run_id,
-            "failed",
-            None,
-            Some(&error.message),
-            json!({}),
-        )?;
-        return Err(error);
+    let task = load_task(&conn, &id)?;
+    ensure_video_import_task_editable(&task)?;
+
+    if task.is_series_group == 0 {
+        if latest_artifact_info(&conn, &id, &["subtitle_txt"])?.is_none() {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "字幕尚未识别完成，暂时不能编辑"));
+        }
+        write_subtitle_edit(&conn, &state, &id, text)?;
+        return Ok(Json(json!({ "success": true, "data": { "updatedEpisodes": 1 } })));
     }
-    if let Err(error) = insert_artifact(
-        &conn,
-        &id,
-        "subtitle_txt",
-        &path,
-        Some("text/plain"),
-        json!({ "edited": true }),
-    ) {
-        finish_step_run(
-            &conn,
-            &run_id,
-            "failed",
-            None,
-            Some(&error.message),
-            json!({}),
-        )?;
-        return Err(error);
+
+    // 剧集：按「## 第N集」拆分后写回对应分集，未改动的分集不产生新版本。
+    let sections = parse_series_text_sections(text);
+    if sections.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "未识别到分集标题，请保留每集开头的「## 第N集」标题行",
+        ));
     }
-    finish_step_run(
-        &conn,
-        &run_id,
-        "success",
-        None,
-        None,
-        json!({ "path": path.to_string_lossy() }),
-    )?;
-    update_task_status(&conn, &id, "subtitle_ready", "subtitle_ready", 55, None)?;
-    Ok(Json(json!({ "success": true })))
+    let episodes = load_series_episode_tasks(&conn, &id)?;
+    let mut updated = 0;
+    for (episode_number, content) in sections {
+        let Some(episode) = episodes
+            .iter()
+            .find(|episode| episode.episode_number == Some(episode_number))
+        else {
+            continue;
+        };
+        if is_video_import_job_running(&episode.id) {
+            continue;
+        }
+        let Some(current) = latest_artifact_text(&conn, &episode.id, "subtitle_txt")? else {
+            continue;
+        };
+        let content = content.trim();
+        if content.is_empty() || content == current.trim() {
+            continue;
+        }
+        write_subtitle_edit(&conn, &state, &episode.id, content)?;
+        updated += 1;
+    }
+    Ok(Json(json!({ "success": true, "data": { "updatedEpisodes": updated } })))
+}
+
+/// 解析「## 第N集：标题」分段文本，返回 (集数, 正文)。标题行本身不计入正文。
+fn parse_series_text_sections(text: &str) -> Vec<(i64, String)> {
+    let mut sections: Vec<(i64, Vec<&str>)> = Vec::new();
+    for line in text.lines() {
+        if let Some(number) = series_heading_episode_number(line) {
+            sections.push((number, Vec::new()));
+            continue;
+        }
+        if let Some((_, body)) = sections.last_mut() {
+            body.push(line);
+        }
+    }
+    sections
+        .into_iter()
+        .map(|(number, body)| (number, body.join("\n").trim().to_string()))
+        .collect()
+}
+
+fn series_heading_episode_number(line: &str) -> Option<i64> {
+    let rest = line.trim_start().strip_prefix("## 第")?;
+    let digits = rest
+        .trim_start()
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    let after = rest.trim_start()[digits.len()..].trim_start();
+    if digits.is_empty() || !(after.starts_with('集') || after.starts_with('段')) {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 pub(super) async fn api_video_import_script_put(
@@ -917,234 +1477,250 @@ pub(super) async fn api_video_import_script_put(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "剧本内容不能为空"))?;
     let conn = db_connection(&state)?;
-    ensure_task_exists(&conn, &id)?;
+    let task = load_task(&conn, &id)?;
+    ensure_video_import_task_editable(&task)?;
+    if latest_script_text(&conn, &id)?.is_none() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "请先生成剧本"));
+    }
     let run_id = start_step_run(&conn, &id, "edit_script", None)?;
     let path = task_dir(&state, &id).join(format!(
         "script-edited-{}.md",
         Utc::now().timestamp_millis()
     ));
-    if let Err(error) = write_text_file(&path, &script) {
-        finish_step_run(
-            &conn,
-            &run_id,
-            "failed",
-            None,
-            Some(&error.message),
-            json!({}),
-        )?;
+    let result = write_text_file(&path, &script).and_then(|_| {
+        insert_artifact(&conn, &id, "script_edited", &path, Some("text/markdown"), json!({ "edited": true }))
+    });
+    if let Err(error) = result {
+        finish_step_run(&conn, &run_id, "failed", None, Some(&error.message), json!({}))?;
         return Err(error);
     }
-    if let Err(error) = insert_artifact(
+    finish_step_run(&conn, &run_id, "success", None, None, json!({ "path": path.to_string_lossy() }))?;
+    // 编辑剧本视为解决了上一次生成/导入失败，回到「待确认剧本」。
+    let _ = claim_video_import_task(
         &conn,
         &id,
-        "script_edited",
-        &path,
-        Some("text/markdown"),
-        json!({ "edited": true }),
-    ) {
-        finish_step_run(
-            &conn,
-            &run_id,
-            "failed",
-            None,
-            Some(&error.message),
-            json!({}),
-        )?;
-        return Err(error);
-    }
-    finish_step_run(
-        &conn,
-        &run_id,
-        "success",
-        None,
-        None,
-        json!({ "path": path.to_string_lossy() }),
-    )?;
-    update_task_status(&conn, &id, "script_ready", "script_ready", 80, None)?;
+        &["script_ready", "failed", "cancelled"],
+        "script_ready",
+        "script_ready",
+        80,
+    );
     Ok(Json(json!({ "success": true })))
 }
+
+// ===========================================================================
+// 生成剧本（后台作业）
+// ===========================================================================
 
 pub(super) async fn api_video_import_generate_script(
     Path(id): Path<String>,
     State(state): State<BackendState>,
+    body: Option<Json<VideoImportGenerateBody>>,
 ) -> Result<Json<Value>, ApiError> {
-    let conn = db_connection(&state)?;
-    let task = load_task(&conn, &id)?;
+    let force = body.and_then(|Json(body)| body.force).unwrap_or(true);
+    start_generate_script(&state, &id, force)?;
+    Ok(Json(json!({ "success": true, "data": { "taskId": id, "status": "generating_script" } })))
+}
+
+fn start_generate_script(state: &BackendState, id: &str, force: bool) -> Result<(), ApiError> {
+    let conn = db_connection(state)?;
+    let task = load_task(&conn, id)?;
     if task.is_series_group != 0 {
-        drop(conn);
-        return api_video_import_generate_series_script(state, id, task).await;
+        let episodes = load_series_episode_tasks(&conn, id)?;
+        if episodes.is_empty() {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "剧集任务没有可处理的分集"));
+        }
+        for episode in &episodes {
+            if latest_artifact_info(&conn, &episode.id, &["subtitle_txt"])?.is_none() {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "第{}集尚未完成字幕识别",
+                        episode.episode_number.unwrap_or(0)
+                    ),
+                ));
+            }
+        }
+    } else if latest_artifact_info(&conn, id, &["subtitle_txt"])?.is_none() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "请先完成字幕识别"));
     }
-    let subtitle = latest_artifact_text(&conn, &id, "subtitle_txt")?
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请先完成字幕识别或编辑"))?;
-    update_task_status(&conn, &id, "generating_script", "generate_script", 65, None)?;
-    let run_id = start_step_run(&conn, &id, "generate_script", None)?;
+    if is_video_import_job_running(id) {
+        return Err(ApiError::new(StatusCode::CONFLICT, "任务正在处理中，请等待当前步骤完成"));
+    }
+    claim_video_import_task(
+        &conn,
+        id,
+        &["subtitle_ready", "script_ready", "failed", "cancelled"],
+        "generating_script",
+        "generate_script",
+        60,
+    )?;
     drop(conn);
 
+    let job_state = state.clone();
+    let job_id = id.to_string();
+    spawn_video_import_job(state.clone(), id.to_string(), async move {
+        if task.is_series_group != 0 {
+            run_generate_series_script_job(job_state, job_id, task, force).await
+        } else {
+            run_generate_script_job(job_state, job_id, task).await
+        }
+    })
+}
+
+async fn run_generate_script_job(
+    state: BackendState,
+    id: String,
+    task: VideoImportTaskRecord,
+) -> Result<(), ApiError> {
+    let subtitle = {
+        let conn = db_connection(&state)?;
+        latest_artifact_text(&conn, &id, "subtitle_txt")?
+            .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请先完成字幕识别或编辑"))?
+    };
     let title = task_title(&task);
     let script_parse_mode = normalize_video_import_script_parse_mode(
         parse_json_object(&task.config_json)
             .get("scriptParseMode")
             .and_then(Value::as_str),
     );
-    let (script, provider, model_id) = match generate_video_import_script_text(
+    let ((script, provider, model_id), run_id) = run_tracked_step(
         &state,
-        &title,
-        &task.original_filename,
-        &subtitle,
-        script_parse_mode,
+        &id,
+        "generate_script",
+        None,
+        60,
+        generate_video_import_script_text(
+            &state,
+            &title,
+            &task.original_filename,
+            &subtitle,
+            script_parse_mode,
+        ),
     )
-    .await
-    {
-        Ok(value) => value,
-        Err(error) => {
-            let conn = db_connection(&state)?;
-            finish_step_run(
-                &conn,
-                &run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({}),
-            )?;
-            update_task_status(
-                &conn,
-                &id,
-                "failed",
-                "generate_script",
-                65,
-                Some(&error.message),
-            )?;
-            return Err(error);
-        }
-    };
+    .await?;
 
     let conn = db_connection(&state)?;
-    let path = task_dir(&state, &id).join("script-draft.md");
-    write_text_file(&path, &script)?;
-    insert_artifact(
+    ensure_video_import_task_active(&conn, &id)?;
+    write_script_artifact(
         &conn,
+        &state,
         &id,
-        "script_draft",
-        &path,
-        Some("text/markdown"),
+        &script,
         json!({ "provider": provider, "modelId": model_id }),
     )?;
-    finish_step_run(
-        &conn,
-        &run_id,
-        "success",
-        None,
-        None,
-        json!({ "provider": provider, "modelId": model_id }),
-    )?;
-    conn.execute(
-        "UPDATE video_import_tasks SET status = 'script_ready', current_step = 'script_ready', progress = 80, script_model_id = ?1, error_message = NULL, updated_at = ?2 WHERE id = ?3",
-        params![model_id, now_iso(), id],
-    )
-    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-
-    Ok(Json(json!({
-      "success": true,
-      "data": { "script": script }
-    })))
+    finish_step_run(&conn, &run_id, "success", None, None, json!({ "provider": provider, "modelId": model_id }))?;
+    set_script_model_id(&conn, &id, &model_id)?;
+    finish_video_import_task(&conn, &id, "generating_script", "script_ready", "script_ready", 80)?;
+    Ok(())
 }
 
-async fn api_video_import_generate_series_script(
+fn set_script_model_id(conn: &Connection, id: &str, model_id: &str) -> Result<(), ApiError> {
+    conn.execute(
+        "UPDATE video_import_tasks SET script_model_id = ?1 WHERE id = ?2",
+        params![model_id, id],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(())
+}
+
+/// 剧集剧本生成。
+/// - `force = true`：全部分集按新的全局档案重新生成，保证前后一致。
+/// - `force = false`：失败后续跑，已经生成过剧本的分集直接复用。
+async fn run_generate_series_script_job(
     state: BackendState,
     id: String,
     task: VideoImportTaskRecord,
-) -> Result<Json<Value>, ApiError> {
+    force: bool,
+) -> Result<(), ApiError> {
+    let run_id = {
+        let conn = db_connection(&state)?;
+        start_step_run(&conn, &id, "generate_script", None)?
+    };
+    let result = generate_series_script(&state, &id, &task, force).await;
     let conn = db_connection(&state)?;
-    let episodes = load_series_episode_tasks(&conn, &id)?;
-    if episodes.is_empty() {
-        return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "剧集任务没有可处理的分集",
-        ));
+    match result {
+        Ok((script, provider, model_id, metadata)) => {
+            ensure_video_import_task_active(&conn, &id)?;
+            write_script_artifact(
+                &conn,
+                &state,
+                &id,
+                &script,
+                json!({ "provider": provider, "modelId": model_id, "series": true, "meta": metadata.clone() }),
+            )?;
+            finish_step_run(&conn, &run_id, "success", None, None, metadata)?;
+            set_script_model_id(&conn, &id, &model_id)?;
+            finish_video_import_task(&conn, &id, "generating_script", "script_ready", "script_ready", 80)?;
+            Ok(())
+        }
+        Err(error) => {
+            finish_step_run(&conn, &run_id, "failed", None, Some(&error.message), json!({}))?;
+            update_task_status(&conn, &id, "failed", "generate_script", 60, Some(&error.message))?;
+            Err(error)
+        }
     }
-    update_task_status(&conn, &id, "generating_script", "generate_script", 65, None)?;
-    let run_id = start_step_run(&conn, &id, "generate_script", None)?;
-    let short_clip_mode = is_short_clip_series_task(&task);
-    if short_clip_mode {
-        let subtitle_sections = build_series_subtitle_sections(&conn, &id)?;
-        let complete_subtitle = subtitle_sections
-            .iter()
-            .cloned()
-            .map(format_series_subtitle_section)
-            .collect::<Vec<_>>()
-            .join("\n\n");
+}
+
+async fn generate_series_script(
+    state: &BackendState,
+    id: &str,
+    task: &VideoImportTaskRecord,
+    force: bool,
+) -> Result<(String, String, String, Value), ApiError> {
+    let title = task_title(task);
+    let script_parse_mode = normalize_video_import_script_parse_mode(
+        parse_json_object(&task.config_json)
+            .get("scriptParseMode")
+            .and_then(Value::as_str),
+    );
+    let (episodes, subtitle_sections) = {
+        let conn = db_connection(state)?;
+        (
+            load_series_episode_tasks(&conn, id)?,
+            build_series_subtitle_sections(&conn, id)?,
+        )
+    };
+    let complete_subtitle = subtitle_sections
+        .iter()
+        .cloned()
+        .map(format_series_subtitle_section)
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    if is_short_clip_series_task(task) {
         let subtitle_chunks = split_series_subtitle_chunks(subtitle_sections);
-        drop(conn);
-        let title = task_title(&task);
-        let script_parse_mode = normalize_video_import_script_parse_mode(
-            parse_json_object(&task.config_json)
-                .get("scriptParseMode")
-                .and_then(Value::as_str),
-        );
         let chunk_count = subtitle_chunks.len();
-        let (global_context, _, _) = match generate_video_import_series_context_text(
-            &state,
+        let (global_context, _, _) = generate_video_import_series_context_text(
+            state,
             &title,
             &task.original_filename,
             &complete_subtitle,
             script_parse_mode,
         )
-        .await
-        {
-            Ok(value) => value,
-            Err(error) => {
-                let conn = db_connection(&state)?;
-                finish_step_run(
-                    &conn,
-                    &run_id,
-                    "failed",
-                    None,
-                    Some(&error.message),
-                    json!({ "mode": "short_clips", "stage": "global_context" }),
-                )?;
-                update_task_status(
-                    &conn,
-                    &id,
-                    "failed",
-                    "generate_script",
-                    65,
-                    Some(&error.message),
-                )?;
-                return Err(error);
-            }
-        };
-        let chunk_boundaries = (0..subtitle_chunks.len())
-            .map(|chunk_index| {
+        .await?;
+        set_video_import_progress(state, id, 64);
+        let boundaries = (0..chunk_count)
+            .map(|index| {
                 build_series_chunk_boundary_context(
                     &subtitle_chunks,
-                    chunk_index,
+                    index,
                     SHORT_CLIP_SCRIPT_BOUNDARY_CONTEXT_CHARS,
                 )
             })
             .collect::<Vec<_>>();
-        let chunks_with_boundaries = subtitle_chunks
-            .into_iter()
-            .zip(chunk_boundaries)
-            .enumerate()
-            .map(|(chunk_index, (chunk, boundary_context))| (chunk_index, chunk, boundary_context))
-            .collect::<Vec<_>>();
-        let generated_chunks = stream::iter(chunks_with_boundaries)
-            .map(|(chunk_index, chunk, boundary_context)| {
-                let state = &state;
+        let completed = std::sync::atomic::AtomicUsize::new(0);
+        let mut generated = stream::iter(subtitle_chunks.into_iter().zip(boundaries).enumerate())
+            .map(|(chunk_index, (chunk, boundary_context))| {
                 let title = &title;
-                let source_filename = &task.original_filename;
                 let global_context = &global_context;
+                let completed = &completed;
                 async move {
                     let first_episode = chunk.episode_numbers.first().copied().unwrap_or(1);
-                    let last_episode = chunk
-                        .episode_numbers
-                        .last()
-                        .copied()
-                        .unwrap_or(first_episode);
-                    let result = generate_video_import_series_script_chunk_text(
+                    let last_episode = chunk.episode_numbers.last().copied().unwrap_or(first_episode);
+                    let (chunk_script, provider, model_id) = generate_video_import_series_script_chunk_text(
                         state,
                         title,
-                        source_filename,
+                        &task.original_filename,
                         &chunk.text,
                         script_parse_mode,
                         first_episode,
@@ -1154,700 +1730,397 @@ async fn api_video_import_generate_series_script(
                         global_context,
                         &boundary_context,
                     )
-                    .await
-                    .and_then(|(chunk_script, provider, model_id)| {
-                        validate_series_script_chunk(&chunk_script, &chunk.episode_numbers)
-                            .map(|sections| (chunk_index, sections, provider, model_id))
-                            .map_err(|message| ApiError::new(StatusCode::BAD_GATEWAY, message))
-                    });
-                    result.map_err(|error| (chunk_index, error))
+                    .await?;
+                    let sections = validate_series_script_chunk(&chunk_script, &chunk.episode_numbers)
+                        .map_err(|message| ApiError::new(StatusCode::BAD_GATEWAY, message))?;
+                    let done = completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    set_video_import_progress(state, id, 64 + (done * 15 / chunk_count.max(1)) as i64);
+                    Ok::<_, ApiError>((chunk_index, sections, provider, model_id))
                 }
             })
             .buffer_unordered(SERIES_SCRIPT_MAX_CONCURRENT_GENERATIONS)
             .try_collect::<Vec<_>>()
-            .await;
-        let mut generated_chunks = match generated_chunks {
-            Ok(value) => value,
-            Err((chunk_index, error)) => {
-                let conn = db_connection(&state)?;
-                finish_step_run(
-                    &conn,
-                    &run_id,
-                    "failed",
-                    None,
-                    Some(&error.message),
-                    json!({ "mode": "short_clips", "chunkIndex": chunk_index + 1, "chunkCount": chunk_count }),
-                )?;
-                update_task_status(
-                    &conn,
-                    &id,
-                    "failed",
-                    "generate_script",
-                    65,
-                    Some(&error.message),
-                )?;
-                return Err(error);
-            }
-        };
-        generated_chunks.sort_by_key(|(chunk_index, _, _, _)| *chunk_index);
-        let mut generated_sections = Vec::new();
-        let mut last_provider = String::new();
-        let mut last_model_id = String::new();
-        for (_, chunk_sections, provider, model_id) in generated_chunks {
-            generated_sections.extend(chunk_sections);
-            last_provider = provider;
-            last_model_id = model_id;
+            .await?;
+        generated.sort_by_key(|(chunk_index, _, _, _)| *chunk_index);
+        let mut sections = Vec::new();
+        let mut provider = String::new();
+        let mut model_id = String::new();
+        for (_, chunk_sections, chunk_provider, chunk_model_id) in generated {
+            sections.extend(chunk_sections);
+            provider = chunk_provider;
+            model_id = chunk_model_id;
         }
-        let script = format!("# {}\n\n{}", title, generated_sections.join("\n\n"));
-
-        let conn = db_connection(&state)?;
-        write_script_artifact(
-            &conn,
-            &state,
-            &id,
-            &script,
-            json!({ "provider": last_provider, "modelId": last_model_id, "series": true, "mode": "short_clips", "chunkCount": chunk_count }),
-        )?;
-        finish_step_run(
-            &conn,
-            &run_id,
-            "success",
-            None,
-            None,
-            json!({ "episodeCount": episodes.len(), "mode": "short_clips", "chunkCount": chunk_count }),
-        )?;
-        conn.execute(
-            "UPDATE video_import_tasks SET status = 'script_ready', current_step = 'script_ready', progress = 80, script_model_id = ?1, error_message = NULL, updated_at = ?2 WHERE id = ?3",
-            params![last_model_id, now_iso(), id],
-        )
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-
-        return Ok(Json(json!({
-          "success": true,
-          "data": { "script": script }
-        })));
+        let script = format!("# {}\n\n{}", title, sections.join("\n\n"));
+        return Ok((
+            script,
+            provider,
+            model_id,
+            json!({ "mode": "short_clips", "chunkCount": chunk_count, "episodeCount": episodes.len() }),
+        ));
     }
-    drop(conn);
 
+    // 按集模式：每集单独生成，共享同一份全局剧情档案。
     let mut episode_inputs = Vec::new();
-    for episode in episodes {
-        let conn = db_connection(&state)?;
-        let subtitle =
-            latest_artifact_text(&conn, &episode.id, "subtitle_txt")?.ok_or_else(|| {
+    {
+        let conn = db_connection(state)?;
+        for episode in episodes {
+            let subtitle = latest_artifact_text(&conn, &episode.id, "subtitle_txt")?.ok_or_else(|| {
                 ApiError::new(
                     StatusCode::BAD_REQUEST,
-                    format!(
-                        "第{}集尚未完成字幕识别",
-                        episode.episode_number.unwrap_or(0)
-                    ),
+                    format!("第{}集尚未完成字幕识别", episode.episode_number.unwrap_or(0)),
                 )
             })?;
-        let existing_script = latest_artifact_text(&conn, &episode.id, "script_edited")?
-            .or(latest_artifact_text(&conn, &episode.id, "script_draft")?);
-        drop(conn);
-        episode_inputs.push((episode, subtitle, existing_script));
+            let existing = if force {
+                None
+            } else {
+                latest_script_text(&conn, &episode.id)?
+            };
+            episode_inputs.push((episode, subtitle, existing));
+        }
     }
-
-    let needs_generation = episode_inputs
-        .iter()
-        .any(|(_, _, existing_script)| existing_script.is_none());
-    let complete_subtitle = episode_inputs
-        .iter()
-        .map(|(episode, subtitle, _)| {
-            let episode_number = episode.episode_number.unwrap_or(1).max(1);
-            format!(
-                "## 第{}集：{}\n\n{}",
-                episode_number,
-                episode_title_from_task(episode, episode_number),
-                subtitle.trim()
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let needs_generation = episode_inputs.iter().any(|(_, _, existing)| existing.is_none());
     let global_context = if needs_generation {
-        let group_script_parse_mode = normalize_video_import_script_parse_mode(
-            parse_json_object(&task.config_json)
-                .get("scriptParseMode")
-                .and_then(Value::as_str),
-        );
-        match generate_video_import_series_context_text(
-            &state,
-            &task_title(&task),
+        generate_video_import_series_context_text(
+            state,
+            &title,
             &task.original_filename,
             &complete_subtitle,
-            group_script_parse_mode,
+            script_parse_mode,
         )
-        .await
-        {
-            Ok((context, _, _)) => context,
-            Err(error) => {
-                let conn = db_connection(&state)?;
-                finish_step_run(
-                    &conn,
-                    &run_id,
-                    "failed",
-                    None,
-                    Some(&error.message),
-                    json!({ "mode": "episodes", "stage": "global_context" }),
-                )?;
-                update_task_status(
-                    &conn,
-                    &id,
-                    "failed",
-                    "generate_script",
-                    65,
-                    Some(&error.message),
-                )?;
-                return Err(error);
-            }
-        }
+        .await?
+        .0
     } else {
         String::new()
     };
-    let episode_boundaries = (0..episode_inputs.len())
-        .map(|episode_index| {
-            let previous = episode_index
+    set_video_import_progress(state, id, 64);
+    let boundaries = (0..episode_inputs.len())
+        .map(|index| {
+            let previous = index
                 .checked_sub(1)
-                .and_then(|index| episode_inputs.get(index))
+                .and_then(|previous| episode_inputs.get(previous))
                 .map(|(_, subtitle, _)| subtitle.as_str());
-            let next = episode_inputs
-                .get(episode_index + 1)
-                .map(|(_, subtitle, _)| subtitle.as_str());
-            build_neighbor_text_boundary_context(
-                previous,
-                next,
-                SHORT_CLIP_SCRIPT_BOUNDARY_CONTEXT_CHARS,
-            )
+            let next = episode_inputs.get(index + 1).map(|(_, subtitle, _)| subtitle.as_str());
+            build_neighbor_text_boundary_context(previous, next, SHORT_CLIP_SCRIPT_BOUNDARY_CONTEXT_CHARS)
         })
         .collect::<Vec<_>>();
-
-    let generated_episodes = stream::iter(
-        episode_inputs
-            .into_iter()
-            .zip(episode_boundaries)
-            .enumerate(),
-    )
-    .map(
-        |(episode_index, ((episode, subtitle, existing_script), boundary_context))| {
-            let state = &state;
+    let total = episode_inputs.len();
+    let completed = std::sync::atomic::AtomicUsize::new(0);
+    let mut generated = stream::iter(episode_inputs.into_iter().zip(boundaries).enumerate())
+        .map(|(index, ((episode, subtitle, existing), boundary_context))| {
             let global_context = &global_context;
+            let completed = &completed;
             async move {
-                if let Some(script) = existing_script {
-                    return Ok((episode_index, episode, script, None));
-                }
-                let title = task_title(&episode);
-                let script_parse_mode = normalize_video_import_script_parse_mode(
-                    parse_json_object(&episode.config_json)
-                        .get("scriptParseMode")
-                        .and_then(Value::as_str),
-                );
-                match generate_video_import_episode_script_text_with_context(
-                    state,
-                    &title,
-                    &episode.original_filename,
-                    &subtitle,
-                    script_parse_mode,
-                    episode.episode_number.unwrap_or(1).max(1),
-                    global_context,
-                    &boundary_context,
-                )
-                .await
-                {
-                    Ok((script, provider, model_id)) => {
-                        Ok((episode_index, episode, script, Some((provider, model_id))))
+                let generated = match existing {
+                    Some(script) => (script, None),
+                    None => {
+                        let episode_number = episode.episode_number.unwrap_or(1).max(1);
+                        let (script, provider, model_id) =
+                            generate_video_import_episode_script_text_with_context(
+                                state,
+                                &task_title(&episode),
+                                &episode.original_filename,
+                                &subtitle,
+                                script_parse_mode,
+                                episode_number,
+                                global_context,
+                                &boundary_context,
+                            )
+                            .await
+                            .map_err(|error| {
+                                ApiError::new(
+                                    error.status,
+                                    format!("第{}集剧本生成失败：{}", episode_number, error.message),
+                                )
+                            })?;
+                        // 每集生成完立即落盘，失败后续跑可以直接复用。
+                        let conn = db_connection(state)?;
+                        write_script_artifact(
+                            &conn,
+                            state,
+                            &episode.id,
+                            &script,
+                            json!({ "provider": provider, "modelId": model_id, "seriesId": id }),
+                        )?;
+                        (script, Some((provider, model_id)))
                     }
-                    Err(error) => Err((episode.id.clone(), error)),
-                }
+                };
+                let done = completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                set_video_import_progress(state, id, 64 + (done * 15 / total.max(1)) as i64);
+                Ok::<_, ApiError>((index, episode, generated.0, generated.1))
             }
-        },
-    )
-    .buffer_unordered(SERIES_SCRIPT_MAX_CONCURRENT_GENERATIONS)
-    .try_collect::<Vec<_>>()
-    .await;
-    let mut generated_episodes = match generated_episodes {
-        Ok(value) => value,
-        Err((episode_id, error)) => {
-            let conn = db_connection(&state)?;
-            finish_step_run(
-                &conn,
-                &run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({ "episodeId": episode_id }),
-            )?;
-            update_task_status(
-                &conn,
-                &id,
-                "failed",
-                "generate_script",
-                65,
-                Some(&error.message),
-            )?;
-            return Err(error);
-        }
-    };
-    generated_episodes.sort_by_key(|(episode_index, _, _, _)| *episode_index);
+        })
+        .buffer_unordered(SERIES_SCRIPT_MAX_CONCURRENT_GENERATIONS)
+        .try_collect::<Vec<_>>()
+        .await?;
+    generated.sort_by_key(|(index, _, _, _)| *index);
 
     let mut sections = Vec::new();
-    let mut last_provider = String::new();
-    let mut last_model_id = String::new();
-    for (_, episode, script, generation) in generated_episodes {
-        if let Some((provider, model_id)) = generation {
-            last_provider = provider.clone();
-            last_model_id = model_id.clone();
-            let conn = db_connection(&state)?;
-            write_script_artifact(
-                &conn,
-                &state,
-                &episode.id,
-                &script,
-                json!({ "provider": provider, "modelId": model_id, "seriesId": id.as_str() }),
-            )?;
-            conn.execute(
-                "UPDATE video_import_tasks SET status = 'script_ready', current_step = 'script_ready', progress = 80, script_model_id = ?1, error_message = NULL, updated_at = ?2 WHERE id = ?3",
-                params![last_model_id.as_str(), now_iso(), episode.id],
-            )
-            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let mut provider = String::new();
+    let mut model_id = String::new();
+    let mut generated_count = 0;
+    for (_, episode, script, generation) in generated {
+        if let Some((episode_provider, episode_model_id)) = generation {
+            provider = episode_provider;
+            model_id = episode_model_id;
+            generated_count += 1;
         }
-
         let episode_number = episode.episode_number.unwrap_or(1).max(1);
         sections.push(format!(
             "## 第{}集：{}\n\n{}",
             episode_number,
             episode_title_from_task(&episode, episode_number),
-            script.trim()
+            strip_leading_episode_heading(script.trim())
         ));
     }
+    let script = format!("# {}\n\n{}", title, sections.join("\n\n"));
+    Ok((
+        script,
+        provider,
+        model_id,
+        json!({ "mode": "episodes", "episodeCount": total, "generatedCount": generated_count, "force": force }),
+    ))
+}
 
-    let series_script = format!("# {}\n\n{}", task_title(&task), sections.join("\n\n"));
-    let conn = db_connection(&state)?;
-    write_script_artifact(
-        &conn,
-        &state,
-        &id,
-        &series_script,
-        json!({ "provider": last_provider.as_str(), "modelId": last_model_id.as_str(), "series": true }),
-    )?;
-    finish_step_run(
-        &conn,
-        &run_id,
-        "success",
-        None,
-        None,
-        json!({ "episodeCount": sections.len() }),
-    )?;
-    conn.execute(
-        "UPDATE video_import_tasks SET status = 'script_ready', current_step = 'script_ready', progress = 80, script_model_id = ?1, error_message = NULL, updated_at = ?2 WHERE id = ?3",
-        params![last_model_id.as_str(), now_iso(), id],
-    )
-    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+/// 分集剧本可能自带「## 第N集」标题，拼接时去掉以免重复。
+fn strip_leading_episode_heading(script: &str) -> &str {
+    let mut lines = script.splitn(2, '\n');
+    let first = lines.next().unwrap_or("");
+    if series_heading_episode_number(first).is_some() {
+        lines.next().unwrap_or("").trim_start()
+    } else {
+        script
+    }
+}
 
-    Ok(Json(json!({
-      "success": true,
-      "data": { "script": series_script }
-    })))
+// ===========================================================================
+// 创建项目（后台作业，分集解析结果按内容缓存，失败重试不重复解析）
+// ===========================================================================
+
+#[derive(Debug, Clone)]
+struct VideoImportProjectOptions {
+    project_title: String,
+    style_id: String,
+    aspect_ratio: String,
+    script_parse_mode: String,
 }
 
 pub(super) async fn api_video_import_import_project(
     Path(id): Path<String>,
     State(state): State<BackendState>,
-    Json(body): Json<Option<VideoImportImportBody>>,
+    body: Option<Json<VideoImportImportBody>>,
 ) -> Result<Json<Value>, ApiError> {
+    let body = body.map(|Json(body)| body);
     let conn = db_connection(&state)?;
-    let task = load_task(&conn, &id)?;
-    if task.is_series_group != 0 {
-        drop(conn);
-        return api_video_import_import_series_project(state, id, task, body).await;
+    if let Some(project_id) = imported_project_id(&conn, &id)? {
+        // 幂等：同一任务只会创建一个项目。
+        return Ok(Json(json!({
+          "success": true,
+          "data": {
+            "taskId": id,
+            "status": "imported",
+            "projectId": project_id,
+            "redirectUrl": format!("/projects/{project_id}")
+          }
+        })));
     }
-    let script = latest_artifact_text(&conn, &id, "script_edited")?
-        .or(latest_artifact_text(&conn, &id, "script_draft")?)
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请先生成或编辑剧本"))?;
+    drop(conn);
+    start_import_project(&state, &id, body)?;
+    Ok(Json(json!({ "success": true, "data": { "taskId": id, "status": "importing" } })))
+}
+
+fn start_import_project(
+    state: &BackendState,
+    id: &str,
+    body: Option<VideoImportImportBody>,
+) -> Result<(), ApiError> {
+    let conn = db_connection(state)?;
+    let task = load_task(&conn, id)?;
+    if latest_script_text(&conn, id)?.is_none() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "请先生成或编辑剧本"));
+    }
+    let options = resolve_import_options(&conn, &task, body.as_ref())?;
+    if is_video_import_job_running(id) {
+        return Err(ApiError::new(StatusCode::CONFLICT, "任务正在处理中，请等待当前步骤完成"));
+    }
+    claim_video_import_task(
+        &conn,
+        id,
+        &["script_ready", "failed", "cancelled"],
+        "importing",
+        "import",
+        85,
+    )?;
+    // 记住本次导入选项，失败后重试沿用。
+    let mut config = parse_json_object(&task.config_json);
+    config["projectTitle"] = json!(options.project_title);
+    config["styleId"] = json!(options.style_id);
+    config["aspectRatio"] = json!(options.aspect_ratio);
+    config["scriptParseMode"] = json!(options.script_parse_mode);
+    conn.execute(
+        "UPDATE video_import_tasks SET config_json = ?1 WHERE id = ?2",
+        params![config.to_string(), id],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    drop(conn);
+
+    let job_state = state.clone();
+    let job_id = id.to_string();
+    spawn_video_import_job(state.clone(), id.to_string(), async move {
+        run_import_job(job_state, job_id, task, options).await
+    })
+}
+
+fn resolve_import_options(
+    conn: &Connection,
+    task: &VideoImportTaskRecord,
+    body: Option<&VideoImportImportBody>,
+) -> Result<VideoImportProjectOptions, ApiError> {
     let config = parse_json_object(&task.config_json);
-    let override_project_title = body
-        .as_ref()
+    let project_title = body
         .and_then(|value| value.project_title.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    let override_aspect_ratio = body
-        .as_ref()
+        .map(str::to_string)
+        .unwrap_or_else(|| task_title(task));
+    let aspect_ratio = body
         .and_then(|value| value.aspect_ratio.as_deref())
+        .or_else(|| config.get("aspectRatio").and_then(Value::as_str))
         .filter(|value| matches!(*value, "16:9" | "9:16" | "1:1"))
-        .map(str::to_string);
-    let override_script_parse_mode = body
-        .as_ref()
-        .and_then(|value| value.script_parse_mode.as_deref())
-        .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string());
+        .unwrap_or("9:16")
+        .to_string();
+    let script_parse_mode = normalize_video_import_script_parse_mode(
+        body.and_then(|value| value.script_parse_mode.as_deref())
+            .or_else(|| config.get("scriptParseMode").and_then(Value::as_str)),
+    )
+    .to_string();
     let requested_style_id = body
-        .as_ref()
         .and_then(|value| value.style_id.as_deref())
         .or_else(|| config.get("styleId").and_then(Value::as_str));
-    let style_id = resolve_import_style_id(&conn, requested_style_id)?;
-    let aspect_ratio = override_aspect_ratio.unwrap_or_else(|| {
-        config
-            .get("aspectRatio")
-            .and_then(Value::as_str)
-            .filter(|value| matches!(*value, "16:9" | "9:16" | "1:1"))
-            .unwrap_or("16:9")
-            .to_string()
-    });
-    let script_parse_mode = override_script_parse_mode.unwrap_or_else(|| {
-        config
-            .get("scriptParseMode")
-            .and_then(Value::as_str)
-            .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string())
-            .unwrap_or_else(|| "premium_drama".to_string())
-    });
-    let project_title = override_project_title.unwrap_or_else(|| {
-        config
-            .get("projectTitle")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| task_title(&task))
-    });
-    update_task_status(&conn, &id, "importing", "import", 85, None)?;
-    let run_id = start_step_run(&conn, &id, "import", None)?;
-    drop(conn);
-
-    let conn = db_connection(&state)?;
-    let create_run_id = start_step_run(&conn, &id, "create_project", None)?;
-    drop(conn);
-    let create = api_project_create(
-        State(state.clone()),
-        Json(CreateProjectBody {
-            title: project_title.clone(),
-            description: Some(format!("从视频转换：{}", task.original_filename)),
-            script_parse_mode: Some(script_parse_mode.clone()),
-            style_id: Some(style_id.clone()),
-            aspect_ratio: Some(aspect_ratio.clone()),
-            project_type: Some("video".to_string()),
-        }),
-    )
-    .await;
-    let create = match create {
-        Ok(value) => {
-            let conn = db_connection(&state)?;
-            finish_step_run(&conn, &create_run_id, "success", None, None, json!({}))?;
-            value
-        }
-        Err(error) => {
-            let conn = db_connection(&state)?;
-            finish_step_run(
-                &conn,
-                &create_run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({}),
-            )?;
-            finish_step_run(
-                &conn,
-                &run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({}),
-            )?;
-            update_task_status(&conn, &id, "failed", "import", 85, Some(&error.message))?;
-            return Err(error);
-        }
-    };
-    let project_id = create
-        .0
-        .get("project")
-        .and_then(|value| value.get("id"))
-        .and_then(Value::as_str)
-        .ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "创建项目失败"))?
-        .to_string();
-
-    let conn = db_connection(&state)?;
-    let parse_run_id = start_step_run(&conn, &id, "parse_combined_script", None)?;
-    drop(conn);
-    let parsed = match tokio::time::timeout(
-        Duration::from_millis(VIDEO_IMPORT_PARSE_TIMEOUT_MS),
-        parse_video_import_script(
-            state.clone(),
-            &project_id,
-            &script,
-            &script_parse_mode,
-            Some(&style_id),
-        ),
-    )
-    .await
-    {
-        Ok(Ok(value)) => {
-            let conn = db_connection(&state)?;
-            finish_step_run(
-                &conn,
-                &parse_run_id,
-                "success",
-                None,
-                None,
-                json!({ "projectId": project_id }),
-            )?;
-            value
-        }
-        Ok(Err(error)) => {
-            let conn = db_connection(&state)?;
-            finish_step_run(
-                &conn,
-                &parse_run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({ "projectId": project_id }),
-            )?;
-            finish_step_run(
-                &conn,
-                &run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({ "projectId": project_id }),
-            )?;
-            cleanup_empty_import_project(&conn, &project_id)?;
-            update_task_status(&conn, &id, "failed", "import", 85, Some(&error.message))?;
-            return Err(error);
-        }
-        Err(_) => {
-            let message = "剧本解析超时，请稍后重试";
-            let conn = db_connection(&state)?;
-            finish_step_run(
-                &conn,
-                &parse_run_id,
-                "failed",
-                None,
-                Some(message),
-                json!({ "projectId": project_id }),
-            )?;
-            finish_step_run(
-                &conn,
-                &run_id,
-                "failed",
-                None,
-                Some(message),
-                json!({ "projectId": project_id }),
-            )?;
-            cleanup_empty_import_project(&conn, &project_id)?;
-            update_task_status(&conn, &id, "failed", "import", 85, Some(message))?;
-            return Err(ApiError::new(StatusCode::GATEWAY_TIMEOUT, message));
-        }
-    };
-
-    let parsed_data = parsed.get("data").cloned().unwrap_or_else(|| json!({}));
-    let scenes = parsed_data
-        .get("scenes")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if scenes.is_empty() {
-        let message = "脚本解析结果没有场景，请编辑剧本后重试";
-        let conn = db_connection(&state)?;
-        finish_step_run(
-            &conn,
-            &run_id,
-            "failed",
-            None,
-            Some(message),
-            json!({ "projectId": project_id }),
-        )?;
-        cleanup_empty_import_project(&conn, &project_id)?;
-        update_task_status(&conn, &id, "failed", "import", 85, Some(message))?;
-        return Err(ApiError::new(StatusCode::BAD_GATEWAY, message));
-    }
-
-    let save_body = build_project_save_body(
-        &project_title,
-        &task.original_filename,
-        &style_id,
-        &aspect_ratio,
-        &script_parse_mode,
-        &script,
-        &parsed_data,
-    );
-    let conn = db_connection(&state)?;
-    let save_run_id = start_step_run(&conn, &id, "save_project", None)?;
-    drop(conn);
-    if let Err(error) = api_project_put(
-        Path(project_id.clone()),
-        State(state.clone()),
-        Json(save_body),
-    )
-    .await
-    {
-        let conn = db_connection(&state)?;
-        finish_step_run(
-            &conn,
-            &save_run_id,
-            "failed",
-            None,
-            Some(&error.message),
-            json!({ "projectId": project_id }),
-        )?;
-        finish_step_run(
-            &conn,
-            &run_id,
-            "failed",
-            None,
-            Some(&error.message),
-            json!({ "projectId": project_id }),
-        )?;
-        update_task_status(&conn, &id, "failed", "import", 85, Some(&error.message))?;
-        return Err(error);
-    }
-
-    let conn = db_connection(&state)?;
-    finish_step_run(
-        &conn,
-        &save_run_id,
-        "success",
-        None,
-        None,
-        json!({ "projectId": project_id }),
-    )?;
-    let parse_path = task_dir(&state, &id).join("parse-result.json");
-    write_text_file(&parse_path, &parsed.to_string())?;
-    insert_artifact(
-        &conn,
-        &id,
-        "parse_result",
-        &parse_path,
-        Some("application/json"),
-        json!({ "projectId": project_id }),
-    )?;
-    conn.execute(
-        "INSERT OR REPLACE INTO video_import_projects (import_id, project_id, imported_at, metadata_json) VALUES (?1, ?2, ?3, ?4)",
-        params![id, project_id, now_iso(), json!({}).to_string()],
-    )
-    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    finish_step_run(
-        &conn,
-        &run_id,
-        "success",
-        None,
-        None,
-        json!({ "projectId": project_id }),
-    )?;
-    update_task_status(&conn, &id, "imported", "imported", 100, None)?;
-
-    Ok(Json(json!({
-      "success": true,
-      "data": {
-        "projectId": project_id,
-        "redirectUrl": format!("/projects/{project_id}")
-      }
-    })))
+    let style_id = resolve_import_style_id(conn, requested_style_id)?;
+    Ok(VideoImportProjectOptions {
+        project_title,
+        style_id,
+        aspect_ratio,
+        script_parse_mode,
+    })
 }
 
-async fn api_video_import_import_series_project(
+async fn run_import_job(
     state: BackendState,
     id: String,
     task: VideoImportTaskRecord,
-    body: Option<VideoImportImportBody>,
-) -> Result<Json<Value>, ApiError> {
+    options: VideoImportProjectOptions,
+) -> Result<(), ApiError> {
+    let run_id = {
+        let conn = db_connection(&state)?;
+        start_step_run(&conn, &id, "import", None)?
+    };
+    let result = import_task_into_project(&state, &id, &task, &options).await;
     let conn = db_connection(&state)?;
-    let episodes = load_series_episode_tasks(&conn, &id)?;
-    if episodes.is_empty() {
-        return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "剧集任务没有可导入的分集",
-        ));
-    }
-    let config = parse_json_object(&task.config_json);
-    let override_project_title = body
-        .as_ref()
-        .and_then(|value| value.project_title.as_deref())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    let override_aspect_ratio = body
-        .as_ref()
-        .and_then(|value| value.aspect_ratio.as_deref())
-        .filter(|value| matches!(*value, "16:9" | "9:16" | "1:1"))
-        .map(str::to_string);
-    let override_script_parse_mode = body
-        .as_ref()
-        .and_then(|value| value.script_parse_mode.as_deref())
-        .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string());
-    let requested_style_id = body
-        .as_ref()
-        .and_then(|value| value.style_id.as_deref())
-        .or_else(|| config.get("styleId").and_then(Value::as_str));
-    let style_id = resolve_import_style_id(&conn, requested_style_id)?;
-    let aspect_ratio = override_aspect_ratio.unwrap_or_else(|| {
-        config
-            .get("aspectRatio")
-            .and_then(Value::as_str)
-            .filter(|value| matches!(*value, "16:9" | "9:16" | "1:1"))
-            .unwrap_or("16:9")
-            .to_string()
-    });
-    let script_parse_mode = override_script_parse_mode.unwrap_or_else(|| {
-        config
-            .get("scriptParseMode")
-            .and_then(Value::as_str)
-            .map(|value| normalize_video_import_script_parse_mode(Some(value)).to_string())
-            .unwrap_or_else(|| "premium_drama".to_string())
-    });
-    let project_title = override_project_title.unwrap_or_else(|| {
-        config
-            .get("projectTitle")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| task_title(&task))
-    });
-    update_task_status(&conn, &id, "importing", "import", 85, None)?;
-    let run_id = start_step_run(&conn, &id, "import", None)?;
-    drop(conn);
-
-    let conn = db_connection(&state)?;
-    let create_run_id = start_step_run(&conn, &id, "create_project", None)?;
-    drop(conn);
-    let create = api_project_create(
-        State(state.clone()),
-        Json(CreateProjectBody {
-            title: project_title.clone(),
-            description: Some(format!("从剧集文件夹转换：{}", task.source_path)),
-            script_parse_mode: Some(script_parse_mode.clone()),
-            style_id: Some(style_id.clone()),
-            aspect_ratio: Some(aspect_ratio.clone()),
-            project_type: Some("video".to_string()),
-        }),
-    )
-    .await;
-    let create = match create {
-        Ok(value) => {
-            let conn = db_connection(&state)?;
-            finish_step_run(&conn, &create_run_id, "success", None, None, json!({}))?;
-            value
+    match result {
+        Ok((project_id, parse_result)) => {
+            ensure_video_import_task_active(&conn, &id)?;
+            let parse_path = task_dir(&state, &id).join("parse-result.json");
+            write_text_file(&parse_path, &parse_result.to_string())?;
+            insert_artifact(
+                &conn,
+                &id,
+                "parse_result",
+                &parse_path,
+                Some("application/json"),
+                json!({ "projectId": project_id }),
+            )?;
+            conn.execute(
+                "INSERT OR REPLACE INTO video_import_projects (import_id, project_id, imported_at, metadata_json) VALUES (?1, ?2, ?3, ?4)",
+                params![id, project_id, now_iso(), json!({ "series": task.is_series_group != 0 }).to_string()],
+            )
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+            set_import_project_marker(&conn, &id, None)?;
+            finish_step_run(&conn, &run_id, "success", None, None, json!({ "projectId": project_id }))?;
+            finish_video_import_task(&conn, &id, "importing", "imported", "imported", 100)?;
+            Ok(())
         }
         Err(error) => {
-            let conn = db_connection(&state)?;
-            finish_step_run(
-                &conn,
-                &create_run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({}),
-            )?;
-            finish_step_run(
-                &conn,
-                &run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({}),
-            )?;
+            finish_step_run(&conn, &run_id, "failed", None, Some(&error.message), json!({}))?;
+            release_unfinished_import_project(&conn, &id)?;
             update_task_status(&conn, &id, "failed", "import", 85, Some(&error.message))?;
-            return Err(error);
+            Err(error)
         }
+    }
+}
+
+/// 记录“正在创建中”的项目 ID：失败、取消或应用中断时据此清理空项目。
+fn set_import_project_marker(
+    conn: &Connection,
+    task_id: &str,
+    project_id: Option<&str>,
+) -> Result<(), ApiError> {
+    let task = load_task(conn, task_id)?;
+    let mut metadata = parse_json_object(&task.metadata_json);
+    match project_id {
+        Some(project_id) => metadata["pendingProjectId"] = json!(project_id),
+        None => {
+            if let Some(object) = metadata.as_object_mut() {
+                object.remove("pendingProjectId");
+            }
+        }
+    }
+    conn.execute(
+        "UPDATE video_import_tasks SET metadata_json = ?1 WHERE id = ?2",
+        params![metadata.to_string(), task_id],
+    )
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(())
+}
+
+fn release_unfinished_import_project(conn: &Connection, task_id: &str) -> Result<(), ApiError> {
+    let Ok(task) = load_task(conn, task_id) else {
+        return Ok(());
     };
+    let pending = parse_json_object(&task.metadata_json)
+        .get("pendingProjectId")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    if let Some(project_id) = pending {
+        cleanup_empty_import_project(conn, &project_id)?;
+        set_import_project_marker(conn, task_id, None)?;
+    }
+    Ok(())
+}
+
+async fn import_task_into_project(
+    state: &BackendState,
+    id: &str,
+    task: &VideoImportTaskRecord,
+    options: &VideoImportProjectOptions,
+) -> Result<(String, Value), ApiError> {
+    let is_group = task.is_series_group != 0;
+    // 先准备好每一集要解析的剧本，缺内容时在创建项目之前就报错。
+    let units = {
+        let conn = db_connection(state)?;
+        collect_import_units(&conn, id, task, &options.project_title)?
+    };
+
+    let description = if is_group {
+        format!("从剧集文件夹转换：{}", task.source_path)
+    } else {
+        format!("从视频转换：{}", task.original_filename)
+    };
+    let (create, create_run) = run_tracked_step(state, id, "create_project", None, 85, async {
+        api_project_create(
+            State(state.clone()),
+            Json(CreateProjectBody {
+                title: options.project_title.clone(),
+                description: Some(description),
+                script_parse_mode: Some(options.script_parse_mode.clone()),
+                style_id: Some(options.style_id.clone()),
+                aspect_ratio: Some(options.aspect_ratio.clone()),
+                project_type: Some("video".to_string()),
+            }),
+        )
+        .await
+    })
+    .await?;
     let project_id = create
         .0
         .get("project")
@@ -1855,185 +2128,50 @@ async fn api_video_import_import_series_project(
         .and_then(Value::as_str)
         .ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "创建项目失败"))?
         .to_string();
+    {
+        let conn = db_connection(state)?;
+        set_import_project_marker(&conn, id, Some(&project_id))?;
+        finish_step_run(&conn, &create_run, "success", None, None, json!({ "projectId": project_id }))?;
+    }
 
-    if is_short_clip_series_task(&task) {
-        let episode_count = episodes.len();
-        let group_script = {
-            let conn = db_connection(&state)?;
-            latest_artifact_text(&conn, &id, "script_edited")?.or(latest_artifact_text(
-                &conn,
-                &id,
-                "script_draft",
-            )?)
-        };
-        let group_script_sections = group_script
-            .as_deref()
-            .map(split_series_script_sections)
-            .unwrap_or_default();
+    let total = units.len();
+    let completed = std::sync::atomic::AtomicUsize::new(0);
+    let parsed_units = stream::iter(units.into_iter())
+        .map(|unit| {
+            let project_id = &project_id;
+            let completed = &completed;
+            async move {
+                let parsed = parse_import_unit_with_cache(state, id, project_id, &unit, options).await?;
+                let done = completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                set_video_import_progress(state, id, 85 + (done * 13 / total.max(1)) as i64);
+                Ok::<_, ApiError>((unit, parsed))
+            }
+        })
+        .buffered(SERIES_SCRIPT_MAX_CONCURRENT_GENERATIONS)
+        .try_collect::<Vec<_>>()
+        .await?;
+
+    let (parsed_data, combined_script, parse_result) = if is_group {
         let mut episode_plan = Vec::new();
         let mut all_scenes = Vec::new();
         let mut all_characters = Vec::new();
-        let mut combined_script_sections = Vec::new();
+        let mut sections = Vec::new();
         let mut parsed_episodes = Vec::new();
-
-        for (episode_index, episode) in episodes.into_iter().enumerate() {
-            let conn = db_connection(&state)?;
-            let child_script = latest_artifact_text(&conn, &episode.id, "script_edited")?
-                .or(latest_artifact_text(&conn, &episode.id, "script_draft")?);
-            let child_subtitle = latest_artifact_text(&conn, &episode.id, "subtitle_txt")?;
-            drop(conn);
-
-            let episode_number = episode.episode_number.unwrap_or(1).max(1);
-            let episode_title = episode_title_from_task(&episode, episode_number);
-            let script = group_script_sections
-                .get(episode_index)
-                .cloned()
-                .filter(|value| !value.trim().is_empty())
-                .or(child_script.filter(|value| !value.trim().is_empty()))
-                .or_else(|| {
-                    child_subtitle
-                        .filter(|value| !value.trim().is_empty())
-                        .map(|subtitle| {
-                            format!(
-                                "## 第{}段：{}\n\n{}",
-                                episode_number,
-                                episode_title,
-                                subtitle.trim()
-                            )
-                        })
-                })
-                .or_else(|| {
-                    if episode_count == 1 {
-                        group_script
-                            .clone()
-                            .filter(|value| !value.trim().is_empty())
-                    } else {
-                        None
-                    }
-                })
-                .ok_or_else(|| {
-                    ApiError::new(
-                        StatusCode::BAD_REQUEST,
-                        format!("第{}段尚未生成剧本或字幕", episode_number),
-                    )
-                })?;
-            let episode_item = build_series_episode_plan_item(&episode, episode_number);
-            let episode_plan_value = json!([episode_item.clone()]);
-            let conn = db_connection(&state)?;
-            let parse_run_id = start_step_run(&conn, &id, "parse_clip", None)?;
-            drop(conn);
-            let parsed = match tokio::time::timeout(
-                Duration::from_millis(VIDEO_IMPORT_PARSE_TIMEOUT_MS),
-                parse_video_import_script_with_episode_plan(
-                    state.clone(),
-                    &project_id,
-                    &script,
-                    &script_parse_mode,
-                    Some(&style_id),
-                    episode_plan_value,
-                ),
-            )
-            .await
-            {
-                Ok(Ok(value)) => {
-                    let conn = db_connection(&state)?;
-                    finish_step_run(
-                        &conn,
-                        &parse_run_id,
-                        "success",
-                        None,
-                        None,
-                        json!({ "projectId": project_id, "episodeId": episode.id, "episodeNumber": episode_number, "mode": "short_clips" }),
-                    )?;
-                    value
-                }
-                Ok(Err(error)) => {
-                    let conn = db_connection(&state)?;
-                    finish_step_run(
-                        &conn,
-                        &parse_run_id,
-                        "failed",
-                        None,
-                        Some(&error.message),
-                        json!({ "projectId": project_id, "episodeId": episode.id, "episodeNumber": episode_number, "mode": "short_clips" }),
-                    )?;
-                    finish_step_run(
-                        &conn,
-                        &run_id,
-                        "failed",
-                        None,
-                        Some(&error.message),
-                        json!({ "projectId": project_id, "episodeId": episode.id }),
-                    )?;
-                    cleanup_empty_import_project(&conn, &project_id)?;
-                    update_task_status(&conn, &id, "failed", "import", 85, Some(&error.message))?;
-                    return Err(error);
-                }
-                Err(_) => {
-                    let message = format!("第{}段脚本解析超时，请稍后重试", episode_number);
-                    let conn = db_connection(&state)?;
-                    finish_step_run(
-                        &conn,
-                        &parse_run_id,
-                        "failed",
-                        None,
-                        Some(&message),
-                        json!({ "projectId": project_id, "episodeId": episode.id, "episodeNumber": episode_number, "mode": "short_clips" }),
-                    )?;
-                    finish_step_run(
-                        &conn,
-                        &run_id,
-                        "failed",
-                        None,
-                        Some(&message),
-                        json!({ "projectId": project_id, "episodeId": episode.id }),
-                    )?;
-                    cleanup_empty_import_project(&conn, &project_id)?;
-                    update_task_status(&conn, &id, "failed", "import", 85, Some(&message))?;
-                    return Err(ApiError::new(StatusCode::GATEWAY_TIMEOUT, message));
-                }
-            };
-
-            let parsed_data = parsed.get("data").cloned().unwrap_or_else(|| json!({}));
-            let scenes = parsed_data
-                .get("scenes")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            if scenes.is_empty() {
-                let message = format!(
-                    "第{}段脚本解析结果没有场景，请编辑剧本后重试",
-                    episode_number
-                );
-                let conn = db_connection(&state)?;
-                finish_step_run(
-                    &conn,
-                    &run_id,
-                    "failed",
-                    None,
-                    Some(&message),
-                    json!({ "projectId": project_id, "episodeId": episode.id }),
-                )?;
-                cleanup_empty_import_project(&conn, &project_id)?;
-                update_task_status(&conn, &id, "failed", "import", 85, Some(&message))?;
-                return Err(ApiError::new(StatusCode::BAD_GATEWAY, message));
-            }
-
-            let episode_id = episode_item
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or("episode-1")
-                .to_string();
+        for (unit, parsed) in parsed_units {
+            let data = parsed.get("data").cloned().unwrap_or_else(|| json!({}));
+            let episode_item = unit.episode_plan_item.clone().unwrap_or_else(|| json!({}));
+            let episode_id = episode_item.get("id").and_then(Value::as_str).unwrap_or("episode-1").to_string();
+            let scenes = data.get("scenes").and_then(Value::as_array).cloned().unwrap_or_default();
             for (scene_index, scene) in scenes.into_iter().enumerate() {
                 all_scenes.push(normalize_series_scene(
                     scene,
                     &episode_id,
-                    &episode_title,
-                    episode_number,
+                    &unit.title,
+                    unit.episode_number,
                     scene_index + 1,
                 ));
             }
-            if let Some(characters) = parsed_data.get("characters").and_then(Value::as_array) {
+            if let Some(characters) = data.get("characters").and_then(Value::as_array) {
                 for character in characters {
                     let mut character = character.clone();
                     if let Some(object) = character.as_object_mut() {
@@ -2043,381 +2181,233 @@ async fn api_video_import_import_series_project(
                 }
             }
             episode_plan.push(episode_item);
-            combined_script_sections.push(format!(
-                "## 第{}段：{}\n\n{}",
-                episode_number,
-                episode_title,
-                script.trim()
-            ));
+            sections.push(unit.script.trim().to_string());
             parsed_episodes.push(parsed);
         }
-
-        let combined_script = group_script
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| {
-                format!(
-                    "# {}\n\n{}",
-                    project_title,
-                    combined_script_sections.join("\n\n")
-                )
-            });
-        let parsed_data = json!({
-          "episodePlan": episode_plan,
-          "scenes": all_scenes,
-          "characters": all_characters
-        });
-
-        let save_body = build_project_save_body(
-            &project_title,
-            &task.source_path,
-            &style_id,
-            &aspect_ratio,
-            &script_parse_mode,
-            &combined_script,
-            &parsed_data,
-        );
-        let conn = db_connection(&state)?;
-        let save_run_id = start_step_run(&conn, &id, "save_project", None)?;
-        drop(conn);
-        if let Err(error) = api_project_put(
-            Path(project_id.clone()),
-            State(state.clone()),
-            Json(save_body),
-        )
-        .await
-        {
-            let conn = db_connection(&state)?;
-            finish_step_run(
-                &conn,
-                &save_run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({ "projectId": project_id }),
-            )?;
-            finish_step_run(
-                &conn,
-                &run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({ "projectId": project_id }),
-            )?;
-            update_task_status(&conn, &id, "failed", "import", 85, Some(&error.message))?;
-            return Err(error);
-        }
-
-        let conn = db_connection(&state)?;
-        finish_step_run(
-            &conn,
-            &save_run_id,
-            "success",
-            None,
-            None,
-            json!({ "projectId": project_id }),
-        )?;
-        let parse_path = task_dir(&state, &id).join("parse-result.json");
-        write_text_file(&parse_path, &json!({ "success": true, "data": parsed_data, "episodes": parsed_episodes, "mode": "short_clips" }).to_string())?;
-        insert_artifact(
-            &conn,
-            &id,
-            "parse_result",
-            &parse_path,
-            Some("application/json"),
-            json!({ "projectId": project_id, "series": true, "mode": "short_clips" }),
-        )?;
-        conn.execute(
-            "INSERT OR REPLACE INTO video_import_projects (import_id, project_id, imported_at, metadata_json) VALUES (?1, ?2, ?3, ?4)",
-            params![id, project_id, now_iso(), json!({ "series": true, "mode": "short_clips" }).to_string()],
-        )
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-        finish_step_run(
-            &conn,
-            &run_id,
-            "success",
-            None,
-            None,
-            json!({ "projectId": project_id, "mode": "short_clips" }),
-        )?;
-        update_task_status(&conn, &id, "imported", "imported", 100, None)?;
-
-        return Ok(Json(json!({
-          "success": true,
-          "data": {
-            "projectId": project_id,
-            "redirectUrl": format!("/projects/{project_id}")
-          }
-        })));
-    }
-
-    let mut episode_plan = Vec::new();
-    let mut all_scenes = Vec::new();
-    let mut all_characters = Vec::new();
-    let mut combined_script_sections = Vec::new();
-    let mut parsed_episodes = Vec::new();
-    let group_script_sections = {
-        let conn = db_connection(&state)?;
-        let group_script = latest_artifact_text(&conn, &id, "script_edited")?
-            .or(latest_artifact_text(&conn, &id, "script_draft")?);
-        group_script
-            .as_deref()
-            .map(split_series_script_sections)
-            .unwrap_or_default()
+        let combined = format!("# {}\n\n{}", options.project_title, sections.join("\n\n"));
+        let data = json!({ "episodePlan": episode_plan, "scenes": all_scenes, "characters": all_characters });
+        let result = json!({ "success": true, "data": data.clone(), "episodes": parsed_episodes });
+        (data, combined, result)
+    } else {
+        let (unit, parsed) = parsed_units
+            .into_iter()
+            .next()
+            .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请先生成或编辑剧本"))?;
+        let data = parsed.get("data").cloned().unwrap_or_else(|| json!({}));
+        (data, unit.script, parsed)
     };
 
-    for (episode_index, episode) in episodes.into_iter().enumerate() {
-        let conn = db_connection(&state)?;
-        let child_script = latest_artifact_text(&conn, &episode.id, "script_edited")?
-            .or(latest_artifact_text(&conn, &episode.id, "script_draft")?);
-        drop(conn);
-
-        let episode_number = episode.episode_number.unwrap_or(1).max(1);
-        let script = group_script_sections
-            .get(episode_index)
-            .cloned()
-            .filter(|value| !value.trim().is_empty())
-            .or(child_script)
-            .ok_or_else(|| {
-                ApiError::new(
-                    StatusCode::BAD_REQUEST,
-                    format!("第{}集尚未生成剧本", episode_number),
-                )
-            })?;
-        let episode_item = build_series_episode_plan_item(&episode, episode_number);
-        let episode_plan_value = json!([episode_item.clone()]);
-        let conn = db_connection(&state)?;
-        let parse_run_id = start_step_run(&conn, &id, "parse_episode", None)?;
-        drop(conn);
-        let parsed = match tokio::time::timeout(
-            Duration::from_millis(VIDEO_IMPORT_PARSE_TIMEOUT_MS),
-            parse_video_import_script_with_episode_plan(
-                state.clone(),
-                &project_id,
-                &script,
-                &script_parse_mode,
-                Some(&style_id),
-                episode_plan_value,
-            ),
-        )
-        .await
-        {
-            Ok(Ok(value)) => {
-                let conn = db_connection(&state)?;
-                finish_step_run(
-                    &conn,
-                    &parse_run_id,
-                    "success",
-                    None,
-                    None,
-                    json!({ "projectId": project_id, "episodeId": episode.id, "episodeNumber": episode_number }),
-                )?;
-                value
-            }
-            Ok(Err(error)) => {
-                let conn = db_connection(&state)?;
-                finish_step_run(
-                    &conn,
-                    &parse_run_id,
-                    "failed",
-                    None,
-                    Some(&error.message),
-                    json!({ "projectId": project_id, "episodeId": episode.id, "episodeNumber": episode_number }),
-                )?;
-                finish_step_run(
-                    &conn,
-                    &run_id,
-                    "failed",
-                    None,
-                    Some(&error.message),
-                    json!({ "projectId": project_id, "episodeId": episode.id }),
-                )?;
-                cleanup_empty_import_project(&conn, &project_id)?;
-                update_task_status(&conn, &id, "failed", "import", 85, Some(&error.message))?;
-                return Err(error);
-            }
-            Err(_) => {
-                let message = format!("第{}集脚本解析超时，请稍后重试", episode_number);
-                let conn = db_connection(&state)?;
-                finish_step_run(
-                    &conn,
-                    &parse_run_id,
-                    "failed",
-                    None,
-                    Some(&message),
-                    json!({ "projectId": project_id, "episodeId": episode.id, "episodeNumber": episode_number }),
-                )?;
-                finish_step_run(
-                    &conn,
-                    &run_id,
-                    "failed",
-                    None,
-                    Some(&message),
-                    json!({ "projectId": project_id, "episodeId": episode.id }),
-                )?;
-                cleanup_empty_import_project(&conn, &project_id)?;
-                update_task_status(&conn, &id, "failed", "import", 85, Some(&message))?;
-                return Err(ApiError::new(StatusCode::GATEWAY_TIMEOUT, message));
-            }
-        };
-
-        let parsed_data = parsed.get("data").cloned().unwrap_or_else(|| json!({}));
-        let scenes = parsed_data
-            .get("scenes")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        if scenes.is_empty() {
-            let message = format!(
-                "第{}集脚本解析结果没有场景，请编辑剧本后重试",
-                episode_number
-            );
-            let conn = db_connection(&state)?;
-            finish_step_run(
-                &conn,
-                &run_id,
-                "failed",
-                None,
-                Some(&message),
-                json!({ "projectId": project_id, "episodeId": episode.id }),
-            )?;
-            cleanup_empty_import_project(&conn, &project_id)?;
-            update_task_status(&conn, &id, "failed", "import", 85, Some(&message))?;
-            return Err(ApiError::new(StatusCode::BAD_GATEWAY, message));
-        }
-
-        let episode_id = episode_item
-            .get("id")
-            .and_then(Value::as_str)
-            .unwrap_or("episode-1")
-            .to_string();
-        let episode_title = episode_item
-            .get("title")
-            .and_then(Value::as_str)
-            .unwrap_or("第1集")
-            .to_string();
-        for (scene_index, scene) in scenes.into_iter().enumerate() {
-            all_scenes.push(normalize_series_scene(
-                scene,
-                &episode_id,
-                &episode_title,
-                episode_number,
-                scene_index + 1,
-            ));
-        }
-        if let Some(characters) = parsed_data.get("characters").and_then(Value::as_array) {
-            for character in characters {
-                let mut character = character.clone();
-                if let Some(object) = character.as_object_mut() {
-                    object.remove("id");
-                }
-                all_characters.push(character);
-            }
-        }
-        episode_plan.push(episode_item);
-        combined_script_sections.push(format!(
-            "## 第{}集：{}\n\n{}",
-            episode_number,
-            episode_title,
-            script.trim()
-        ));
-        parsed_episodes.push(parsed);
-    }
-
-    let combined_script = format!(
-        "# {}\n\n{}",
-        project_title,
-        combined_script_sections.join("\n\n")
-    );
-    let parsed_data = json!({
-      "episodePlan": episode_plan,
-      "scenes": all_scenes,
-      "characters": all_characters
-    });
     let save_body = build_project_save_body(
-        &project_title,
-        &task.source_path,
-        &style_id,
-        &aspect_ratio,
-        &script_parse_mode,
+        &options.project_title,
+        if is_group { &task.source_path } else { &task.original_filename },
+        &options.style_id,
+        &options.aspect_ratio,
+        &options.script_parse_mode,
         &combined_script,
         &parsed_data,
     );
-    let conn = db_connection(&state)?;
-    let save_run_id = start_step_run(&conn, &id, "save_project", None)?;
-    drop(conn);
-    if let Err(error) = api_project_put(
-        Path(project_id.clone()),
-        State(state.clone()),
-        Json(save_body),
-    )
-    .await
+    let (_, save_run) = run_tracked_step(state, id, "save_project", None, 98, async {
+        api_project_put(Path(project_id.clone()), State(state.clone()), Json(save_body)).await
+    })
+    .await?;
     {
-        let conn = db_connection(&state)?;
-        finish_step_run(
-            &conn,
-            &save_run_id,
-            "failed",
-            None,
-            Some(&error.message),
-            json!({ "projectId": project_id }),
-        )?;
-        finish_step_run(
-            &conn,
-            &run_id,
-            "failed",
-            None,
-            Some(&error.message),
-            json!({ "projectId": project_id }),
-        )?;
-        update_task_status(&conn, &id, "failed", "import", 85, Some(&error.message))?;
-        return Err(error);
+        let conn = db_connection(state)?;
+        finish_step_run(&conn, &save_run, "success", None, None, json!({ "projectId": project_id }))?;
+    }
+    Ok((project_id, parse_result))
+}
+
+/// 一个待解析单元：单集任务只有一个；剧集每集一个。
+struct VideoImportParseUnit {
+    /// 解析缓存所在的任务（剧集为分集任务）。
+    cache_task_id: String,
+    episode_number: i64,
+    title: String,
+    script: String,
+    episode_plan_item: Option<Value>,
+}
+
+fn collect_import_units(
+    conn: &Connection,
+    id: &str,
+    task: &VideoImportTaskRecord,
+    project_title: &str,
+) -> Result<Vec<VideoImportParseUnit>, ApiError> {
+    let group_script = latest_script_text(conn, id)?
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "请先生成或编辑剧本"))?;
+    if task.is_series_group == 0 {
+        return Ok(vec![VideoImportParseUnit {
+            cache_task_id: id.to_string(),
+            episode_number: 1,
+            title: project_title.to_string(),
+            script: group_script,
+            episode_plan_item: None,
+        }]);
     }
 
-    let conn = db_connection(&state)?;
-    finish_step_run(
-        &conn,
-        &save_run_id,
-        "success",
-        None,
-        None,
-        json!({ "projectId": project_id }),
-    )?;
-    let parse_path = task_dir(&state, &id).join("parse-result.json");
-    write_text_file(
-        &parse_path,
-        &json!({ "success": true, "data": parsed_data, "episodes": parsed_episodes }).to_string(),
-    )?;
-    insert_artifact(
-        &conn,
-        &id,
-        "parse_result",
-        &parse_path,
-        Some("application/json"),
-        json!({ "projectId": project_id, "series": true }),
-    )?;
-    conn.execute(
-        "INSERT OR REPLACE INTO video_import_projects (import_id, project_id, imported_at, metadata_json) VALUES (?1, ?2, ?3, ?4)",
-        params![id, project_id, now_iso(), json!({ "series": true }).to_string()],
-    )
-    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    finish_step_run(
-        &conn,
-        &run_id,
-        "success",
-        None,
-        None,
-        json!({ "projectId": project_id }),
-    )?;
-    update_task_status(&conn, &id, "imported", "imported", 100, None)?;
-
-    Ok(Json(json!({
-      "success": true,
-      "data": {
-        "projectId": project_id,
-        "redirectUrl": format!("/projects/{project_id}")
-      }
-    })))
+    let episodes = load_series_episode_tasks(conn, id)?;
+    if episodes.is_empty() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "剧集任务没有可导入的分集"));
+    }
+    let short_clips = is_short_clip_series_task(task);
+    let unit_label = if short_clips { "段" } else { "集" };
+    // 剧集整体剧本按集号拆分；用户编辑后集号顺序变化也能正确对应。
+    let sections = split_series_script_sections(&group_script);
+    let numbered = sections
+        .iter()
+        .filter_map(|section| series_script_section_episode_number(section).map(|number| (number, section.clone())))
+        .collect::<HashMap<_, _>>();
+    let mut units = Vec::new();
+    for (index, episode) in episodes.iter().enumerate() {
+        let episode_number = episode.episode_number.unwrap_or(index as i64 + 1).max(1);
+        let title = episode_title_from_task(episode, episode_number);
+        let section = if numbered.is_empty() {
+            sections.get(index).cloned()
+        } else {
+            numbered.get(&episode_number).cloned()
+        };
+        let script = section
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                latest_script_text(conn, &episode.id)
+                    .ok()
+                    .flatten()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|script| format!("## 第{}{}：{}\n\n{}", episode_number, unit_label, title, strip_leading_episode_heading(script.trim())))
+            })
+            .or_else(|| {
+                if !short_clips {
+                    return None;
+                }
+                latest_artifact_text(conn, &episode.id, "subtitle_txt")
+                    .ok()
+                    .flatten()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|subtitle| format!("## 第{}段：{}\n\n{}", episode_number, title, subtitle.trim()))
+            })
+            .ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    format!("第{}{}没有可用的剧本内容，请检查剧本中的「## 第{}{}」段落", episode_number, unit_label, episode_number, unit_label),
+                )
+            })?;
+        units.push(VideoImportParseUnit {
+            cache_task_id: episode.id.clone(),
+            episode_number,
+            title,
+            script,
+            episode_plan_item: Some(build_series_episode_plan_item(episode, episode_number)),
+        });
+    }
+    Ok(units)
 }
+
+fn import_parse_cache_key(unit: &VideoImportParseUnit, options: &VideoImportProjectOptions) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(unit.script.as_bytes());
+    hasher.update(b"\n--mode--\n");
+    hasher.update(options.script_parse_mode.as_bytes());
+    hasher.update(b"\n--style--\n");
+    hasher.update(options.style_id.as_bytes());
+    hasher.update(b"\n--plan--\n");
+    if let Some(item) = &unit.episode_plan_item {
+        hasher.update(item.to_string().as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+async fn parse_import_unit_with_cache(
+    state: &BackendState,
+    id: &str,
+    project_id: &str,
+    unit: &VideoImportParseUnit,
+    options: &VideoImportProjectOptions,
+) -> Result<Value, ApiError> {
+    let cache_key = import_parse_cache_key(unit, options);
+    let cache_path = task_dir(state, &unit.cache_task_id).join(format!("parse-cache-{}.json", &cache_key[..32]));
+    if let Some(cached) = fs::read_to_string(&cache_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .filter(import_parse_has_scenes)
+    {
+        return Ok(cached);
+    }
+
+    let step = if unit.episode_plan_item.is_some() { "parse_episode" } else { "parse_script" };
+    let metadata = json!({ "episodeNumber": unit.episode_number, "projectId": project_id });
+    let run_id = {
+        let conn = db_connection(state)?;
+        ensure_video_import_task_active(&conn, id)?;
+        start_step_run(&conn, id, step, None)?
+    };
+    let parse = async {
+        let future = match &unit.episode_plan_item {
+            Some(item) => {
+                parse_video_import_script_with_episode_plan(
+                    state.clone(),
+                    project_id,
+                    &unit.script,
+                    &options.script_parse_mode,
+                    Some(&options.style_id),
+                    json!([item.clone()]),
+                )
+                .await
+            }
+            None => {
+                parse_video_import_script(
+                    state.clone(),
+                    project_id,
+                    &unit.script,
+                    &options.script_parse_mode,
+                    Some(&options.style_id),
+                )
+                .await
+            }
+        };
+        future
+    };
+    let label = if unit.episode_plan_item.is_some() {
+        format!("第{}集", unit.episode_number)
+    } else {
+        "剧本".to_string()
+    };
+    let result = match tokio::time::timeout(Duration::from_millis(VIDEO_IMPORT_PARSE_TIMEOUT_MS), parse).await {
+        Ok(Ok(value)) if import_parse_has_scenes(&value) => Ok(value),
+        Ok(Ok(_)) => Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            format!("{label}解析结果没有场景，请编辑剧本后重试"),
+        )),
+        Ok(Err(error)) => Err(ApiError::new(error.status, format!("{label}解析失败：{}", error.message))),
+        Err(_) => Err(ApiError::new(
+            StatusCode::GATEWAY_TIMEOUT,
+            format!("{label}解析超时，请稍后重试"),
+        )),
+    };
+    let conn = db_connection(state)?;
+    match result {
+        Ok(value) => {
+            write_text_file(&cache_path, &value.to_string())?;
+            finish_step_run(&conn, &run_id, "success", None, None, metadata)?;
+            Ok(value)
+        }
+        Err(error) => {
+            finish_step_run(&conn, &run_id, "failed", None, Some(&error.message), metadata)?;
+            Err(error)
+        }
+    }
+}
+
+fn import_parse_has_scenes(value: &Value) -> bool {
+    value
+        .get("data")
+        .and_then(|data| data.get("scenes"))
+        .and_then(Value::as_array)
+        .is_some_and(|scenes| !scenes.is_empty())
+}
+
+// ===========================================================================
+// 重试 / 取消 / 删除
+// ===========================================================================
 
 pub(super) async fn api_video_import_retry(
     Path(id): Path<String>,
@@ -2426,50 +2416,44 @@ pub(super) async fn api_video_import_retry(
 ) -> Result<Json<Value>, ApiError> {
     let from_step = body.from_step.as_deref().unwrap_or("transcribe");
     match from_step {
-        "extract" | "transcribe" => {
+        "extract" | "transcribe" | "copy_source" => {
+            let force_extract = from_step != "transcribe";
             let conn = db_connection(&state)?;
-            ensure_task_exists(&conn, &id)?;
-            let run_id = start_step_run(&conn, &id, "retry", None)?;
-            finish_step_run(
-                &conn,
-                &run_id,
-                "success",
-                None,
-                None,
-                json!({ "fromStep": from_step }),
-            )?;
-            conn.execute(
-                "UPDATE video_import_tasks
-                 SET status = 'pending', current_step = 'retry', progress = 0,
-                     error_message = NULL, cancelled_at = NULL, completed_at = NULL, updated_at = ?1
-                 WHERE id = ?2",
-                params![now_iso(), id],
-            )
-            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-            drop(conn);
-            let background_state = state.clone();
-            let background_task_id = id.clone();
-            tokio::spawn(async move {
-                if let Err(error) =
-                    run_initial_video_import_task(background_state.clone(), &background_task_id)
-                        .await
-                {
-                    let _ = mark_task_failed(
-                        &background_state,
-                        &background_task_id,
-                        "processing",
-                        &error.message,
-                    );
+            let task = load_task(&conn, &id)?;
+            let targets = if task.is_series_group != 0 {
+                load_series_episode_tasks(&conn, &id)?
+                    .into_iter()
+                    .filter(|episode| matches!(episode.status.as_str(), "failed" | "cancelled"))
+                    .map(|episode| episode.id)
+                    .collect::<Vec<_>>()
+            } else {
+                vec![id.clone()]
+            };
+            if targets.is_empty() {
+                return Err(ApiError::new(StatusCode::CONFLICT, "没有需要重新识别的分集"));
+            }
+            for target in &targets {
+                if is_video_import_job_running(target) {
+                    continue;
                 }
-            });
+                claim_video_import_task(&conn, target, &["failed", "cancelled"], "pending", "queued", 0)?;
+                spawn_prepare_job(&state, target, force_extract)?;
+            }
+            if task.is_series_group != 0 {
+                let _ = claim_video_import_task(&conn, &id, &["failed", "cancelled"], "pending", "queued", 0);
+                refresh_series_group_status(&conn, &id)?;
+            }
+            Ok(Json(json!({ "success": true, "data": { "retried": targets.len() } })))
+        }
+        "generate_script" => {
+            // 失败后续跑：复用已生成的分集剧本。
+            start_generate_script(&state, &id, false)?;
             Ok(Json(json!({ "success": true })))
         }
-        "generate_script" => api_video_import_generate_script(Path(id), State(state))
-            .await
-            .map(|_| Json(json!({ "success": true }))),
-        "import" => api_video_import_import_project(Path(id), State(state), Json(None))
-            .await
-            .map(|_| Json(json!({ "success": true }))),
+        "import" => {
+            start_import_project(&state, &id, None)?;
+            Ok(Json(json!({ "success": true })))
+        }
         _ => Err(ApiError::new(StatusCode::BAD_REQUEST, "fromStep 无效")),
     }
 }
@@ -2482,19 +2466,29 @@ pub(super) async fn api_video_import_cancel(
     ensure_task_exists(&conn, &id)?;
     let task_ids = expand_task_delete_ids(&conn, &[id])?;
     let cancelled_at = now_iso();
+    let sql = format!(
+        "UPDATE video_import_tasks
+         SET status = 'cancelled', cancelled_at = ?1, completed_at = NULL, updated_at = ?1
+         WHERE id = ?2 AND status IN ({})",
+        sql_in_list(VIDEO_IMPORT_RUNNING_STATUSES)
+    );
+    let mut cancelled = 0;
     for task_id in task_ids {
-        let run_id = start_step_run(&conn, &task_id, "cancel", None)?;
-        conn.execute(
-            "UPDATE video_import_tasks
-             SET status = 'cancelled', current_step = 'cancelled', cancelled_at = ?1,
-                 completed_at = NULL, updated_at = ?1
-             WHERE id = ?2",
-            params![cancelled_at, task_id],
-        )
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-        finish_step_run(&conn, &run_id, "success", None, None, json!({}))?;
+        abort_video_import_job(&task_id);
+        // current_step 保留，前端据此决定从哪一步继续。
+        let changed = conn
+            .execute(&sql, params![cancelled_at, task_id])
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        if changed > 0 {
+            cancelled += 1;
+            close_running_step_runs(&conn, Some(&task_id), "cancelled", Some("用户取消"))?;
+            release_unfinished_import_project(&conn, &task_id)?;
+        }
     }
-    Ok(Json(json!({ "success": true })))
+    if cancelled == 0 {
+        return Err(ApiError::new(StatusCode::CONFLICT, "任务当前没有正在进行的处理"));
+    }
+    Ok(Json(json!({ "success": true, "data": { "cancelled": cancelled } })))
 }
 
 pub(super) async fn api_video_import_delete(
@@ -2574,6 +2568,8 @@ fn delete_video_import_tasks(
 ) -> Result<usize, ApiError> {
     let mut deleted_count = 0;
     for task_id in task_ids {
+        abort_video_import_job(task_id);
+        release_unfinished_import_project(conn, task_id)?;
         conn.execute(
             "DELETE FROM video_import_artifacts WHERE task_id = ?1",
             params![task_id],
@@ -2604,136 +2600,6 @@ fn delete_video_import_tasks(
         }
     }
     Ok(deleted_count)
-}
-
-pub(super) async fn api_video_import_events(
-) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
-    let stream = stream::once(async {
-        Ok(Event::default()
-            .event("ready")
-            .data(json!({ "success": true }).to_string()))
-    });
-    Sse::new(stream).keep_alive(KeepAlive::default())
-}
-
-async fn run_initial_video_import_task(state: BackendState, task_id: &str) -> Result<(), ApiError> {
-    let conn = db_connection(&state)?;
-    ensure_video_import_task_active(&conn, task_id)?;
-    let task = load_task(&conn, task_id)?;
-    update_task_status(&conn, task_id, "extracting", "extract", 10, None)?;
-    let extract_run_id = start_step_run(&conn, task_id, "extract", None)?;
-    drop(conn);
-
-    let audio_path = task_dir(&state, task_id).join("audio.wav");
-    match extract_audio(PathBuf::from(&task.source_path), audio_path.clone()).await {
-        Ok(()) => {
-            let conn = db_connection(&state)?;
-            ensure_video_import_task_active(&conn, task_id)?;
-            insert_artifact(
-                &conn,
-                task_id,
-                "extracted_audio",
-                &audio_path,
-                Some("audio/wav"),
-                json!({}),
-            )?;
-            finish_step_run(&conn, &extract_run_id, "success", None, None, json!({}))?;
-            update_task_status(&conn, task_id, "transcribing", "transcribe", 35, None)?;
-        }
-        Err(error) => {
-            let conn = db_connection(&state)?;
-            finish_step_run(
-                &conn,
-                &extract_run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({}),
-            )?;
-            update_task_status(
-                &conn,
-                task_id,
-                "failed",
-                "extract",
-                10,
-                Some(&error.message),
-            )?;
-            return Err(error);
-        }
-    }
-
-    let conn = db_connection(&state)?;
-    ensure_video_import_task_active(&conn, task_id)?;
-    let asr_run_id = start_step_run(&conn, task_id, "transcribe", Some("bcut"))?;
-    drop(conn);
-
-    let output = match transcribe_bcut_for_import(audio_path.clone(), &state, task_id).await {
-        Ok(value) => value,
-        Err(error) => {
-            let conn = db_connection(&state)?;
-            finish_step_run(
-                &conn,
-                &asr_run_id,
-                "failed",
-                None,
-                Some(&error.message),
-                json!({}),
-            )?;
-            update_task_status(
-                &conn,
-                task_id,
-                "failed",
-                "transcribe",
-                45,
-                Some(&error.message),
-            )?;
-            return Err(error);
-        }
-    };
-
-    let conn = db_connection(&state)?;
-    ensure_video_import_task_active(&conn, task_id)?;
-    let raw_path = task_dir(&state, task_id).join("asr-raw.json");
-    let txt_path = task_dir(&state, task_id).join("subtitle.txt");
-    let srt_path = task_dir(&state, task_id).join("subtitle.srt");
-    write_text_file(&raw_path, &output.raw.to_string())?;
-    write_text_file(&txt_path, &output.text)?;
-    write_text_file(&srt_path, &output.srt)?;
-    insert_artifact(
-        &conn,
-        task_id,
-        "asr_raw_json",
-        &raw_path,
-        Some("application/json"),
-        json!({ "taskId": output.task_id }),
-    )?;
-    insert_artifact(
-        &conn,
-        task_id,
-        "subtitle_txt",
-        &txt_path,
-        Some("text/plain"),
-        json!({ "segmentCount": output.segments.len(), "taskId": output.task_id }),
-    )?;
-    insert_artifact(
-        &conn,
-        task_id,
-        "subtitle_srt",
-        &srt_path,
-        Some("application/x-subrip"),
-        json!({ "segmentCount": output.segments.len(), "taskId": output.task_id }),
-    )?;
-    finish_step_run(
-        &conn,
-        &asr_run_id,
-        "success",
-        Some(&output.task_id),
-        None,
-        json!({ "segmentCount": output.segments.len() }),
-    )?;
-    update_task_status(&conn, task_id, "subtitle_ready", "subtitle_ready", 55, None)?;
-    let _ = task;
-    Ok(())
 }
 
 async fn extract_audio(video_path: PathBuf, audio_path: PathBuf) -> Result<(), ApiError> {
@@ -3191,7 +3057,11 @@ fn write_script_artifact(
     script: &str,
     metadata: Value,
 ) -> Result<(), ApiError> {
-    let path = task_dir(state, task_id).join("script-draft.md");
+    // 每次生成单独成文件，保留历史版本。
+    let path = task_dir(state, task_id).join(format!(
+        "script-draft-{}.md",
+        Utc::now().timestamp_millis()
+    ));
     write_text_file(&path, script)?;
     insert_artifact(
         conn,
@@ -3451,21 +3321,19 @@ fn refresh_all_series_group_status(conn: &Connection) -> Result<(), ApiError> {
 }
 
 fn refresh_series_group_status(conn: &Connection, id: &str) -> Result<(), ApiError> {
-    let group_status = conn
-        .query_row(
-            "SELECT status FROM video_import_tasks WHERE id = ?1 AND is_series_group = 1 LIMIT 1",
-            params![id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    let Some(status) = group_status else {
+    let Ok(group) = load_task(conn, id) else {
         return Ok(());
     };
-    if matches!(
-        status.as_str(),
-        "generating_script" | "importing" | "imported"
-    ) {
+    if group.is_series_group == 0 {
+        return Ok(());
+    }
+    // 组任务自身的阶段（生成剧本 / 创建项目 / 取消）由组任务自己维护，不从分集推导。
+    let owns_status = match group.status.as_str() {
+        "generating_script" | "importing" | "imported" | "cancelled" => true,
+        "failed" => matches!(group.current_step.as_str(), "generate_script" | "import"),
+        _ => false,
+    };
+    if owns_status {
         return Ok(());
     }
 
@@ -3473,55 +3341,108 @@ fn refresh_series_group_status(conn: &Connection, id: &str) -> Result<(), ApiErr
     if episodes.is_empty() {
         return Ok(());
     }
+    let has_group_script = latest_artifact_info(conn, id, VIDEO_IMPORT_SCRIPT_KINDS)?.is_some();
+    let derived = derive_series_group_status(&episodes, has_group_script);
+    if derived.status == group.status
+        && derived.current_step == group.current_step
+        && derived.progress == group.progress
+        && derived.error_message == group.error_message
+    {
+        return Ok(());
+    }
+    update_task_status(
+        conn,
+        id,
+        derived.status,
+        &derived.current_step,
+        derived.progress,
+        derived.error_message.as_deref(),
+    )
+}
 
-    let failed = episodes.iter().find(|task| task.status == "failed");
+#[derive(Debug, PartialEq)]
+struct DerivedGroupStatus {
+    status: &'static str,
+    current_step: String,
+    progress: i64,
+    error_message: Option<String>,
+}
+
+/// 由分集状态推导剧集组状态：有分集仍在识别时优先显示“识别中”，避免前端停止轮询。
+fn derive_series_group_status(
+    episodes: &[VideoImportTaskRecord],
+    has_group_script: bool,
+) -> DerivedGroupStatus {
+    let total = episodes.len().max(1) as f64;
+    let progress = (episodes.iter().map(|task| task.progress.min(55)).sum::<i64>() as f64 / total).round() as i64;
     let running = episodes.iter().any(|task| {
-        matches!(
-            task.status.as_str(),
-            "pending" | "extracting" | "transcribing"
-        )
+        matches!(task.status.as_str(), "pending" | "extracting" | "transcribing")
     });
+    let failed = episodes
+        .iter()
+        .filter(|task| task.status == "failed")
+        .collect::<Vec<_>>();
+    let cancelled = episodes.iter().any(|task| task.status == "cancelled");
     let all_subtitle_ready = episodes.iter().all(|task| {
         matches!(
             task.status.as_str(),
             "subtitle_ready" | "generating_script" | "script_ready" | "importing" | "imported"
         )
     });
-    let all_script_ready = episodes.iter().all(|task| {
-        matches!(
-            task.status.as_str(),
-            "script_ready" | "importing" | "imported"
-        )
-    });
-    let progress = ((episodes.iter().map(|task| task.progress).sum::<i64>() as f64)
-        / (episodes.len() as f64))
-        .round() as i64;
 
-    let (next_status, next_step, next_progress, error_message) = if let Some(task) = failed {
-        (
-            "failed",
-            task.current_step.as_str(),
-            progress.clamp(0, 80),
-            task.error_message.as_deref(),
-        )
-    } else if all_script_ready || latest_artifact_text(conn, id, "script_draft")?.is_some() {
-        ("script_ready", "script_ready", 80, None)
-    } else if all_subtitle_ready {
-        ("subtitle_ready", "subtitle_ready", 55, None)
-    } else if running {
-        ("transcribing", "transcribe", progress.clamp(1, 55), None)
-    } else {
-        ("pending", "created", progress.clamp(0, 55), None)
-    };
-
-    update_task_status(
-        conn,
-        id,
-        next_status,
-        next_step,
-        next_progress,
-        error_message,
-    )
+    if running {
+        return DerivedGroupStatus {
+            status: "transcribing",
+            current_step: "transcribe".to_string(),
+            progress: progress.clamp(1, 55),
+            error_message: None,
+        };
+    }
+    if !failed.is_empty() {
+        let first = failed[0];
+        let message = format!(
+            "{} 集识别失败（第{}集：{}）",
+            failed.len(),
+            first.episode_number.unwrap_or(0),
+            first.error_message.as_deref().unwrap_or("未知错误")
+        );
+        return DerivedGroupStatus {
+            status: "failed",
+            current_step: "transcribe".to_string(),
+            progress: progress.clamp(0, 55),
+            error_message: Some(message),
+        };
+    }
+    if cancelled {
+        return DerivedGroupStatus {
+            status: "cancelled",
+            current_step: "transcribe".to_string(),
+            progress: progress.clamp(0, 55),
+            error_message: None,
+        };
+    }
+    if all_subtitle_ready {
+        if has_group_script {
+            return DerivedGroupStatus {
+                status: "script_ready",
+                current_step: "script_ready".to_string(),
+                progress: 80,
+                error_message: None,
+            };
+        }
+        return DerivedGroupStatus {
+            status: "subtitle_ready",
+            current_step: "subtitle_ready".to_string(),
+            progress: 55,
+            error_message: None,
+        };
+    }
+    DerivedGroupStatus {
+        status: "pending",
+        current_step: "queued".to_string(),
+        progress: progress.clamp(0, 55),
+        error_message: None,
+    }
 }
 
 fn build_series_subtitle_text(conn: &Connection, series_id: &str) -> Result<String, ApiError> {
@@ -3791,23 +3712,47 @@ fn load_step_runs(
     Ok(rows)
 }
 
+const VIDEO_IMPORT_SCRIPT_KINDS: &[&str] = &["script_draft", "script_edited"];
+
+/// 最新一个指定类型产物的 (路径, 创建时间)。多个类型时按时间取最新，
+/// 例如剧本草稿和编辑稿谁新用谁，重新生成后不会被旧编辑稿挡住。
+fn latest_artifact_info(
+    conn: &Connection,
+    task_id: &str,
+    kinds: &[&str],
+) -> Result<Option<(String, String)>, ApiError> {
+    let sql = format!(
+        "SELECT path, created_at FROM video_import_artifacts
+         WHERE task_id = ?1 AND kind IN ({})
+         ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        sql_in_list(kinds)
+    );
+    conn.query_row(&sql, params![task_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })
+    .optional()
+    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+fn read_artifact_text(path: &str) -> Result<String, ApiError> {
+    fs::read_to_string(path)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
 fn latest_artifact_text(
     conn: &Connection,
     task_id: &str,
     kind: &str,
 ) -> Result<Option<String>, ApiError> {
-    let path: Option<String> = conn
-        .query_row(
-            "SELECT path FROM video_import_artifacts WHERE task_id = ?1 AND kind = ?2 ORDER BY created_at DESC LIMIT 1",
-            params![task_id, kind],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    match path {
-        Some(path) => fs::read_to_string(path)
-            .map(Some)
-            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())),
+    match latest_artifact_info(conn, task_id, &[kind])? {
+        Some((path, _)) => read_artifact_text(&path).map(Some),
+        None => Ok(None),
+    }
+}
+
+fn latest_script_text(conn: &Connection, task_id: &str) -> Result<Option<String>, ApiError> {
+    match latest_artifact_info(conn, task_id, VIDEO_IMPORT_SCRIPT_KINDS)? {
+        Some((path, _)) => read_artifact_text(&path).map(Some),
         None => Ok(None),
     }
 }
@@ -3820,11 +3765,37 @@ fn insert_artifact(
     mime_type: Option<&str>,
     metadata: Value,
 ) -> Result<(), ApiError> {
-    let bytes = fs::read(path)
+    // 流式计算哈希，避免把大视频/音频整个读进内存。
+    let mut file = File::open(path)
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let mut hasher = Sha256::new();
-    hasher.update(&bytes);
+    let mut buffer = vec![0_u8; 1024 * 1024];
+    let mut size = 0_i64;
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+        size += read as i64;
+    }
     let sha256 = format!("{:x}", hasher.finalize());
+    insert_artifact_record(conn, task_id, kind, path, mime_type, size, &sha256, metadata)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn insert_artifact_record(
+    conn: &Connection,
+    task_id: &str,
+    kind: &str,
+    path: &FsPath,
+    mime_type: Option<&str>,
+    size_bytes: i64,
+    sha256: &str,
+    metadata: Value,
+) -> Result<(), ApiError> {
     conn.execute(
         "INSERT INTO video_import_artifacts (id, task_id, kind, path, mime_type, size_bytes, sha256, metadata_json, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -3834,7 +3805,7 @@ fn insert_artifact(
             kind,
             path.to_string_lossy().to_string(),
             mime_type,
-            bytes.len() as i64,
+            size_bytes,
             sha256,
             metadata.to_string(),
             now_iso()
@@ -3945,16 +3916,6 @@ fn ensure_video_import_cancellation_state(
     };
     let conn = db_connection(state)?;
     ensure_video_import_task_active(&conn, task_id)
-}
-
-fn mark_task_failed(
-    state: &BackendState,
-    task_id: &str,
-    step: &str,
-    message: &str,
-) -> Result<(), ApiError> {
-    let conn = db_connection(state)?;
-    update_task_status(&conn, task_id, "failed", step, 0, Some(message))
 }
 
 fn ensure_task_exists(conn: &Connection, id: &str) -> Result<(), ApiError> {
@@ -4411,5 +4372,160 @@ mod tests {
         assert!(context.contains("第12段字幕"));
         assert!(context.contains("【下一批开头】"));
         assert!(context.contains("第25段字幕"));
+    }
+
+    fn memory_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE video_import_tasks (
+                id TEXT PRIMARY KEY, original_filename TEXT NOT NULL, source_kind TEXT NOT NULL DEFAULT 'upload',
+                source_path TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', current_step TEXT NOT NULL DEFAULT 'created',
+                progress INTEGER NOT NULL DEFAULT 0, error_message TEXT, asr_provider TEXT NOT NULL DEFAULT 'bcut',
+                script_model_id TEXT, config_json TEXT NOT NULL DEFAULT '{}', metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL, started_at TEXT, completed_at TEXT, cancelled_at TEXT,
+                series_id TEXT, episode_number INTEGER, is_series_group INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE video_import_artifacts (
+                id TEXT PRIMARY KEY, task_id TEXT NOT NULL, kind TEXT NOT NULL, path TEXT NOT NULL, mime_type TEXT,
+                size_bytes INTEGER, sha256 TEXT, metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn insert_task(conn: &Connection, id: &str, status: &str) {
+        conn.execute(
+            "INSERT INTO video_import_tasks (id, original_filename, source_path, status, created_at, updated_at)
+             VALUES (?1, 'a.mp4', '/tmp/a.mp4', ?2, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+            params![id, status],
+        )
+        .unwrap();
+    }
+
+    fn task_status(conn: &Connection, id: &str) -> (String, String) {
+        let task = load_task(conn, id).unwrap();
+        (task.status, task.current_step)
+    }
+
+    fn episode(number: i64, status: &str, progress: i64) -> VideoImportTaskRecord {
+        VideoImportTaskRecord {
+            id: format!("ep{number}"),
+            original_filename: format!("{number}.mp4"),
+            source_kind: "folder".to_string(),
+            source_path: String::new(),
+            status: status.to_string(),
+            current_step: String::new(),
+            progress,
+            error_message: (status == "failed").then(|| "识别失败".to_string()),
+            asr_provider: "bcut".to_string(),
+            script_model_id: None,
+            config_json: "{}".to_string(),
+            metadata_json: "{}".to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            started_at: None,
+            completed_at: None,
+            cancelled_at: None,
+            series_id: Some("series".to_string()),
+            episode_number: Some(number),
+            is_series_group: 0,
+        }
+    }
+
+    #[test]
+    fn claim_only_moves_from_allowed_statuses() {
+        let conn = memory_db();
+        insert_task(&conn, "t1", "subtitle_ready");
+
+        claim_video_import_task(&conn, "t1", &["subtitle_ready"], "generating_script", "generate_script", 60).unwrap();
+        assert_eq!(task_status(&conn, "t1").0, "generating_script");
+
+        // 已在生成中，再次认领（双击 / 重复请求）必须被拒绝。
+        let error = claim_video_import_task(&conn, "t1", &["subtitle_ready", "failed"], "generating_script", "generate_script", 60).unwrap_err();
+        assert_eq!(error.status, StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn finish_does_not_override_cancelled_task() {
+        let conn = memory_db();
+        insert_task(&conn, "t1", "cancelled");
+        let changed = finish_video_import_task(&conn, "t1", "generating_script", "script_ready", "script_ready", 80).unwrap();
+        assert!(!changed);
+        assert_eq!(task_status(&conn, "t1").0, "cancelled");
+    }
+
+    #[test]
+    fn latest_script_prefers_newest_artifact_over_edited_kind() {
+        let conn = memory_db();
+        insert_task(&conn, "t1", "script_ready");
+        for (id, kind, created_at) in [
+            ("a1", "script_draft", "2026-01-01T00:00:01.000Z"),
+            ("a2", "script_edited", "2026-01-01T00:00:02.000Z"),
+            ("a3", "script_draft", "2026-01-01T00:00:03.000Z"),
+        ] {
+            conn.execute(
+                "INSERT INTO video_import_artifacts (id, task_id, kind, path, created_at) VALUES (?1, 't1', ?2, ?3, ?4)",
+                params![id, kind, format!("/tmp/{id}.md"), created_at],
+            )
+            .unwrap();
+        }
+        let (path, _) = latest_artifact_info(&conn, "t1", VIDEO_IMPORT_SCRIPT_KINDS).unwrap().unwrap();
+        assert_eq!(path, "/tmp/a3.md");
+    }
+
+    #[test]
+    fn series_text_sections_split_by_episode_heading() {
+        let sections = parse_series_text_sections(
+            "## 第1集：开场\n\n字幕一\n第二行\n\n## 第 2 集：反转\n\n字幕二\n## 第3段：片段\n字幕三",
+        );
+        assert_eq!(
+            sections,
+            vec![
+                (1, "字幕一\n第二行".to_string()),
+                (2, "字幕二".to_string()),
+                (3, "字幕三".to_string())
+            ]
+        );
+        assert!(parse_series_text_sections("没有标题的文本").is_empty());
+        assert_eq!(series_heading_episode_number("## 第12集"), Some(12));
+        assert_eq!(series_heading_episode_number("## 第一集"), None);
+        assert_eq!(series_heading_episode_number("### 第1集"), None);
+    }
+
+    #[test]
+    fn strip_leading_episode_heading_avoids_duplicate_titles() {
+        assert_eq!(strip_leading_episode_heading("## 第1集：开场\n\n正文"), "正文");
+        assert_eq!(strip_leading_episode_heading("正文"), "正文");
+    }
+
+    #[test]
+    fn group_status_keeps_polling_while_any_episode_runs() {
+        let episodes = vec![episode(1, "failed", 10), episode(2, "transcribing", 35)];
+        let derived = derive_series_group_status(&episodes, false);
+        assert_eq!(derived.status, "transcribing");
+    }
+
+    #[test]
+    fn group_status_reports_failed_episodes_with_retry_step() {
+        let episodes = vec![episode(1, "subtitle_ready", 55), episode(2, "failed", 10)];
+        let derived = derive_series_group_status(&episodes, false);
+        assert_eq!(derived.status, "failed");
+        assert_eq!(derived.current_step, "transcribe");
+        assert!(derived.error_message.unwrap().contains("第2集"));
+    }
+
+    #[test]
+    fn group_status_moves_to_script_ready_once_group_script_exists() {
+        let episodes = vec![episode(1, "subtitle_ready", 55), episode(2, "subtitle_ready", 55)];
+        assert_eq!(derive_series_group_status(&episodes, false).status, "subtitle_ready");
+        assert_eq!(derive_series_group_status(&episodes, true).status, "script_ready");
+        let cancelled = vec![episode(1, "subtitle_ready", 55), episode(2, "cancelled", 10)];
+        assert_eq!(derive_series_group_status(&cancelled, false).status, "cancelled");
+    }
+
+    #[test]
+    fn sql_in_list_quotes_values() {
+        assert_eq!(sql_in_list(&["a", "b'c"]), "'a', 'b''c'");
     }
 }

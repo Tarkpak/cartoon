@@ -14,6 +14,13 @@ import {
   type VideoImportSeriesPreview,
   type VideoImportTask
 } from '@/composables/useVideoImport'
+import {
+  friendlyVideoImportError,
+  isVideoImportRunning,
+  videoImportNextStepHint,
+  videoImportStatusLabel,
+  videoImportStatusVariant
+} from '~/lib/video-import-workflow'
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
@@ -23,6 +30,7 @@ definePageMeta({
 })
 
 const router = useRouter()
+const { confirm } = useConfirm()
 const {
   tasks,
   loading,
@@ -63,8 +71,15 @@ const showBatchActions = ref(false)
 const deletingTaskId = ref<string | null>(null)
 let refreshTimer: number | null = null
 
-const runningStatuses = new Set(['pending', 'extracting', 'transcribing', 'generating_script', 'importing'])
-const hasRunningTasks = computed(() => tasks.value.some(task => runningStatuses.has(task.status)))
+const hasRunningTasks = computed(() => tasks.value.some(task => isVideoImportRunning(task.status)))
+const statusFilters = [
+  { value: 'all', label: '全部' },
+  { value: 'running', label: '进行中' },
+  { value: 'waiting', label: '待校对' },
+  { value: 'imported', label: '已完成' },
+  { value: 'failed', label: '失败' },
+  { value: 'cancelled', label: '已取消' }
+]
 const hasSelection = computed(() => selectedTaskIds.value.size > 0)
 const allTasksSelected = computed(() => tasks.value.length > 0 && selectedTaskIds.value.size === tasks.value.length)
 const failedTasks = computed(() => tasks.value.filter(task => task.status === 'failed' || task.status === 'cancelled'))
@@ -197,7 +212,7 @@ function toggleAllTasks() {
 async function handleDeleteSelected() {
   if (!hasSelection.value) return
   const count = selectedTaskIds.value.size
-  if (!confirm(`确定要删除选中的 ${count} 个任务吗？此操作无法撤销。`)) return
+  if (!(await confirmDelete(`删除选中的 ${count} 个任务？`))) return
   await deleteTasks(Array.from(selectedTaskIds.value))
   selectedTaskIds.value.clear()
   showBatchActions.value = false
@@ -205,7 +220,7 @@ async function handleDeleteSelected() {
 
 async function handleDeleteTask(task: VideoImportTask) {
   if (deletingTaskId.value) return
-  if (!confirm(`确定要删除任务“${task.originalFilename}”吗？此操作无法撤销。`)) return
+  if (!(await confirmDelete(`删除任务「${task.originalFilename}」？`))) return
 
   deletingTaskId.value = task.id
   try {
@@ -218,48 +233,27 @@ async function handleDeleteTask(task: VideoImportTask) {
 
 async function handleDeleteFailed() {
   if (failedTasks.value.length === 0) return
-  if (!confirm(`确定要删除所有失败的任务吗？共 ${failedTasks.value.length} 个任务，此操作无法撤销。`)) return
+  if (!(await confirmDelete(`删除全部 ${failedTasks.value.length} 个失败或已取消的任务？`))) return
   await deleteTasks(failedTasks.value.map(task => task.id))
 }
 
 async function handleDeleteCompleted() {
   if (completedTasks.value.length === 0) return
-  if (!confirm(`确定要删除所有已完成的任务吗？共 ${completedTasks.value.length} 个任务，此操作无法撤销。`)) return
+  if (!(await confirmDelete(`删除全部 ${completedTasks.value.length} 个已完成的任务？`))) return
   await deleteTasks(completedTasks.value.map(task => task.id))
 }
 
-function statusLabel(status: string) {
-  const map: Record<string, string> = {
-    pending: '准备中',
-    extracting: '提取音频中',
-    transcribing: '识别字幕中',
-    subtitle_ready: '请确认字幕',
-    generating_script: '生成剧本中',
-    script_ready: '请确认剧本',
-    importing: '创建项目中',
-    imported: '已完成',
-    failed: '失败',
-    cancelled: '已取消'
-  }
-  return map[status] || status
+function confirmDelete(title: string) {
+  return confirm({
+    title,
+    description: '会删除任务的字幕、剧本和中间文件，已创建的项目不受影响。此操作无法撤销。',
+    confirmText: '删除',
+    variant: 'destructive'
+  })
 }
 
-function statusVariant(status: string) {
-  if (status === 'failed') return 'destructive'
-  if (status === 'imported') return 'default'
-  if (status === 'cancelled') return 'secondary'
-  return 'outline'
-}
-
-function friendlyErrorMessage(message?: string | null) {
-  const raw = message || ''
-  if (/FOREIGN KEY constraint failed/i.test(raw)) {
-    return '创建转换任务失败，任务数据关联异常。请重试；如果仍失败，请删除失败记录后再导入。'
-  }
-  if (/permission denied|denied|operation not permitted/i.test(raw)) {
-    return '无法访问所选文件或文件夹，请检查系统权限后重试。'
-  }
-  return raw
+function taskScriptLabel(task: VideoImportTask) {
+  return task.config?.scriptParseMode === 'origin_explainer' ? '科普脚本' : '剧本'
 }
 
 function formatDateRelative(value?: string | null) {
@@ -295,7 +289,7 @@ function formatSeconds(value?: number | null) {
   <AppPage>
     <AppPageHeader
       title="视频转项目"
-      description="导入单集或整部剧，转换完成后进入详情页确认字幕和剧本"
+      description="导入单集或整部剧：自动识别字幕 → 校对字幕 → 生成并校对剧本 → 创建项目"
     >
       <template #actions>
       <Button
@@ -475,21 +469,17 @@ function formatSeconds(value?: number | null) {
                 转换任务
               </CardTitle>
               <CardDescription>
-                进入详情页确认字幕、生成剧本并创建项目
+                识别和生成都在后台进行，可以同时处理多个任务
               </CardDescription>
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <Input v-model="historySearch" class="h-8 w-48 text-xs" placeholder="搜索文件名" />
-              <Select v-model="historyStatus">
-                <SelectTrigger class="h-8 w-32 text-xs"><SelectValue placeholder="全部状态" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部状态</SelectItem>
-                  <SelectItem value="imported">已完成</SelectItem>
-                  <SelectItem value="failed">失败</SelectItem>
-                  <SelectItem value="cancelled">已取消</SelectItem>
-                  <SelectItem value="subtitle_ready">待确认字幕</SelectItem>
-                </SelectContent>
-              </Select>
+              <SegmentedTabs
+                v-model="historyStatus"
+                :items="statusFilters"
+                size="sm"
+                aria-label="按状态筛选"
+              />
             </div>
             <div class="flex flex-wrap gap-2">
               <Button
@@ -574,22 +564,29 @@ function formatSeconds(value?: number | null) {
                     {{ task.sourceKind === 'folder' ? '文件夹导入' : '单集导入' }}
                   </div>
                   <div
-                    v-if="task.errorMessage"
-                    class="mt-2 rounded bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
+                    v-if="task.errorMessage && ['failed', 'cancelled'].includes(task.status)"
+                    class="mt-2 line-clamp-2 rounded bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
                     :title="task.errorMessage"
                   >
-                    {{ friendlyErrorMessage(task.errorMessage) }}
+                    {{ friendlyVideoImportError(task.errorMessage) }}
+                  </div>
+                  <div
+                    v-else-if="videoImportNextStepHint(task)"
+                    class="mt-1 text-xs"
+                    :class="['subtitle_ready', 'script_ready'].includes(task.status) ? 'font-medium text-warning' : 'text-muted-foreground'"
+                  >
+                    {{ videoImportNextStepHint(task) }}
                   </div>
                 </div>
               </div>
 
               <div class="hidden items-center md:flex">
-                <Badge :variant="statusVariant(task.status)">
-                  {{ statusLabel(task.status) }}
+                <Badge :variant="videoImportStatusVariant(task.status)">
+                  {{ videoImportStatusLabel(task.status, taskScriptLabel(task)) }}
                 </Badge>
               </div>
               <div class="hidden items-center gap-2 md:flex">
-                <Progress :model-value="task.progress" class="h-1.5" />
+                <Progress :model-value="task.progress" class="h-1.5" :class="task.status === 'failed' ? 'bg-destructive/20' : ''" />
                 <span class="w-9 text-right text-xs text-muted-foreground">{{ task.progress }}%</span>
               </div>
               <div class="hidden items-center text-xs text-muted-foreground md:flex">
@@ -597,8 +594,8 @@ function formatSeconds(value?: number | null) {
               </div>
 
               <div class="flex flex-col items-end gap-2 md:hidden">
-                <Badge :variant="statusVariant(task.status)">
-                  {{ statusLabel(task.status) }}
+                <Badge :variant="videoImportStatusVariant(task.status)">
+                  {{ videoImportStatusLabel(task.status, taskScriptLabel(task)) }}
                 </Badge>
                 <span class="text-xs text-muted-foreground">{{ task.progress }}%</span>
               </div>

@@ -1,4 +1,5 @@
 import type { RouteLocationRaw } from 'vue-router'
+import { VIDEO_IMPORT_RUNNING_STATUSES } from './video-import-workflow'
 
 /** Background jobs started from tools pages, merged into one list. */
 export type GlobalTaskSource = 'video-enhance' | 'image-enhance' | 'subtitle-erasure' | 'video-import'
@@ -48,7 +49,6 @@ interface VideoImportTaskLike {
   seriesId?: string | null
 }
 
-const VIDEO_IMPORT_RUNNING = new Set(['pending', 'extracting', 'transcribing', 'generating_script', 'importing'])
 const VIDEO_IMPORT_FAILED = new Set(['failed', 'cancelled'])
 
 function normalizeProgress(value: number | null | undefined): number | undefined {
@@ -90,7 +90,7 @@ export function normalizeVideoImportTasks(tasks: VideoImportTaskLike[]): GlobalT
   return tasks.flatMap((task) => {
     // Episodes of a series are reported through their group row.
     if (task.seriesId && !task.isSeriesGroup) return []
-    const status: GlobalTaskStatus | null = VIDEO_IMPORT_RUNNING.has(task.status)
+    const status: GlobalTaskStatus | null = VIDEO_IMPORT_RUNNING_STATUSES.has(task.status)
       ? 'running'
       : VIDEO_IMPORT_FAILED.has(task.status)
         ? 'failed'

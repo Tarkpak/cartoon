@@ -1,599 +1,112 @@
-# 视频转项目功能实现方案
+# 视频转项目
 
-## 方案概述
-
-将 `recognize-video` 的能力沉淀为 Playlet 主项目的原生”视频转项目”模块，形成完整闭环：
+把现有短剧视频（单集文件或整部剧文件夹）转换成资产工作台项目：
 
 ```text
-视频输入 -> 提取音频 -> Bcut ASR 识别 -> 字幕编辑 -> AI 生成可解析剧本 -> 创建项目 -> 生成新视频
+视频 -> 识别字幕 -> 校对字幕 -> 生成并校对剧本 -> 创建项目 -> 资产工作台
 ```
 
-`recognize-video` 作为已验证的原型和实现参考，不作为主项目运行时依赖。主项目内使用 Rust 后端原生实现任务编排、媒体处理、ASR 调用、剧本生成和项目创建，避免桌面打包时依赖 Bun 子进程、Node 模块路径和额外运行时。
+全部在 Rust 后端原生实现（`src-tauri/src/backend/video_import.rs`），不依赖外部 CLI。字幕识别使用 Bcut ASR，剧本生成和解析复用工作流文本模型配置与 `/api/script/parse` 的内部实现。
 
-核心价值：
+## 设计原则
 
-- 从现有短剧视频快速提取字幕和剧本草稿。
-- 让用户在转换前编辑字幕和剧本，降低 ASR 与模型误差。
-- 复用现有模型配置、脚本解析和资产工作台能力。
-- 形成”分析现有视频 -> 结构化剧本 -> 项目创作 -> 生成新视频”的闭环。
+1. **耗时步骤一律后台执行**：识别、生成剧本、解析建项目都在后台作业中运行，接口只做校验和状态认领后立即返回，前端轮询任务详情。关闭页面不会中断任务。
+2. **两个人工确认点**：`subtitle_ready`（校对字幕）和 `script_ready`（校对剧本）。模型输出不直接进项目。
+3. **任何失败都能从原步骤继续**：失败或取消时保留所在步骤（`current_step`），已完成步骤的产物都保留，重试从中断处开始。
+4. **操作幂等、不并发**：每个任务同一时刻最多一个后台作业；状态迁移都是带条件的原子更新；同一任务只会创建一个项目。
 
-## 实现原则
-
-1. 主项目原生实现，不在生产流程中调用 `recognize-video` CLI。
-2. 当前默认 ASR 使用可用的 Bcut ASR 链路，并保留 provider 抽象，后续可接火山引擎、Qwen 等 ASR。
-3. 不在本方案中承诺性能指标，先保证流程可靠、状态可恢复、数据可审计。
-4. 剧本创建项目前不直接信任生成文本，必须经过用户确认和现有脚本解析流程。
-5. 前端路由、组件和 API 命名贴合现有项目结构，转换成功后进入现有资产工作台或项目详情。
-
-## 系统架构
+## 状态机
 
 ```text
-Vue 前端
-  app/pages/import/video.vue
-  app/components/video-import/
-  app/composables/useVideoImport.ts
-
-        HTTP / SSE 或 WebSocket
-
-Rust 后端 (Axum + Tokio)
-  src-tauri/src/backend/video_import/
-    mod.rs
-    task_service.rs
-    media_processor.rs
-    asr/
-      mod.rs
-      bcut.rs
-      types.rs
-    script_generator.rs
-    import_service.rs
-
-        本地文件 / SQLite / 外部服务
-
-ffmpeg
-Bcut ASR
-现有文本模型 provider 配置
-现有 /api/script/parse 能力
-现有项目与资产工作台数据结构
+pending -> extracting -> transcribing -> subtitle_ready
+        -> generating_script -> script_ready
+        -> importing -> imported
+任意运行态 -> failed | cancelled（保留 current_step）
+failed | cancelled -> 从 current_step 对应的步骤重试
 ```
 
-模块职责：
-
-- `task_service.rs`：任务创建、状态流转、重试、取消、事件推送。
-- `media_processor.rs`：调用 ffmpeg 提取音频，检查输入文件和输出 artifact。
-- `asr/bcut.rs`：实现 Bcut ASR 上传、创建任务、轮询结果、格式化字幕。
-- `script_generator.rs`：基于字幕生成“可被现有脚本解析器消费”的剧本文本。
-- `import_service.rs`：调用或复用现有脚本解析逻辑，生成项目草稿并关联转换任务。
-
-## 数据模型
-
-### video_import_tasks
-
-记录用户一次视频转项目任务的主状态。
-
-```sql
-CREATE TABLE video_import_tasks (
-  id TEXT PRIMARY KEY,
-  original_filename TEXT NOT NULL,
-  source_kind TEXT NOT NULL DEFAULT 'upload',
-  source_path TEXT NOT NULL,
-
-  status TEXT NOT NULL DEFAULT 'pending',
-  current_step TEXT NOT NULL DEFAULT 'created',
-  progress INTEGER NOT NULL DEFAULT 0,
-  error_message TEXT,
-
-  asr_provider TEXT NOT NULL DEFAULT 'bcut',
-  script_model_id TEXT,
-  config_json TEXT NOT NULL DEFAULT '{}',
-  metadata_json TEXT NOT NULL DEFAULT '{}',
-
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  started_at TEXT,
-  completed_at TEXT,
-  cancelled_at TEXT
-);
-
-CREATE INDEX idx_video_import_tasks_status ON video_import_tasks(status);
-CREATE INDEX idx_video_import_tasks_created ON video_import_tasks(created_at);
-CREATE INDEX idx_video_import_tasks_updated ON video_import_tasks(updated_at);
-```
-
-建议状态：
-
-```text
-pending -> extracting -> transcribing -> subtitle_ready -> generating_script -> script_ready -> importing -> imported
-       \-> failed
-       \-> cancelled
-```
-
-`subtitle_ready` 和 `script_ready` 是有意保留的人工确认节点。用户可以编辑字幕或剧本后继续下一步。
-
-### video_import_artifacts
-
-记录每一步产生的文件和可审计内容。
-
-```sql
-CREATE TABLE video_import_artifacts (
-  id TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  path TEXT NOT NULL,
-  mime_type TEXT,
-  size_bytes INTEGER,
-  sha256 TEXT,
-  metadata_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL,
-  FOREIGN KEY (task_id) REFERENCES video_import_tasks(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_video_import_artifacts_task ON video_import_artifacts(task_id);
-CREATE INDEX idx_video_import_artifacts_kind ON video_import_artifacts(kind);
-```
-
-`kind` 建议值：
-
-```text
-source_video
-extracted_audio
-asr_raw_json
-subtitle_txt
-subtitle_srt
-script_draft
-script_edited
-parse_result
-queue_report
-log
-```
-
-### video_import_step_runs
-
-记录步骤执行历史，支持重试和问题排查。
-
-```sql
-CREATE TABLE video_import_step_runs (
-  id TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL,
-  step TEXT NOT NULL,
-  attempt INTEGER NOT NULL DEFAULT 1,
-  status TEXT NOT NULL,
-  started_at TEXT NOT NULL,
-  ended_at TEXT,
-  duration_ms INTEGER,
-  provider TEXT,
-  external_task_id TEXT,
-  error_message TEXT,
-  metadata_json TEXT NOT NULL DEFAULT '{}',
-  FOREIGN KEY (task_id) REFERENCES video_import_tasks(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_video_import_step_runs_task ON video_import_step_runs(task_id);
-CREATE INDEX idx_video_import_step_runs_step ON video_import_step_runs(step);
-```
-
-### video_import_projects
-
-记录转换任务与主项目的关系。
-
-```sql
-CREATE TABLE video_import_projects (
-  import_id TEXT NOT NULL,
-  project_id TEXT NOT NULL,
-  imported_at TEXT NOT NULL,
-  metadata_json TEXT NOT NULL DEFAULT '{}',
-  FOREIGN KEY (import_id) REFERENCES video_import_tasks(id) ON DELETE CASCADE,
-  PRIMARY KEY (import_id, project_id)
-);
-```
-
-## 数据流转
-
-### 1. 创建任务
-
-```text
-用户上传/选择视频
-  -> POST /api/import/video/upload
-  -> 保存 source_video artifact
-  -> 创建 video_import_tasks
-  -> 后台进入 extracting
-```
-
-首版只做普通上传或本地路径选择，不做断点续传。断点续传可在批量和大文件稳定后再补。
-
-### 2. 提取音频
-
-```text
-extracting
-  -> ffmpeg 提取 16kHz mono 音频
-  -> 保存 extracted_audio artifact
-  -> 写入 step run
-  -> 进入 transcribing
-```
-
-ffmpeg 路径优先复用现有桌面 ffmpeg 能力；找不到时返回明确错误，引导用户安装或配置。
-
-### 3. Bcut ASR
-
-```text
-transcribing
-  -> 上传音频到 Bcut ASR
-  -> 创建外部 ASR task
-  -> 轮询结果
-  -> 保存 asr_raw_json / subtitle_txt / subtitle_srt
-  -> 进入 subtitle_ready
-```
-
-Bcut ASR 是当前默认 provider。后端接口内部使用统一抽象：
-
-```rust
-pub trait AsrProvider {
-    async fn transcribe(&self, input: AsrInput) -> Result<AsrOutput, ApiError>;
-}
-```
-
-`AsrOutput` 至少包含：
-
-- 原始响应 JSON。
-- 分段文本和时间戳。
-- 纯文本字幕。
-- SRT 字幕。
-- 外部任务 ID。
-
-### 4. 字幕确认与编辑
-
-```text
-subtitle_ready
-  -> 前端展示字幕 TXT/SRT
-  -> 用户可编辑纯文本字幕
-  -> POST /api/import/video/tasks/:id/subtitle
-  -> 保存 subtitle_txt artifact 新版本
-```
-
-首版重点支持纯文本编辑；SRT 可展示和下载，不要求复杂时间轴编辑。
-
-### 5. 生成可解析剧本
-
-```text
-用户点击生成剧本
-  -> POST /api/import/video/tasks/:id/generate-script
-  -> 使用现有文本模型配置
-  -> 生成适合 /api/script/parse 的剧本文本
-  -> 保存 script_draft artifact
-  -> 进入 script_ready
-```
-
-生成提示词目标不是最终文学剧本，而是”结构清晰、能被现有脚本解析器稳定解析”的输入稿。建议输出包含：
-
-- 剧名或转换任务标题。
-- 角色列表。
-- 场景划分。
-- 每场剧情描述。
-- 对白。
-- 可选镜头/情绪/环境信息。
-
-### 6. 剧本确认与创建项目
-
-```text
-script_ready
-  -> 前端展示剧本草稿
-  -> 用户可编辑
-  -> POST /api/import/video/tasks/:id/import
-  -> 保存 script_edited artifact
-  -> 调用/复用现有脚本解析逻辑
-  -> 生成项目草稿
-  -> 创建项目关联
-  -> 跳转 /projects/:id 或 /asset-workbench?projectId=...
-```
-
-转换阶段必须提供解析预览。如果脚本解析结果缺少角色、场景或关键信息，前端应提示用户回到剧本编辑，而不是直接创建质量很差的项目。
-
-## API 设计
-
-### 上传视频并创建任务
-
-```http
-POST /api/import/video/upload
-Content-Type: multipart/form-data
-```
-
-Body：
-
-```text
-video: File
-config: JSON
-```
-
-Response：
-
-```json
-{
-  "success": true,
-  "data": {
-    "taskId": "task_xxx"
-  }
-}
-```
-
-### 查询任务列表
-
-```http
-GET /api/import/video/tasks?status=subtitle_ready&limit=20&offset=0
-```
-
-### 查询任务详情
-
-```http
-GET /api/import/video/tasks/:id
-```
-
-返回任务、artifact 列表、最近 step runs 和可展示的当前字幕/剧本摘要。
-
-### 更新字幕
-
-```http
-PUT /api/import/video/tasks/:id/subtitle
-Content-Type: application/json
-```
-
-```json
-{
-  "text": "编辑后的字幕文本"
-}
-```
-
-### 生成剧本
-
-```http
-POST /api/import/video/tasks/:id/generate-script
-```
-
-### 更新剧本
-
-```http
-PUT /api/import/video/tasks/:id/script
-Content-Type: application/json
-```
-
-```json
-{
-  "script": "编辑后的剧本文本"
-}
-```
-
-### 创建为项目
-
-```http
-POST /api/import/video/tasks/:id/import
-```
-
-Response：
-
-```json
-{
-  "success": true,
-  "data": {
-    "projectId": "proj_xxx",
-    "redirectUrl": "/projects/proj_xxx"
-  }
-}
-```
-
-### 重试任务
-
-```http
-POST /api/import/video/tasks/:id/retry
-Content-Type: application/json
-```
-
-```json
-{
-  "fromStep": "transcribe"
-}
-```
-
-允许的 `fromStep`：
-
-```text
-extract
-transcribe
-generate_script
-import
-```
-
-### 取消任务
-
-```http
-POST /api/import/video/tasks/:id/cancel
-```
-
-### 事件订阅
-
-优先使用 SSE，协议简单，足够覆盖任务进度推送：
-
-```http
-GET /api/import/video/events
-```
-
-事件类型：
-
-```text
-task.created
-task.updated
-task.failed
-task.cancelled
-task.imported
-```
-
-如果后续需要双向交互，再升级 WebSocket。
-
-## 前端设计
-
-页面：
-
-```text
-app/pages/import/video.vue
-```
-
-组件：
-
-```text
-app/components/video-import/VideoUploadZone.vue
-app/components/video-import/VideoImportTaskList.vue
-app/components/video-import/VideoImportTaskDetail.vue
-app/components/video-import/SubtitleEditor.vue
-app/components/video-import/ScriptEditor.vue
-app/components/video-import/ImportPreview.vue
-```
-
-Composable：
-
-```typescript
-// app/composables/useVideoImport.ts
-export function useVideoImport() {
-  const tasks = ref<VideoImportTask[]>([])
-  const activeTask = ref<VideoImportTaskDetail | null>(null)
-
-  async function uploadVideo(file: File, config: VideoImportConfig)
-  async function fetchTasks()
-  async function fetchTask(taskId: string)
-  async function updateSubtitle(taskId: string, text: string)
-  async function generateScript(taskId: string)
-  async function updateScript(taskId: string, script: string)
-  async function importToProject(taskId: string)
-  async function retryTask(taskId: string, fromStep: VideoImportRetryStep)
-  async function cancelTask(taskId: string)
-  function subscribeEvents()
-
-  return {
-    tasks,
-    activeTask,
-    uploadVideo,
-    fetchTasks,
-    fetchTask,
-    updateSubtitle,
-    generateScript,
-    updateScript,
-    importToProject,
-    retryTask,
-    cancelTask,
-    subscribeEvents,
-  }
-}
-```
-
-交互流程：
-
-1. 用户进入”视频转项目”页面，上传视频。
-2. 任务卡片显示提取音频、ASR、字幕确认、剧本生成、创建项目状态。
-3. ASR 完成后进入字幕编辑视图。
-4. 用户确认字幕后生成剧本。
-5. 用户确认剧本后预览解析结果。
-6. 用户确认创建，生成项目并跳转到 `/projects/:id` 或资产工作台。
-
-## 与现有能力的复用点
-
-- 模型选择：复用现有 workflow text model 配置，不单独维护转换功能的模型配置。
-- 提示词：新增”视频转项目剧本生成”提示词模板，纳入现有提示词管理。
-- 脚本解析：转换阶段复用现有 `/api/script/parse` 或其内部函数。
-- 项目创建：复用现有项目创建、序列化和资产工作台数据结构。
-- 文件服务：复用现有本地 public 文件服务和 TOS 上传能力，首版优先本地。
-- 日志：复用现有模型日志/应用日志，避免新增一套不可检索日志体系。
-
-## 安全与稳定性
-
-文件上传：
-
-- 限制视频类型：`mp4`、`mov`、`mkv`、`avi`、`webm`。
-- 限制文件大小，默认配置可调。
-- 所有落盘路径由后端生成，禁止信任用户文件名作为路径。
-- 保存原文件名仅用于展示。
-
-ASR 与模型调用：
-
-- 不在日志中输出完整请求凭证。
-- 外部 task id 可记录，方便排查。
-- ASR 原始响应保存为 artifact，便于重跑格式化逻辑。
-
-任务恢复：
-
-- 每个步骤写入 `video_import_step_runs`。
-- 已存在 artifact 且 hash 匹配时可跳过重复步骤。
-- 重试从指定步骤开始，并保留旧 artifact。
-
-清理策略：
-
-- 提供后台清理命令或 API，按任务状态和创建时间清理临时文件。
-- 已导入项目的 source video/audio 可配置保留或删除。
-
-## 实施计划
-
-### Phase 1：任务与媒体基础
-
-- 新增数据库表和 schema 初始化。
-- 新增 `video_import` Rust 模块。
-- 实现视频上传、任务创建、任务列表和任务详情。
-- 实现 ffmpeg 音频提取和 artifact 记录。
-- 前端完成上传区、任务列表、任务详情基础 UI。
-
-验收：上传视频后可创建任务，提取音频成功，任务状态和 artifact 可查询。
-
-### Phase 2：Bcut ASR 与字幕确认
-
-- 实现 Bcut ASR provider。
-- 保存原始 ASR JSON、TXT、SRT artifact。
-- 实现字幕编辑和保存。
-- 实现任务事件推送。
-
-验收：视频可自动进入 `subtitle_ready`，用户可以查看和编辑字幕。
-
-### Phase 3：剧本生成与编辑
-
-- 新增视频转项目剧本生成提示词模板。
-- 复用现有文本模型配置生成剧本草稿。
-- 实现剧本编辑和版本 artifact 保存。
-- 增加失败重试和错误展示。
-
-验收：用户确认字幕后可生成可编辑剧本，失败后可从剧本生成步骤重试。
-
-### Phase 4：创建项目
-
-- 复用现有脚本解析逻辑生成结构化结果。
-- 前端展示解析预览。
-- 用户确认后创建项目并写入 `video_import_projects`。
-- 转换成功后跳转项目详情或资产工作台。
-
-验收：用户可以从视频生成一个可继续编辑和生成资产的项目。
-
-### Phase 5：批量与维护能力
-
-- 支持批量上传和队列顺序处理。
-- 支持任务取消、清理历史、按状态筛选。
-- 补齐单元测试和关键集成测试。
-- 文档补充使用说明和故障排查。
-
-验收：多个视频可稳定排队处理，失败任务可定位原因并重试。
-
-## 验收标准
-
-功能完整性：
-
-- 支持视频上传和任务管理。
-- 支持 ffmpeg 提取音频。
-- 支持 Bcut ASR 生成字幕。
-- 支持字幕编辑。
-- 支持 AI 生成可解析剧本。
-- 支持剧本编辑。
-- 支持预览解析结果并创建为项目。
-- 支持失败重试和任务取消。
-
-代码质量：
-
-- Rust 后端核心逻辑有单元测试。
-- 前端 composable 和关键编辑逻辑有 Vitest 覆盖。
-- API 错误返回结构统一。
-- 不引入 Bun CLI 作为主项目运行时依赖。
-
-## 相关参考
-
-- `recognize-video` 历史原型已迁移为主项目原生实现，原型目录不再作为运行时或源码依赖保留。
-- [主项目架构说明](../CLAUDE.md)
+| 状态 | current_step | 含义 |
+| --- | --- | --- |
+| `pending` | `queued` | 排队等待识别（同时最多 2 个识别作业） |
+| `extracting` | `copy_source` / `extract` | 准备源视频 / ffmpeg 抽取 16kHz 单声道音频 |
+| `transcribing` | `transcribe` | Bcut ASR（全局最多 2 个并发） |
+| `subtitle_ready` | `subtitle_ready` | 等待校对字幕 |
+| `generating_script` | `generate_script` | 生成剧本 |
+| `script_ready` | `script_ready` | 等待校对剧本 |
+| `importing` | `import` | 解析剧本并创建项目 |
+| `imported` | `imported` | 完成，`video_import_projects` 记录项目 ID |
+
+剧集组任务（`is_series_group = 1`）在识别阶段的状态由分集推导：有分集在识别时显示 `transcribing`，全部完成后为 `subtitle_ready`，有失败分集时为 `failed`（`current_step = transcribe`，重试只重跑失败或取消的分集）。生成剧本、创建项目、取消这三个阶段由组任务自己维护。
+
+### 启动恢复
+
+应用启动时（`resume_video_import_tasks`）：
+
+- 处于识别阶段的任务自动重新排队续跑，已抽取的音频会复用。
+- 处于 `generating_script` / `importing` 的任务标记为失败（“应用退出导致处理中断，请重试”），由用户决定是否重试，避免意外重复消耗模型调用。
+- 所有未结束的 step run 关闭为失败。
+
+### 取消
+
+取消会直接中止正在运行的后台作业（不只是在步骤之间检查），并清理创建到一半的空项目。剧集取消只影响正在运行的分集，已识别完成的分集不受影响。
+
+## 各步骤要点
+
+**创建任务**
+- 单集：`POST /api/import/video/upload`，上传时流式写盘并计算哈希。
+- 整部剧：`POST /api/import/video/preview-series` 预检文件夹（集数、时长，多数视频短于 60 秒时推荐“连续片段”模式），`POST /api/import/video/upload-series` 在一个事务里创建组任务和分集任务。源视频在后台作业中硬链接（跨盘时复制）到任务目录，请求本身不做文件复制。
+
+**校对字幕**
+- 单集直接保存新版本字幕。
+- 剧集展示为按 `## 第N集：标题` 拼接的整体字幕，保存时按标题拆回各分集，只给内容有变化的分集写新版本。
+
+**生成剧本**
+- `POST /tasks/:id/generate-script`，body `{ force?: boolean }`，默认 `true`。
+- 单集：一次生成。
+- 剧集（按集）：先用完整字幕生成全局剧情档案（角色编号、称呼、主线），再并发（3 路）逐集生成，每集生成完立即落盘。`force = true` 时全部重新生成，保证各集共用同一份档案；失败后重试（`force = false`）复用已生成的分集。
+- 剧集（连续片段）：按字数和集数切块，每块附带相邻块的边界字幕，校验每块输出包含预期的全部片段。
+- 每次生成都产生新的产物文件，历史版本保留。读取时剧本草稿和编辑稿按时间取最新，重新生成不会被旧编辑稿挡住。
+- 字幕在剧本生成后又被修改时，详情接口返回 `scriptOutdated: true`，界面提示重新生成。
+
+**创建项目**
+- `POST /tasks/:id/import`，body `{ projectTitle?, styleId?, aspectRatio?, scriptParseMode? }`。选项会写回任务配置，失败重试沿用。
+- 在创建项目前先准备好每一集的解析输入（剧集按集号匹配剧本段落，缺内容时直接报错）。
+- 每个解析单元（单集或剧集的每一集）的解析结果按「剧本内容 + 解析模式 + 画风 + 分集计划」的哈希缓存在任务目录；重试时已解析的集直接复用，并发 3 路解析其余部分。
+- 解析结果没有场景时报错，提示编辑剧本后重试。
+- 失败或取消时删除本次创建的空项目。已导入的任务再次调用直接返回已有项目。
+- 没有单独的“解析预览”步骤：解析依赖项目权限，且解析结果需要在资产工作台中继续编辑，因此项目创建完成后直接进入工作台检查和修改。
+
+## API
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/import/video/upload` | 上传单集（multipart：`video`、`config`） |
+| POST | `/api/import/video/preview-series` | 预检剧集文件夹 |
+| POST | `/api/import/video/upload-series` | 导入剧集文件夹 |
+| GET | `/api/import/video/tasks` | 任务列表，`status` 支持具体状态，以及 `running`（全部运行态）、`waiting`（待校对） |
+| GET | `/api/import/video/tasks/:id` | 任务详情：任务、分集、字幕、剧本、`scriptOutdated`、`projectId`、`jobRunning`、step runs、产物 |
+| PUT | `/api/import/video/tasks/:id/subtitle` | 保存字幕，返回 `updatedEpisodes` |
+| PUT | `/api/import/video/tasks/:id/script` | 保存剧本（失败/取消后保存剧本会回到 `script_ready`） |
+| POST | `/api/import/video/tasks/:id/generate-script` | 后台生成剧本 |
+| POST | `/api/import/video/tasks/:id/import` | 后台创建项目 |
+| POST | `/api/import/video/tasks/:id/retry` | `fromStep`：`extract` / `transcribe` / `generate_script` / `import` |
+| POST | `/api/import/video/tasks/:id/cancel` | 取消运行中的步骤 |
+| DELETE | `/api/import/video/tasks/:id` | 删除任务（剧集连同分集），已创建的项目不受影响 |
+| POST | `/api/import/video/tasks/batch-delete` | 批量删除 |
+
+状态不允许时返回 409，并在消息中说明当前状态。
+
+## 数据
+
+- `video_import_tasks`：任务主状态，`config_json` 存导入选项，`metadata_json` 存 `originalPath`（剧集源文件）和 `pendingProjectId`（创建中的项目，用于失败清理）。
+- `video_import_artifacts`：每一步的产物（源视频、音频、ASR 原始结果、字幕 TXT/SRT、剧本草稿/编辑稿、解析结果），带大小和 SHA-256。
+- `video_import_step_runs`：每一步的执行记录，含重试次数、耗时、外部任务 ID、错误信息。
+- `video_import_projects`：任务与项目的关联。
+
+## 前端
+
+- `app/lib/video-import-workflow.ts`：状态文案、阶段推导、恢复动作、可执行操作（`resolveVideoImportActions`）等纯函数，页面只读取推导结果。
+- `app/composables/useVideoImport.ts`：接口调用。
+- `app/pages/import/video.vue`：导入入口与任务列表（按进行中 / 待校对 / 已完成 / 失败 / 已取消筛选，每行显示下一步提示）。
+- `app/pages/import/video-detail.vue`：四步进度条、状态横幅（进度 / 失败原因与继续按钮 / 打开项目 / 字幕变更提示）、剧集分集栏（含单集重试）、字幕与剧本编辑器、执行记录。运行中每 2 秒轮询；轮询不会覆盖未保存的修改，离开页面前提示未保存内容；在本页发起创建项目时，完成后自动跳转到项目。
+- 组件位于 `app/components/video-import/`。

@@ -238,6 +238,9 @@ declare global {
   export type { CompatibleModel, WorkflowConfig, WorkflowData, WorkflowCategoryKey, WorkflowCategoryMeta, WorkflowCategorySummary } from './app/composables/useSettingsWorkflowModels'
   import('./app/composables/useSettingsWorkflowModels')
   // @ts-ignore
+  export type { ThemePreference } from './app/composables/useTheme'
+  import('./app/composables/useTheme')
+  // @ts-ignore
   export type { ToastVariant, ToastItem, ToastOptions } from './app/composables/useToast'
   import('./app/composables/useToast')
   // @ts-ignore

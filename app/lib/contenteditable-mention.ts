@@ -49,6 +49,10 @@ const DEFAULT_INVALID_QUERY_PATTERN = /[\s\r\n]/
 const DEFAULT_INVALID_PREFIX_PATTERN = /[a-zA-Z0-9_]/
 const DEFAULT_TRIGGER_CHARS = ['@', '＠']
 
+function isLineBlockElement(element: HTMLElement) {
+  return element.tagName === 'DIV' || element.tagName === 'P'
+}
+
 function resolveMentionToken(element: HTMLElement, mentionDatasetKeys: string[]) {
   for (const key of mentionDatasetKeys) {
     const token = element.dataset?.[key]
@@ -81,7 +85,7 @@ export function serializeContentEditableNode(
     .map(child => serializeContentEditableNode(child, options))
     .join('')
 
-  if (element.tagName === 'DIV' || element.tagName === 'P') {
+  if (isLineBlockElement(element)) {
     return `${text}\n`
   }
 
@@ -128,6 +132,11 @@ export function collectContentEditableCaretSegments(
         continue
       }
 
+      if (element.tagName === 'BR') {
+        offset += 1
+        continue
+      }
+
       const nested = collectContentEditableCaretSegments(
         Array.from(node.childNodes),
         options,
@@ -135,6 +144,8 @@ export function collectContentEditableCaretSegments(
       )
       segments.push(...nested.segments)
       offset = nested.end
+      // Block wrappers serialize with a trailing newline; keep offsets aligned.
+      if (isLineBlockElement(element)) offset += 1
       continue
     }
 
@@ -169,9 +180,20 @@ export function readContentEditableEditorState(options: ReadContentEditableEdito
   preRange.setEnd(range.endContainer, range.endOffset)
   const fragment = preRange.cloneContents()
 
+  // A partially selected <div>/<p> is cloned and serialized with its trailing
+  // "\n", although that newline lies after the caret. WebKit wraps lines in
+  // <div> after Enter, so without this correction the caret lands one char
+  // too far per wrapper (e.g. "@\n" → mention popover never opens).
+  let trailingBlockNewlines = 0
+  for (let current: Node | null = range.endContainer; current && current !== editor; current = current.parentNode) {
+    if (current.nodeType === Node.ELEMENT_NODE && isLineBlockElement(current as HTMLElement)) {
+      trailingBlockNewlines += 1
+    }
+  }
+
   return {
     text,
-    caret: options.serializeNodes(fragment.childNodes).length
+    caret: Math.max(0, options.serializeNodes(fragment.childNodes).length - trailingBlockNewlines)
   }
 }
 
