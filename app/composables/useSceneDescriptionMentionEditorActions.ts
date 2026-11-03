@@ -9,8 +9,11 @@ import {
   normalizeSceneDescriptionCharacterMentions,
   uniqueValues
 } from '~/lib/scene-edit-dialog'
+import type { MentionPopoverPosition } from '~/lib/contenteditable-mention'
 import {
+  getContentEditableCaretRect,
   readContentEditableEditorState,
+  resolveMentionPopoverPosition,
   renderContentEditableTextWithMatches,
   scrollMentionActiveItemIntoView,
   setContentEditableEditorCaret
@@ -31,6 +34,7 @@ interface UseSceneDescriptionMentionEditorActionsOptions {
   sceneDescriptionMentionQuery: Ref<string>
   sceneDescriptionMentionStart: Ref<number | null>
   sceneDescriptionMentionActiveIndex: Ref<number>
+  sceneDescriptionMentionPosition: Ref<MentionPopoverPosition | null>
   sceneDescriptionComposing: Ref<boolean>
   sceneDescriptionSupportsMention: ComputedRef<boolean>
   sceneAssetMentionCandidatesSource: ComputedRef<AssetMentionCandidate[]>
@@ -60,6 +64,50 @@ export function useSceneDescriptionMentionEditorActions(
     options.sceneDescriptionMentionQuery.value = ''
     options.sceneDescriptionMentionStart.value = null
     options.sceneDescriptionMentionActiveIndex.value = 0
+    options.sceneDescriptionMentionPosition.value = null
+  }
+
+  function findScrollParent(element: HTMLElement): HTMLElement | null {
+    let current = element.parentElement
+    while (current) {
+      const overflowY = window.getComputedStyle(current).overflowY
+      if (overflowY === 'auto' || overflowY === 'scroll') return current
+      current = current.parentElement
+    }
+    return null
+  }
+
+  function updateSceneDescriptionMentionPosition() {
+    const editor = options.sceneDescriptionEditorRef.value
+    const container = editor?.parentElement
+    if (!editor || !container) return
+
+    const containerRect = container.getBoundingClientRect()
+    const editorRect = editor.getBoundingClientRect()
+    const caret = getContentEditableCaretRect(editor) || {
+      top: editorRect.top,
+      bottom: editorRect.top + 24,
+      left: editorRect.left + 12,
+      right: editorRect.left + 12
+    }
+    const scrollParent = findScrollParent(container)
+    const scrollRect = scrollParent?.getBoundingClientRect()
+    const viewport = {
+      top: Math.max(0, scrollRect?.top ?? 0),
+      bottom: Math.min(window.innerHeight, scrollRect?.bottom ?? window.innerHeight)
+    }
+
+    options.sceneDescriptionMentionPosition.value = resolveMentionPopoverPosition({
+      caret,
+      container: containerRect,
+      viewport,
+      popoverWidth: Math.min(320, containerRect.width),
+      popoverHeight: 300
+    })
+  }
+
+  function setSceneDescriptionMentionActiveIndex(index: number) {
+    options.sceneDescriptionMentionActiveIndex.value = index
   }
 
   function syncSceneDescriptionMentionActiveItemIntoView() {
@@ -163,6 +211,7 @@ export function useSceneDescriptionMentionEditorActions(
     options.sceneDescriptionMentionStart.value = mentionState.start
     options.sceneDescriptionMentionQuery.value = mentionState.query
     options.sceneDescriptionMentionOpen.value = true
+    updateSceneDescriptionMentionPosition()
     if (options.sceneDescriptionMentionActiveIndex.value >= options.sceneDescriptionMentionCandidates.value.length) {
       options.sceneDescriptionMentionActiveIndex.value = 0
     }
@@ -318,6 +367,7 @@ export function useSceneDescriptionMentionEditorActions(
 
   return {
     closeSceneDescriptionMention,
+    setSceneDescriptionMentionActiveIndex,
     renderSceneDescriptionEditor,
     syncSceneDescriptionFromEditor,
     insertSceneAssetMention,

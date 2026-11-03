@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Loader2, Upload } from 'lucide-vue-next'
 import type { ComponentPublicInstance } from 'vue'
+import type { MentionPopoverPosition } from '~/lib/contenteditable-mention'
 import { toImageSrc } from '~/lib/media'
 import type {
   AssetMentionCandidate,
@@ -56,6 +57,8 @@ defineProps<{
   sceneDescriptionMentionOpen: boolean
   sceneDescriptionMentionActiveIndex: number
   sceneDescriptionMentionCandidates: AssetMentionCandidate[]
+  sceneDescriptionMentionPosition?: MentionPopoverPosition | null
+  setSceneDescriptionMentionActiveIndex?: (index: number) => void
   sceneAssetUploading?: boolean
   sceneAssetUploadError?: string | null
   setSceneDescriptionEditorRef: (element: Element | ComponentPublicInstance | null) => void
@@ -130,62 +133,80 @@ defineProps<{
           >
             直接写完整场景描述，例如：场景功能/情绪定位、镜头设计（含 0-3秒：...）、声音设计、台词节奏、表演关键点
           </p>
+
+          <div
+            v-if="sceneDescriptionMentionOpen"
+            class="absolute z-50 flex w-80 max-w-full flex-col overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-[0_16px_48px_hsl(var(--foreground)/0.16)] animate-in fade-in-0 zoom-in-95"
+            :class="sceneDescriptionMentionPosition?.placement === 'top' ? 'origin-bottom-left' : 'origin-top-left'"
+            :style="sceneDescriptionMentionPosition?.placement === 'top'
+              ? { left: `${sceneDescriptionMentionPosition.left}px`, bottom: `calc(100% - ${sceneDescriptionMentionPosition.top}px)` }
+              : { left: `${sceneDescriptionMentionPosition?.left ?? 0}px`, top: `${sceneDescriptionMentionPosition?.top ?? 0}px` }"
+            @mousedown.prevent
+          >
+            <div class="flex items-center justify-between border-b px-3 py-1.5 text-[11px] text-muted-foreground">
+              <span>引用资产</span>
+              <span class="flex items-center gap-1">
+                <kbd class="rounded border bg-muted px-1 font-sans">↑↓</kbd>选择
+                <kbd class="ml-1 rounded border bg-muted px-1 font-sans">↵</kbd>插入
+                <kbd class="ml-1 rounded border bg-muted px-1 font-sans">Esc</kbd>关闭
+              </span>
+            </div>
+            <div
+              :ref="setSceneDescriptionMentionListRef"
+              class="max-h-64 overflow-y-auto p-1"
+            >
+              <button
+                v-for="(item, mentionIndex) in sceneDescriptionMentionCandidates"
+                :key="`scene_asset_mention_${item.asset.id}`"
+                type="button"
+                :data-scene-description-mention-index="mentionIndex"
+                class="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors"
+                :class="mentionIndex === sceneDescriptionMentionActiveIndex ? 'bg-accent text-accent-foreground' : ''"
+                @mouseenter="setSceneDescriptionMentionActiveIndex?.(mentionIndex)"
+                @mousedown.prevent="insertSceneAssetMention(item.asset.id)"
+              >
+                <img
+                  v-if="item.asset.referenceImage"
+                  :src="toImageSrc(item.asset.referenceImage)"
+                  :alt="`${item.asset.name} 参考图`"
+                  class="h-9 w-9 shrink-0 rounded-md border object-cover"
+                >
+                <div
+                  v-else
+                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-[11px] text-muted-foreground"
+                >
+                  {{ resolveAssetTypeLabel(item.asset.type) }}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-medium leading-5">
+                    {{ item.asset.name }}
+                  </p>
+                  <p class="truncate text-xs text-muted-foreground">
+                    {{ item.token }}
+                  </p>
+                </div>
+                <Badge
+                  variant="secondary"
+                  class="shrink-0 px-1.5 py-0 text-[11px] font-normal"
+                >
+                  {{ resolveAssetTypeLabel(item.asset.type) }}
+                </Badge>
+              </button>
+
+              <div
+                v-if="sceneDescriptionMentionCandidates.length === 0"
+                class="px-3 py-6 text-center text-xs text-muted-foreground"
+              >
+                未匹配到资产，可点击右上角“上传其他资产”
+              </div>
+            </div>
+          </div>
+
         </div>
 
         <p class="text-xs text-muted-foreground">
           输入 `@` 可直接引用角色/环境/道具/其他资产。上传图片会自动归类到“其他”，支持上传前命名（默认文件名）。
         </p>
-
-        <div
-          v-if="sceneDescriptionMentionOpen"
-          :ref="setSceneDescriptionMentionListRef"
-          class="max-h-44 overflow-y-auto rounded-xl bg-popover shadow-[0_16px_48px_hsl(var(--foreground)/0.14)] p-1 text-sm shadow-sm"
-        >
-          <Button
-            v-for="(item, mentionIndex) in sceneDescriptionMentionCandidates"
-            :key="`scene_asset_mention_${item.asset.id}`"
-            type="button"
-            variant="ghost"
-            :data-scene-description-mention-index="mentionIndex"
-            class="h-auto w-full justify-start gap-2 rounded px-2 py-1.5 text-left transition"
-            :class="mentionIndex === sceneDescriptionMentionActiveIndex ? 'bg-accent' : 'hover:bg-accent/60'"
-            @mousedown.prevent="insertSceneAssetMention(item.asset.id)"
-          >
-            <img
-              v-if="item.asset.referenceImage"
-              :src="toImageSrc(item.asset.referenceImage)"
-              :alt="`${item.asset.name} 参考图`"
-              class="h-7 w-7 rounded border object-cover"
-            >
-            <div
-              v-else
-              class="flex h-7 w-7 items-center justify-center rounded border bg-muted/30 text-xs text-muted-foreground"
-            >
-              {{ resolveAssetTypeLabel(item.asset.type) }}
-            </div>
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-xs">
-                {{ item.token }}
-              </p>
-              <p class="truncate text-xs text-muted-foreground">
-                {{ item.asset.name }}
-              </p>
-            </div>
-            <Badge
-              variant="outline"
-              class="text-xs"
-            >
-              {{ resolveAssetTypeLabel(item.asset.type) }}
-            </Badge>
-          </Button>
-
-          <div
-            v-if="sceneDescriptionMentionCandidates.length === 0"
-            class="px-2 py-3 text-xs text-muted-foreground"
-          >
-            未匹配到资产
-          </div>
-        </div>
       </template>
       <Textarea
         v-else

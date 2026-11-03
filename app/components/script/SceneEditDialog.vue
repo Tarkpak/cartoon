@@ -228,9 +228,11 @@ const {
   sceneDescriptionMentionListRef,
   sceneDescriptionMentionOpen,
   sceneDescriptionMentionActiveIndex,
+  sceneDescriptionMentionPosition,
   sceneDescriptionMentionCandidates,
   sceneDescriptionSupportsMention,
   closeSceneDescriptionMention,
+  setSceneDescriptionMentionActiveIndex,
   renderSceneDescriptionEditor,
   syncSceneDescriptionFromEditor,
   insertSceneAssetMention,
@@ -608,6 +610,8 @@ function handleSceneAssetUpload(event: Event) {
           :scene-description-mention-open="sceneDescriptionMentionOpen"
           :scene-description-mention-active-index="sceneDescriptionMentionActiveIndex"
           :scene-description-mention-candidates="sceneDescriptionMentionCandidates"
+          :scene-description-mention-position="sceneDescriptionMentionPosition"
+          :set-scene-description-mention-active-index="setSceneDescriptionMentionActiveIndex"
           :scene-asset-uploading="sceneAssetUploading"
           :scene-asset-upload-error="sceneAssetUploadError"
           :set-scene-description-editor-ref="setSceneDescriptionEditorElement"

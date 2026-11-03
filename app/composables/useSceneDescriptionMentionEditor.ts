@@ -1,4 +1,5 @@
 import type { Ref } from 'vue'
+import type { MentionPopoverPosition } from '~/lib/contenteditable-mention'
 import type {
   AssetMentionCandidate,
   AssetReferenceOption
@@ -24,6 +25,7 @@ export function useSceneDescriptionMentionEditor(options: UseSceneDescriptionMen
   const sceneDescriptionMentionQuery = ref('')
   const sceneDescriptionMentionStart = ref<number | null>(null)
   const sceneDescriptionMentionActiveIndex = ref(0)
+  const sceneDescriptionMentionPosition = ref<MentionPopoverPosition | null>(null)
   const sceneDescriptionComposing = ref(false)
 
   const sceneDescriptionSupportsMention = computed(() => {
@@ -61,6 +63,7 @@ export function useSceneDescriptionMentionEditor(options: UseSceneDescriptionMen
 
   const {
     closeSceneDescriptionMention,
+    setSceneDescriptionMentionActiveIndex,
     renderSceneDescriptionEditor,
     syncSceneDescriptionFromEditor,
     insertSceneAssetMention,
@@ -82,6 +85,7 @@ export function useSceneDescriptionMentionEditor(options: UseSceneDescriptionMen
     sceneDescriptionMentionQuery,
     sceneDescriptionMentionStart,
     sceneDescriptionMentionActiveIndex,
+    sceneDescriptionMentionPosition,
     sceneDescriptionComposing,
     sceneDescriptionSupportsMention,
     sceneAssetMentionCandidatesSource,
@@ -117,9 +121,11 @@ export function useSceneDescriptionMentionEditor(options: UseSceneDescriptionMen
     sceneDescriptionMentionListRef,
     sceneDescriptionMentionOpen,
     sceneDescriptionMentionActiveIndex,
+    sceneDescriptionMentionPosition,
     sceneDescriptionMentionCandidates,
     sceneDescriptionSupportsMention,
     closeSceneDescriptionMention,
+    setSceneDescriptionMentionActiveIndex,
     renderSceneDescriptionEditor,
     syncSceneDescriptionFromEditor,
     insertSceneAssetMention,

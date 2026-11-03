@@ -340,3 +340,77 @@ export function scrollMentionActiveItemIntoView(options: {
     target?.scrollIntoView({ block: 'nearest' })
   })
 }
+
+export interface MentionPopoverRect {
+  top: number
+  bottom: number
+  left: number
+  right: number
+}
+
+export interface MentionPopoverPosition {
+  left: number
+  top: number
+  placement: 'bottom' | 'top'
+}
+
+/**
+ * Returns the client rect of the collapsed caret inside `editor`, or null when
+ * the selection is outside the editor or the browser cannot measure it.
+ */
+export function getContentEditableCaretRect(editor: HTMLElement | null): MentionPopoverRect | null {
+  if (!editor || typeof window === 'undefined') return null
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return null
+
+  const range = selection.getRangeAt(0)
+  if (!editor.contains(range.startContainer)) return null
+
+  const collapsed = range.cloneRange()
+  collapsed.collapse(true)
+  const rects = collapsed.getClientRects()
+  const rect = rects.length > 0 ? rects[rects.length - 1] : collapsed.getBoundingClientRect()
+  if (rect && (rect.height > 0 || rect.width > 0 || rect.top > 0)) {
+    return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right }
+  }
+
+  // Empty lines / element containers produce zero rects; measure with a marker.
+  const marker = document.createElement('span')
+  marker.textContent = '​'
+  collapsed.insertNode(marker)
+  const markerRect = marker.getBoundingClientRect()
+  const parent = marker.parentNode
+  marker.remove()
+  parent?.normalize()
+  return { top: markerRect.top, bottom: markerRect.bottom, left: markerRect.left, right: markerRect.right }
+}
+
+/**
+ * Places a popover under (or above, when there is no room) the caret, in
+ * coordinates relative to `container`, clamped to the container's width.
+ */
+export function resolveMentionPopoverPosition(options: {
+  caret: MentionPopoverRect
+  container: MentionPopoverRect
+  viewport: { top: number, bottom: number }
+  popoverWidth: number
+  popoverHeight: number
+  gap?: number
+}): MentionPopoverPosition {
+  const gap = options.gap ?? 6
+  const containerWidth = options.container.right - options.container.left
+  const maxLeft = Math.max(0, containerWidth - options.popoverWidth)
+  const left = Math.min(Math.max(0, options.caret.left - options.container.left), maxLeft)
+
+  const spaceBelow = options.viewport.bottom - options.caret.bottom
+  const spaceAbove = options.caret.top - options.viewport.top
+  const placement = spaceBelow < options.popoverHeight + gap && spaceAbove > spaceBelow
+    ? 'top'
+    : 'bottom'
+
+  const top = placement === 'bottom'
+    ? options.caret.bottom - options.container.top + gap
+    : options.caret.top - options.container.top - gap
+
+  return { left, top, placement }
+}
