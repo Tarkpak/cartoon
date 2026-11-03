@@ -505,7 +505,7 @@ export function useAssetWorkbenchAssetMedia(options: {
         throw new Error('道具图片已上传，但项目中的道具资产已不存在')
       }
       currentTarget.referenceImage = imageUrl
-      if (currentTarget.category === 'other' && currentTarget.mediaType !== 'voice' && currentTarget.mediaType !== 'video') {
+      if (currentTarget.category === 'other') {
         currentTarget.mediaType = 'image'
       }
       await options.saveWorkflowMeta()

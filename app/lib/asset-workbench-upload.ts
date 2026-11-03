@@ -38,8 +38,26 @@ export function assertValidImageFile(file: File, maxFileSize: number) {
   }
 }
 
+const AUDIO_MIME_BY_EXTENSION: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  ogg: 'audio/ogg',
+  flac: 'audio/flac',
+  opus: 'audio/opus'
+}
+
+export function resolveAudioFileMimeType(file: Pick<File, 'name' | 'type'>): string | undefined {
+  const reportedType = file.type.trim().toLowerCase()
+  if (reportedType.startsWith('audio/')) return reportedType
+
+  const extension = file.name.split('.').pop()?.trim().toLowerCase() || ''
+  return AUDIO_MIME_BY_EXTENSION[extension]
+}
+
 export function assertValidAudioFile(file: File, maxFileSize: number) {
-  if (!file.type.startsWith('audio/')) {
+  if (!resolveAudioFileMimeType(file)) {
     throw new Error('仅支持上传音频文件')
   }
 
@@ -78,17 +96,27 @@ export async function fileToDataUrl(file: File): Promise<string> {
 }
 
 export async function fileToAudioDataUrl(file: File): Promise<string> {
+  const mimeType = resolveAudioFileMimeType(file)
+  if (!mimeType) {
+    throw new Error('仅支持上传音频文件')
+  }
+
   return await new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => {
       reject(new Error('读取音频文件失败，请重试'))
     }
     reader.onload = () => {
-      if (typeof reader.result !== 'string' || !reader.result.startsWith('data:audio/')) {
+      if (typeof reader.result !== 'string') {
         reject(new Error('仅支持音频文件上传'))
         return
       }
-      resolve(reader.result)
+      const separatorIndex = reader.result.indexOf(',')
+      if (separatorIndex < 0) {
+        reject(new Error('读取音频文件失败，请重试'))
+        return
+      }
+      resolve(`data:${mimeType};base64,${reader.result.slice(separatorIndex + 1)}`)
     }
     reader.readAsDataURL(file)
   })
@@ -230,4 +258,14 @@ export async function uploadVideoFile(file: File, options: {
   }
 
   return response.videoUrl
+}
+
+export type UploadMediaKind = 'image' | 'voice' | 'video'
+
+/** 统一上传入口：按 MIME（缺失时按扩展名）判断素材类型，无法识别返回 undefined。 */
+export function detectUploadMediaKind(file: Pick<File, 'name' | 'type'>): UploadMediaKind | undefined {
+  if (resolveImageFileMimeType(file)) return 'image'
+  if (resolveAudioFileMimeType(file)) return 'voice'
+  if (resolveVideoFileMimeType(file)) return 'video'
+  return undefined
 }

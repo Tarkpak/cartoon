@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveImageFileMimeType } from './asset-workbench-upload'
+import { detectUploadMediaKind, resolveAudioFileMimeType, resolveImageFileMimeType } from './asset-workbench-upload'
 
 describe('asset workbench image upload', () => {
   it('uses the browser-reported image MIME type', () => {
@@ -25,5 +25,24 @@ describe('asset workbench image upload', () => {
       name: 'environment.zip',
       type: 'application/octet-stream'
     })).toBeUndefined()
+  })
+})
+
+describe('asset workbench unified media upload', () => {
+  it('detects media kind from the reported MIME type', () => {
+    expect(detectUploadMediaKind({ name: 'a.bin', type: 'image/png' })).toBe('image')
+    expect(detectUploadMediaKind({ name: 'a.bin', type: 'audio/mpeg' })).toBe('voice')
+    expect(detectUploadMediaKind({ name: 'a.bin', type: 'video/mp4' })).toBe('video')
+  })
+
+  it('falls back to the file extension when MIME is missing', () => {
+    expect(detectUploadMediaKind({ name: 'ref.JPG', type: '' })).toBe('image')
+    expect(detectUploadMediaKind({ name: 'narration.m4a', type: 'application/octet-stream' })).toBe('voice')
+    expect(detectUploadMediaKind({ name: 'fight.mov', type: '' })).toBe('video')
+    expect(resolveAudioFileMimeType({ name: 'voice.wav', type: '' })).toBe('audio/wav')
+  })
+
+  it('rejects unsupported files', () => {
+    expect(detectUploadMediaKind({ name: 'notes.txt', type: 'text/plain' })).toBeUndefined()
   })
 })

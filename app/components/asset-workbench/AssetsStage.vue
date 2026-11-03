@@ -144,9 +144,14 @@ const assetSummary = computed(() => {
     return { label: '环境图', total: assets.length, ready: count('done'), generating: count('generating'), missing: count('pending'), error: count('error') }
   }
   const assets = assetTab.value === 'props' ? propAssetsOfType.value : otherAssetsOfType.value
-  const ready = assets.filter(item => item.mediaType === 'voice' ? !!item.voiceAsset?.audioUrl : !!item.referenceImage).length
+  const hasMedia = (item: PropAsset) => {
+    if (item.mediaType === 'voice') return !!item.voiceAsset?.audioUrl
+    if (item.mediaType === 'video') return !!item.videoAsset?.videoUrl
+    return !!item.referenceImage
+  }
+  const ready = assets.filter(hasMedia).length
   const generating = assets.filter(item => item.id === props.generatingPropId).length
-  const missing = assets.filter(item => item.id !== props.generatingPropId && !(item.mediaType === 'voice' ? item.voiceAsset?.audioUrl : item.referenceImage)).length
+  const missing = assets.filter(item => item.id !== props.generatingPropId && !hasMedia(item)).length
   return { label: assetTab.value === 'props' ? '道具图' : '其他素材', total: assets.length, ready, generating, missing, error: 0 }
 })
 
@@ -329,8 +334,7 @@ const fenceOptions = computed(() => ({
         :uploading-prop-video-id="uploadingPropVideoId"
         :generating-prop-id="generatingPropId"
         :get-prop-usage-count="getPropUsageCount"
-        :allow-voice-upload="true"
-        :enable-media-sub-tabs="true"
+        mixed-media
         add-category="other"
         asset-label="其他素材"
         empty-title="暂无其他素材"
