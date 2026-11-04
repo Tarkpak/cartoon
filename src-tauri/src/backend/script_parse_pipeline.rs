@@ -406,7 +406,7 @@ async fn parse_inner(
     let details_ms = details_started.elapsed().as_millis() as u64;
     let merged = merge_batches(results, &plan, body)?;
     let refinement_started = std::time::Instant::now();
-    let merged = script_scene_detail::refine(merged, body, &director, |prompt| {
+    let merged = script_scene_detail::run(state, merged, body, &director, |prompt| {
         let model = &model;
         async move { model.generate(&prompt).await }
     }).await?;

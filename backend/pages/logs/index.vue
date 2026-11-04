@@ -7,7 +7,7 @@
           <span class="refresh-status">{{ lastUpdatedLabel }}</span>
           <span class="auto-refresh-control">自动刷新 <n-switch v-model:value="autoRefresh" size="small" /></span>
             <n-button size="small" :loading="activeLoading" @click="refreshActiveTab">刷新</n-button>
-            <n-button size="small" :loading="exporting" :disabled="activeTab === 'archives'" @click="exportActiveResults">导出 CSV</n-button>
+            <n-button size="small" :loading="exporting" :disabled="activeTab === 'archives' || activeTab === 'skills'" @click="exportActiveResults">导出 CSV</n-button>
           </div>
         </template>
         <n-tab-pane name="calls" tab="调用日志">
@@ -28,6 +28,8 @@
               <n-select v-model:value="filters.operation" placeholder="操作" clearable :options="operationOptions" />
             </div>
             <div class="filter-row filter-row--secondary">
+              <n-input v-model:value="filters.skill" placeholder="技能名称或 ID" clearable @keyup.enter="refreshLogsFromFirstPage" />
+              <n-input v-model:value="filters.skillRunId" placeholder="技能执行编号" clearable @keyup.enter="refreshLogsFromFirstPage" />
               <n-date-picker
                 v-model:value="dateRange"
                 type="datetimerange"
@@ -63,6 +65,10 @@
           >
             <template #empty><n-empty description="没有符合当前条件的调用日志" /></template>
           </n-data-table>
+        </n-tab-pane>
+
+        <n-tab-pane name="skills" tab="技能执行">
+          <SkillRunsPanel ref="skillRunsPanel" :run-id="skillRunSelection.runId" :user-id="skillRunSelection.userId" @calls="showSkillCalls" />
         </n-tab-pane>
 
         <n-tab-pane name="audit" tab="操作审计">
@@ -127,6 +133,14 @@
         >
           <n-spin :show="detailLoading" class="detail-spin">
           <div v-if="selectedLog" class="log-detail">
+            <section v-if="skillContext(selectedLog)" class="filter-panel">
+              <strong>使用的技能 · {{ SKILL_STAGE_LABELS[skillContext(selectedLog)!.stage] }}</strong>
+              <p v-for="skill in skillContext(selectedLog)!.skills" :key="skill.id">{{ skill.name }} · v{{ skill.version }}</p>
+              <p v-if="skillContext(selectedLog)!.batchStart">第 {{ skillContext(selectedLog)!.batchStart }}–{{ skillContext(selectedLog)!.batchEnd }} 镜 · 第 {{ skillContext(selectedLog)!.attempt }} 次尝试</p>
+              <p>执行编号 {{ skillContext(selectedLog)!.runId }}</p>
+              <n-button size="small" @click="showSkillRun(selectedLog)">查看技能执行</n-button>
+              <n-button size="small" @click="showSkillCalls({ runId: skillContext(selectedLog)!.runId, userId: selectedLog.user_id || '' }); drawer = false">查看本次全部调用</n-button>
+            </section>
             <div class="log-summary-grid">
               <div class="log-summary-item">
                 <span class="log-summary-label">状态</span>
@@ -351,6 +365,9 @@
 
 <script setup lang="ts">
 import { h } from 'vue'
+import SkillRunsPanel from '~/components/logs/SkillRunsPanel.vue'
+import type { SkillCallContext } from '@playlet-shared/types/skill'
+import { SKILL_STAGE_LABELS } from '@playlet-shared/types/skill'
 import {
   NButton,
   NDatePicker,
@@ -460,7 +477,7 @@ type DetailTab = JsonPayloadKind | 'raw'
 const message = useMessage()
 const route = useRoute()
 const router = useRouter()
-const activeTab = ref<'calls' | 'audit' | 'archives'>('calls')
+const activeTab = ref<'calls' | 'audit' | 'archives' | 'skills'>('calls')
 const autoRefresh = ref(false)
 const lastUpdated = ref<Date | null>(null)
 const exporting = ref(false)
@@ -474,7 +491,11 @@ const logsTotal = ref(0)
 const summary = reactive<LogSummary>({ total: 0, failed: 0, averageDuration: 0, totalCost: 0, totalCredits: 0 })
 const logOptions = reactive<LogOptions>({ users: [], providers: [], models: [], operations: [], statuses: [] })
 const dateRange = ref<[number, number] | null>(null)
+const skillRunsPanel = ref<InstanceType<typeof SkillRunsPanel> | null>(null)
+const skillRunSelection = reactive({ runId: '', userId: '' })
 const filters = reactive({
+  skill: '',
+  skillRunId: '',
   status: null as string | null,
   userId: null as string | null,
   provider: null as string | null,
@@ -548,6 +569,8 @@ const activeCallFilterCount = computed(() => [
   filters.provider,
   filters.modelId,
   filters.operation,
+  filters.skill,
+  filters.skillRunId,
   filters.minDuration,
   filters.maxDuration,
   dateRange.value
@@ -568,6 +591,7 @@ const sortOptions = [
 ]
 
 const columns = [
+  { title: '技能', key: 'skill_context_json', width: 180, render: (row: ModelCallLog) => h(NEllipsis, { tooltip: true }, { default: () => skillContext(row)?.skills.map(s => s.name).join('、') || '—' }) },
   {
     title: '时间',
     key: 'created_at',
@@ -1012,6 +1036,8 @@ function callQuery(page: number, pageSize: number) {
     provider: filters.provider || undefined,
     modelId: filters.modelId || undefined,
     operation: filters.operation || undefined,
+    skill: filters.skill || undefined,
+    skillRunId: filters.skillRunId || undefined,
     minDuration: filters.minDuration ?? undefined,
     maxDuration: filters.maxDuration ?? undefined,
     startAt: dateRange.value ? new Date(dateRange.value[0]).toISOString() : undefined,
@@ -1082,6 +1108,8 @@ function refreshLogsFromFirstPage() {
 function resetCallFilters() {
   keyword.value = ''
   Object.assign(filters, {
+    skill: '',
+    skillRunId: '',
     status: null,
     userId: null,
     provider: null,
@@ -1143,14 +1171,38 @@ function handleArchivesPageSizeChange(pageSize: number) {
 function refreshActiveTab() {
   if (activeTab.value === 'calls') return void loadLogs()
   if (activeTab.value === 'audit') return void loadAuditLogs()
+  if (activeTab.value === 'skills') return void skillRunsPanel.value?.refresh()
   return void loadArchives()
 }
 
 function handleTabChange(value: string) {
   activeTab.value = value as typeof activeTab.value
+  if (value === 'skills') { skillRunSelection.runId = ''; skillRunSelection.userId = '' }
   syncRouteQuery()
   if (value === 'audit' && auditLogs.value.length === 0) void loadAuditLogs()
   if (value === 'archives' && archives.value.length === 0) void loadArchives()
+}
+
+function skillContext(log: ModelCallLog): SkillCallContext | null {
+  try { return log.skill_context_json ? JSON.parse(String(log.skill_context_json)) : null } catch { return null }
+}
+function showSkillCalls(value: { runId: string, userId: string }) {
+  keyword.value = ''
+  dateRange.value = null
+  Object.assign(filters, { status: null, userId: null, provider: null, modelId: null, operation: null, minDuration: null, maxDuration: null, sortBy: 'createdAt:desc', skill: '', skillRunId: '' })
+  filters.skillRunId = value.runId
+  filters.userId = value.userId
+  activeTab.value = 'calls'
+  refreshLogsFromFirstPage()
+}
+function showSkillRun(log: ModelCallLog) {
+  const context = skillContext(log)
+  if (!context) return
+  skillRunSelection.runId = context.runId
+  skillRunSelection.userId = log.user_id || ''
+  drawer.value = false
+  activeTab.value = 'skills'
+  syncRouteQuery()
 }
 
 function syncRouteQuery() {
@@ -1166,13 +1218,19 @@ function syncRouteQuery() {
       if (!['page', 'pageSize'].includes(key) && value !== undefined) query[key] = String(value)
     }
   }
+  if (activeTab.value === 'skills') {
+    if (skillRunSelection.runId) query.runId = skillRunSelection.runId
+    if (skillRunSelection.userId) query.userId = skillRunSelection.userId
+  }
   void router.replace({ query })
 }
 
 function restoreRouteQuery() {
   const tab = String(route.query.tab || '')
-  if (['calls', 'audit', 'archives'].includes(tab)) activeTab.value = tab as typeof activeTab.value
+  if (['calls', 'audit', 'archives', 'skills'].includes(tab)) activeTab.value = tab as typeof activeTab.value
   const value = (key: string) => typeof route.query[key] === 'string' ? route.query[key] as string : ''
+  skillRunSelection.runId = value('runId')
+  skillRunSelection.userId = value('userId')
   if (activeTab.value === 'calls') {
     keyword.value = value('keyword')
     filters.status = value('status') || null
@@ -1180,6 +1238,8 @@ function restoreRouteQuery() {
     filters.provider = value('provider') || null
     filters.modelId = value('modelId') || null
     filters.operation = value('operation') || null
+    filters.skill = value('skill')
+    filters.skillRunId = value('skillRunId')
     filters.minDuration = value('minDuration') ? Number(value('minDuration')) : null
     filters.maxDuration = value('maxDuration') ? Number(value('maxDuration')) : null
     filters.sortBy = `${value('sortBy') || 'createdAt'}:${value('sortOrder') || 'desc'}`

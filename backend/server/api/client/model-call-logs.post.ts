@@ -1,3 +1,4 @@
+import { normalizeSkillContext } from '../../utils/skill-logs'
 import { randomUUID } from 'node:crypto'
 import { getAppSettings, getDb, jsonText, nowIso } from '../../utils/db'
 import { readJsonBody, requireAuth } from '../../utils/auth'
@@ -26,6 +27,7 @@ interface LogPayload {
   estimated_cost?: number
   errorMessage?: string
   error_message?: string
+  skillContext?: unknown
   request?: unknown
   response?: unknown
   mediaRefs?: unknown
@@ -48,8 +50,8 @@ export default defineEventHandler(async (event) => {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO model_call_logs
       (id, user_id, client_event_id, request_id, provider, model_id, operation, project_id, scene_id, status,
-       duration_ms, estimated_cost, error_message, request_json, response_json, media_refs_json, error_json, created_at, archived_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+       duration_ms, estimated_cost, error_message, request_json, response_json, media_refs_json, error_json, created_at, skill_context_json, archived_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
   `)
   const findExisting = db.prepare(`
     SELECT id, response_json, media_refs_json
@@ -61,7 +63,7 @@ export default defineEventHandler(async (event) => {
     UPDATE model_call_logs
     SET request_id = ?, provider = ?, model_id = ?, operation = ?, project_id = ?, scene_id = ?,
         status = ?, duration_ms = ?, estimated_cost = ?, error_message = ?, request_json = ?,
-        response_json = ?, media_refs_json = ?, error_json = ?, archived_at = NULL
+        response_json = ?, media_refs_json = ?, error_json = ?, skill_context_json = COALESCE(?, skill_context_json), archived_at = NULL
     WHERE id = ?
   `)
 
@@ -84,6 +86,8 @@ export default defineEventHandler(async (event) => {
       const responseJson = optionalJson(log.response) || {}
       const mediaRefs = optionalJson(log.mediaRefs ?? log.media_refs) || []
       const errorJson = optionalJson(log.error) || {}
+      const skillContext = normalizeSkillContext(log.skillContext)
+      const skillContextJson = skillContext ? jsonText(skillContext) : null
       const result = insert.run(
         logId,
         auth.user.id,
@@ -102,7 +106,8 @@ export default defineEventHandler(async (event) => {
         jsonText(responseJson),
         jsonText(mediaRefs),
         jsonText(errorJson),
-        optionalString(log.createdAt || log.created_at, 64) || nowIso()
+        optionalString(log.createdAt || log.created_at, 64) || nowIso(),
+        skillContextJson
       )
       if (result.changes === 0) {
         if (eventId) {
@@ -127,6 +132,7 @@ export default defineEventHandler(async (event) => {
               jsonText(mergeModelLogResponse(existing.response_json, responseJson)),
               jsonText(mergeModelLogMediaRefs(existing.media_refs_json, mediaRefs)),
               jsonText(errorJson),
+              skillContextJson,
               existing.id
             )
           }

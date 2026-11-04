@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Images, Library, MicVocal, PenLine, ChevronsUpDown, Monitor, Check, Minus, Square, Copy, X } from 'lucide-vue-next'
+import { Puzzle, Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Images, Library, MicVocal, PenLine, ChevronsUpDown, Monitor, Check, Minus, Square, Copy, X } from 'lucide-vue-next'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -108,10 +108,10 @@ const navigation = computed(() => {
   ]
 })
 
-type SettingsSection = 'general' | 'workflow' | 'test' | 'prompts' | 'styles'
+type SettingsSection = 'general' | 'workflow' | 'test' | 'prompts' | 'styles' | 'skills'
 
 const DEFAULT_SETTINGS_SECTION: SettingsSection = 'general'
-const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'workflow', 'test', 'prompts', 'styles']
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'workflow', 'test', 'prompts', 'styles', 'skills']
 
 const settingsSubNavigation: Array<{
   name: string
@@ -122,7 +122,8 @@ const settingsSubNavigation: Array<{
   { name: '模型分配', section: 'workflow', icon: Workflow },
   { name: '模型测试', section: 'test', icon: FlaskConical },
   { name: '提示词模板', section: 'prompts', icon: FileText },
-  { name: '画风预设', section: 'styles', icon: Palette }
+  { name: '画风预设', section: 'styles', icon: Palette },
+  { name: '技能中心', section: 'skills', icon: Puzzle }
 ]
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {

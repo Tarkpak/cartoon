@@ -1,3 +1,5 @@
+import type { SkillCallContext } from '#shared/types/skill'
+
 export interface ModelDebugErrorInfo {
   name?: string
   message: string
@@ -29,6 +31,7 @@ export interface ModelDebugLogEntry {
   projectId?: string
   sceneId?: string
   taskId?: string
+  skillContext?: SkillCallContext
   request?: unknown
   requestRaw?: unknown
   response?: unknown
@@ -73,6 +76,8 @@ export function useModelDebugLogs() {
     projectId: '',
     sceneId: '',
     taskId: '',
+    skill: '',
+    skillRunId: '',
     keyword: '',
     limit: 50
   })
@@ -82,6 +87,7 @@ export function useModelDebugLogs() {
   const pageStart = computed(() => total.value === 0 ? 0 : (page.value - 1) * filters.limit + 1)
   const pageEnd = computed(() => Math.min(total.value, page.value * filters.limit))
 
+  let fetchSequence = 0
   let refreshTimer: ReturnType<typeof setInterval> | null = null
 
   async function openLogDetail(item: ModelDebugLogEntry) {
@@ -204,11 +210,14 @@ export function useModelDebugLogs() {
       projectId: filters.projectId || undefined,
       sceneId: filters.sceneId || undefined,
       taskId: filters.taskId || undefined,
+      skill: filters.skill || undefined,
+      skillRunId: filters.skillRunId || undefined,
       keyword: filters.keyword || undefined
     }
   }
 
   async function fetchLogs() {
+    const sequence = ++fetchSequence
     loading.value = true
     fetchError.value = ''
     try {
@@ -222,6 +231,7 @@ export function useModelDebugLogs() {
         query: buildQuery()
       })
 
+      if (sequence !== fetchSequence) return
       logs.value = response.data.logs || []
       total.value = Number.isFinite(response.data.total) ? response.data.total : logs.value.length
       if (page.value > totalPages.value) {
@@ -235,9 +245,9 @@ export function useModelDebugLogs() {
         detailOpen.value = false
       }
     } catch (error) {
-      fetchError.value = error instanceof Error ? error.message : '日志加载失败'
+      if (sequence === fetchSequence) fetchError.value = error instanceof Error ? error.message : '日志加载失败'
     } finally {
-      loading.value = false
+      if (sequence === fetchSequence) loading.value = false
     }
   }
 
@@ -301,6 +311,8 @@ export function useModelDebugLogs() {
       filters.projectId,
       filters.sceneId,
       filters.taskId,
+      filters.skill,
+      filters.skillRunId,
       filters.keyword,
       filters.limit
     ],

@@ -671,3 +671,10 @@ GET  /api/admin/audit-logs
 第一阶段优先建设个人用户后台、设备管理、统一 Key 下发、项目全量同步、提示词全量同步、模型偏好同步和调用日志。保持桌面端重客户端定位，不上传生成媒体文件。
 
 这样可以最快满足后台可视化管控诉求，同时避免对现有 Tauri/Vue/Rust 本地架构做高风险重写。
+
+### 技能执行追踪
+
+`POST /api/client/skill-runs` 接收当前登录账号的技能执行状态与版本快照，按 `(user_id, id)` 幂等保存，最终结果不会被迟到的运行中记录覆盖；该接口不计费。
+`GET /api/admin/skill-runs` 仅管理员可用，支持分页及 `skill`、`runId`、`userId`、`projectId`、`status` 筛选。
+模型日志上传可附带 `skillContext: { runId, stage, skills, batchStart?, batchEnd?, attempt? }`。调用日志列表支持 `skill` 与 `skillRunId` 筛选，详情显示技能及批次，管理后台“日志 → 技能执行”提供双向跳转。旧客户端不传该字段时保持兼容。
+启动自动迁移 `model_call_logs.skill_context_json` 并创建 `skill_runs` 表；客户端与后台需一同升级。执行记录同步失败由客户端保留并重试，独立于原模型日志和计费。验证脚本：在仓库根目录运行 `bun scripts/check-skill-log-api.mjs`（使用临时数据库）。

@@ -85,6 +85,7 @@ fn groups(
     scenes: &[Value],
     body: &Value,
     director: &str,
+    input_budget: usize,
 ) -> Result<Vec<(usize, usize, String)>, String> {
     let mut groups = Vec::new();
     let mut start = 0;
@@ -92,8 +93,9 @@ fn groups(
         let mut end = (start + GROUP_SIZE).min(scenes.len());
         loop {
             let request = prompt(&scenes[start..end], start, body, director);
-            if context_budget::check(&request).is_ok() || end == start + 1 {
-                context_budget::check(&request)?;
+            if context_budget::check_with_limit(&request, input_budget).is_ok() || end == start + 1
+            {
+                context_budget::check_with_limit(&request, input_budget)?;
                 groups.push((start, end, request));
                 break;
             }
@@ -148,10 +150,81 @@ fn progress(completed: usize, total: usize) {
     })));
 }
 
-pub(super) async fn refine<F, Fut>(
+/// Resolve installed skills once per execution; retain the existing bounded
+/// generation and structural validation as the authoritative implementation.
+pub(super) async fn run<F, Fut>(
+    state: &BackendState,
+    value: Value,
+    body: &Value,
+    director: &str,
+    generate: F,
+) -> Result<Value, String>
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, String>>,
+{
+    let mut execution =
+        super::super::skills::begin(state, body, "scene_detail").map_err(|e| e.message)?;
+    if execution.skills.is_empty() {
+        execution
+            .finish("skipped", json!({"message":"本项目未启用分镜细化技能"}))
+            .map_err(|e| e.message)?;
+        return Ok(value);
+    }
+    let instructions = execution.instructions();
+    // Keep the original scene/director allowance; add only the validated skill
+    // context. This does not expand budgets for parsing or unrelated workflows.
+    let input_budget = context_budget::INPUT_BUDGET + instructions.len();
+    let director = format!("{director}\n{instructions}");
+    let result = CURRENT_MODEL_LOG_CONTEXT
+        .scope(
+            execution.model_log_context(),
+            refine_with_budget(value, body, &director, input_budget, generate),
+        )
+        .await;
+    match &result {
+        Ok(value) => {
+            let scenes = value.get("data").unwrap_or(value)["scenes"].as_array();
+            execution.finish("succeeded", json!({"sceneCount":scenes.map(Vec::len).unwrap_or(0),"message":"已完成描述细化，时间轴与对白校验通过"})).map_err(|e| e.message)?;
+        }
+        Err(error) => {
+            execution
+                .finish(
+                    "failed",
+                    json!({"message": error.chars().take(500).collect::<String>()}),
+                )
+                .map_err(|e| e.message)?;
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+async fn refine<F, Fut>(
+    value: Value,
+    body: &Value,
+    director: &str,
+    generate: F,
+) -> Result<Value, String>
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, String>>,
+{
+    refine_with_budget(
+        value,
+        body,
+        director,
+        context_budget::INPUT_BUDGET,
+        generate,
+    )
+    .await
+}
+
+async fn refine_with_budget<F, Fut>(
     mut value: Value,
     body: &Value,
     director: &str,
+    input_budget: usize,
     generate: F,
 ) -> Result<Value, String>
 where
@@ -165,7 +238,7 @@ where
         .and_then(Value::as_array)
         .filter(|scenes| !scenes.is_empty())
         .ok_or("分镜列表为空，无法细化")?;
-    let groups = groups(scenes, body, director)?;
+    let groups = groups(scenes, body, director, input_budget)?;
     let total = groups.len();
     progress(0, total);
     let tasks = groups.into_iter().map(|(start, end, prompt)| {
@@ -178,10 +251,20 @@ where
                 } else {
                     format!("{prompt}\n上次细化未通过校验：{error}。请修正并完整返回本组所有描述。")
                 };
-                context_budget::check(&request)?;
+                context_budget::check_with_limit(&request, input_budget)?;
                 // Isolate token events so concurrent calls cannot reset aggregate progress.
                 let (sender, _receiver) = tokio::sync::watch::channel(Value::Null);
-                let result = TEXT_STREAM_PROGRESS.scope(sender, generate(request)).await;
+                let mut context = current_model_log_context();
+                if let Some(skill) = context.skill_context.as_mut() {
+                    skill["batchStart"] = json!(start + 1);
+                    skill["batchEnd"] = json!(end);
+                    skill["attempt"] = json!(attempt + 1);
+                }
+                let result = CURRENT_MODEL_LOG_CONTEXT
+                    .scope(context, async {
+                        TEXT_STREAM_PROGRESS.scope(sender, generate(request)).await
+                    })
+                    .await;
                 match result.and_then(|output| patches(output, scenes, start, end)) {
                     Ok(patches) => return Ok(patches),
                     Err(failure) => error = failure,
@@ -366,7 +449,7 @@ mod tests {
     fn splits_large_groups_without_truncating_any_scene() {
         let large = json!({"description":"画面".repeat(4000),"duration":12});
         let scenes = vec![large.clone(), large.clone(), large];
-        let groups = groups(&scenes, &json!({}), "").unwrap();
+        let groups = groups(&scenes, &json!({}), "", context_budget::INPUT_BUDGET).unwrap();
         assert_eq!(groups.len(), 3);
         assert!(groups
             .iter()
@@ -374,8 +457,146 @@ mod tests {
         assert!(super::groups(
             &[json!({"description":"x".repeat(context_budget::INPUT_BUDGET)})],
             &json!({}),
-            ""
+            "",
+            context_budget::INPUT_BUDGET
         )
         .is_err());
+    }
+    #[tokio::test]
+    async fn skill_log_context_tracks_concurrent_batches_and_retries() {
+        let fixture = super::super::super::skills::tests::Fixture::new();
+        let captured = std::sync::Mutex::new(Vec::new());
+        let scenes = (0..4)
+            .map(|_| json!({"duration":8,"description":"抬头"}))
+            .collect::<Vec<_>>();
+        run(&fixture.0,json!({"scenes":scenes}),&json!({"projectId":"p"}),"",|_| {
+            let context = current_model_log_context();
+            let skill = context.skill_context.unwrap();
+            assert_eq!(context.project_id.as_deref(),Some("p"));
+            captured.lock().unwrap().push(skill.clone());
+            async move {
+                let start = skill["batchStart"].as_u64().unwrap();
+                let end = skill["batchEnd"].as_u64().unwrap();
+                if start == 1 && skill["attempt"] == 1 { return Err("retry fixture".into()); }
+                Ok(json!({"scenes":(start..=end).map(|index|json!({"index":index,"description":"0–8秒：主体缓慢抬头，固定中景。"})).collect::<Vec<_>>()}))
+            }
+        }).await.unwrap();
+        let contexts = captured.into_inner().unwrap();
+        assert_eq!(contexts.len(), 3);
+        assert!(contexts
+            .iter()
+            .all(|c| c["runId"] == contexts[0]["runId"] && c["skills"][0]["name"] == "分镜细化"));
+        assert!(contexts
+            .iter()
+            .any(|c| c["batchStart"] == 1 && c["attempt"] == 2));
+        assert!(contexts
+            .iter()
+            .any(|c| c["batchStart"] == 4 && c["attempt"] == 1));
+        assert!(current_model_log_context().skill_context.is_none());
+    }
+
+    #[tokio::test]
+    async fn installed_large_skill_runs_without_consuming_scene_budget() {
+        let fixture = super::super::super::skills::tests::Fixture::new();
+        let Json(installed) = super::super::super::skills::api_install(
+            State(fixture.0.clone()),
+            Json(json!({"files": {
+                "SKILL.md": "---\nname: writer\ndescription: writing\nstages: [scene_detail]\n---\n保持人物动作自然",
+                "references/story.md": format!("{}完整参考结尾", "中".repeat(23000)),
+                "scripts/check.py": "do_not_execute_or_inject",
+                "agents/openai.yaml": "display_name: writer",
+                "VERSION": "1.0"
+            }})),
+        ).await.unwrap();
+        let id = installed["skill"]["id"].as_str().unwrap();
+        let _ = super::super::super::skills::api_project_put(
+            Path("p".into()),
+            State(fixture.0.clone()),
+            Json(json!({"selectedIds":[id]})),
+        )
+        .await
+        .unwrap();
+        let original = json!({"scenes":[{"duration":8,"description":"抬头"}]});
+        let result = run(
+            &fixture.0,
+            original.clone(),
+            &json!({"projectId":"p"}),
+            "",
+            |prompt| async move {
+                assert!(prompt.len() > context_budget::INPUT_BUDGET);
+                assert!(prompt.contains("完整参考结尾"));
+                assert!(!prompt.contains("do_not_execute_or_inject"));
+                Ok(json!({"scenes":[{"index":1,"description":"0–8秒：主体缓慢抬头，固定中景。"}]}))
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result["scenes"][0]["duration"], 8);
+        // Large skills do not remove the original scene/director limit.
+        assert!(run(
+            &fixture.0,
+            original,
+            &json!({"projectId":"p"}),
+            &"x".repeat(context_budget::INPUT_BUDGET),
+            |_| async {
+                panic!("oversized scene context must not reach model");
+                #[allow(unreachable_code)]
+                Ok(Value::Null)
+            }
+        )
+        .await
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn skill_runner_injects_instructions_and_records_success_failure_and_skip() {
+        let fixture = super::super::super::skills::tests::Fixture::new();
+        let state = &fixture.0;
+        let original =
+            json!({"scenes":[{"id":"s1","duration":8,"description":"抬头","characters":["c1"]}]});
+        let result = run(state, original.clone(), &json!({"projectId":"p"}), "导演要求", |prompt| async move {
+            assert!(prompt.contains("【技能：分镜细化"));
+            Ok(json!({"scenes":[{"index":1,"description":"0–8秒：主体缓慢抬头，固定中景，窗光照亮面部。"}]}))
+        }).await.unwrap();
+        assert_eq!(result["scenes"][0]["duration"], 8);
+        assert_eq!(result["scenes"][0]["characters"], json!(["c1"]));
+        assert!(run(
+            state,
+            original.clone(),
+            &json!({"projectId":"p"}),
+            "",
+            |_| async { Err("fixture failure".into()) }
+        )
+        .await
+        .is_err());
+        let _ = super::super::super::skills::api_project_put(
+            Path("p".into()),
+            State(state.clone()),
+            Json(json!({"selectedIds":[]})),
+        )
+        .await
+        .unwrap();
+        let skipped = run(
+            state,
+            original.clone(),
+            &json!({"projectId":"p"}),
+            "",
+            |_| async {
+                panic!("disabled skills must not call model");
+                #[allow(unreachable_code)]
+                Ok(Value::Null)
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(skipped, original);
+        let Json(history) =
+            super::super::super::skills::api_runs(Path("p".into()), State(state.clone()))
+                .await
+                .unwrap();
+        let runs = history["runs"].as_array().unwrap();
+        for status in ["succeeded", "failed", "skipped"] {
+            assert!(runs.iter().any(|run| run["status"] == status));
+        }
     }
 }

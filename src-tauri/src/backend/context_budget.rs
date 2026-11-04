@@ -3,10 +3,14 @@
 pub(super) const INPUT_BUDGET: usize = 48_000;
 
 pub(super) fn check(prompt: &str) -> Result<(), String> {
-    if prompt.len() > INPUT_BUDGET {
+    check_with_limit(prompt, INPUT_BUDGET)
+}
+
+pub(super) fn check_with_limit(prompt: &str, limit: usize) -> Result<(), String> {
+    if prompt.len() > limit {
         return Err(format!(
             "完整提示词超过安全输入预算（{} / {} 字节），请减少自定义提示词或人物资料后重试；原文未被截断",
-            prompt.len(), INPUT_BUDGET
+            prompt.len(), limit
         ));
     }
     Ok(())

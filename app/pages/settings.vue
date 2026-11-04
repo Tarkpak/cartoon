@@ -4,6 +4,7 @@ import SettingsGeneralSection from '@/components/settings/SettingsGeneralSection
 import SettingsWorkflowModelsSection from '@/components/settings/SettingsWorkflowModelsSection.vue'
 import SettingsModelTestSection from '@/components/settings/SettingsModelTestSection.vue'
 import SettingsPromptSection from '@/components/settings/SettingsPromptSection.vue'
+import SettingsSkillsSection from '@/components/settings/SettingsSkillsSection.vue'
 import SettingsStyleSection from '@/components/settings/SettingsStyleSection.vue'
 import {
   SETTINGS_MODEL_TEST_TABS,
@@ -26,14 +27,14 @@ import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
-type MenuSection = 'general' | 'workflow' | 'test' | 'prompts' | 'styles'
+type MenuSection = 'general' | 'workflow' | 'test' | 'prompts' | 'styles' | 'skills'
 
 definePageMeta({ layout: 'default' })
 
 const route = useRoute()
 const SETTINGS_MENU_STORAGE_KEY = 'playlet:settings-menu-state'
 const DEFAULT_SETTINGS_SECTION: MenuSection = 'general'
-const SETTINGS_SECTIONS: MenuSection[] = ['general', 'workflow', 'test', 'prompts', 'styles']
+const SETTINGS_SECTIONS: MenuSection[] = ['general', 'workflow', 'test', 'prompts', 'styles', 'skills']
 
 // 旧版菜单状态（section=models + sub=...）到扁平 section 的映射
 const LEGACY_SUB_TO_SECTION: Record<string, MenuSection> = {
@@ -135,6 +136,7 @@ const currentSectionComponent = computed(() => {
     case 'test': return SettingsModelTestSection
     case 'prompts': return SettingsPromptSection
     case 'styles': return SettingsStyleSection
+    case 'skills': return SettingsSkillsSection
     default: return SettingsGeneralSection
   }
 })
@@ -159,7 +161,7 @@ onMounted(() => {
   <AppPage>
     <AppPageHeader
       title="设置"
-      description="配置模型、提示词、画风和应用偏好"
+      description="配置模型、提示词、画风、技能和应用偏好"
       class="h-16"
     >
       <template #actions>

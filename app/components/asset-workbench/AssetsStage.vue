@@ -1,22 +1,15 @@
 <script setup lang="ts">
 import { vReadOnlyFence } from '~/lib/read-only-fence'
 import { useAssetsStageContext } from '~/lib/asset-workbench-assets-stage-context'
-import { inject, onActivated, onDeactivated, shallowRef, toRefs } from 'vue'
-import { assetWorkbenchToolbarTargetKey } from '~/lib/asset-workbench-toolbar'
+import { toRefs } from 'vue'
 import type { LibraryAssetCategory } from '#shared/types/library'
 import { Database, Download, Loader2, Plus } from 'lucide-vue-next'
 import type { AssetTab } from '~/lib/asset-workbench-types'
 import { isPropAssetMediaReady } from '~/lib/asset-workbench-prop-media'
 
-const componentActive = ref(true)
-const toolbarTarget = inject(assetWorkbenchToolbarTargetKey, shallowRef(null))
-onActivated(() => { componentActive.value = true })
-onDeactivated(() => { componentActive.value = false })
-
 // State and actions come from the workbench page (see asset-workbench-assets-stage-context).
 const { state, actions } = useAssetsStageContext()
 const {
-  toolbarActive,
   characters,
   environmentAssetCards,
   autoRunning,
@@ -116,55 +109,53 @@ const fenceOptions = computed(() => ({
 
 <template>
   <div v-read-only-fence="fenceOptions" class="flex min-h-0 flex-1 flex-col gap-3">
-    <Teleport v-if="toolbarTarget" :to="toolbarTarget">
-      <div v-if="toolbarActive && componentActive" v-read-only-fence="fenceOptions" class="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
+    <div data-assets-toolbar class="flex w-full shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+      <div
+        class="flex shrink-0 items-center gap-2 whitespace-nowrap"
+        aria-live="polite"
+      >
+        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span
+            class="inline-block h-2 w-2 rounded-full"
+            :class="assetSummary.ready === assetSummary.total ? 'bg-success' : 'bg-warning'"
+            aria-hidden="true"
+          />
+          {{ assetSummary.label }} {{ assetSummary.ready }}/{{ assetSummary.total }}
+        </div>
         <div
-          class="flex shrink-0 items-center gap-2 whitespace-nowrap"
-          aria-live="polite"
+          v-if="assetSummary.generating > 0"
+          class="flex items-center gap-1.5 text-xs text-muted-foreground"
         >
-          <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span
-              class="inline-block h-2 w-2 rounded-full"
-              :class="assetSummary.ready === assetSummary.total ? 'bg-success' : 'bg-warning'"
-              aria-hidden="true"
-            />
-            {{ assetSummary.label }} {{ assetSummary.ready }}/{{ assetSummary.total }}
-          </div>
-          <div
-            v-if="assetSummary.generating > 0"
-            class="flex items-center gap-1.5 text-xs text-muted-foreground"
-          >
-            <Loader2 class="h-3 w-3 animate-spin text-primary" />
-            生成中 {{ assetSummary.generating }}
-          </div>
-          <div
-            v-if="assetSummary.missing > 0"
-            class="flex items-center gap-1.5 text-xs text-warning"
-          >
-            <span
-              class="inline-block h-2 w-2 rounded-full bg-warning"
-              aria-hidden="true"
-            />
-            {{ assetSummary.missingLabel || '待生成' }} {{ assetSummary.missing }}
-          </div>
-          <span v-if="assetSummary.error" class="text-xs text-destructive">失败 {{ assetSummary.error }}</span>
+          <Loader2 class="h-3 w-3 animate-spin text-primary" />
+          生成中 {{ assetSummary.generating }}
         </div>
-        <div class="ml-auto flex flex-wrap items-center gap-1">
-          <Button v-if="assetTab === 'characters'" size="sm" class="h-7 gap-1 px-2 text-xs" :disabled="autoRunning" @click="actions.addCharacter()">
-            <Plus class="h-3.5 w-3.5" />
-            新增角色
-          </Button>
-          <Button size="sm" variant="outline" class="h-7 gap-1 px-2 text-xs" @click="libraryPickerOpen = true">
-            <Database class="h-3.5 w-3.5" />
-            从资源库选择
-          </Button>
-          <Button data-library-save size="sm" variant="outline" class="h-7 gap-1 px-2 text-xs" :disabled="!!savingLibraryAssetKey" @click="actions.saveAssetsToLibrary(assetTab)">
-            <Download class="h-3.5 w-3.5" />
-            全部存入个人库
-          </Button>
+        <div
+          v-if="assetSummary.missing > 0"
+          class="flex items-center gap-1.5 text-xs text-warning"
+        >
+          <span
+            class="inline-block h-2 w-2 rounded-full bg-warning"
+            aria-hidden="true"
+          />
+          {{ assetSummary.missingLabel || '待生成' }} {{ assetSummary.missing }}
         </div>
+        <span v-if="assetSummary.error" class="text-xs text-destructive">失败 {{ assetSummary.error }}</span>
       </div>
-    </Teleport>
+      <div class="ml-auto flex flex-wrap items-center gap-1">
+        <Button v-if="assetTab === 'characters'" size="sm" class="h-7 gap-1 px-2 text-xs" :disabled="autoRunning" @click="actions.addCharacter()">
+          <Plus class="h-3.5 w-3.5" />
+          新增角色
+        </Button>
+        <Button size="sm" variant="outline" class="h-7 gap-1 px-2 text-xs" @click="libraryPickerOpen = true">
+          <Database class="h-3.5 w-3.5" />
+          从资源库选择
+        </Button>
+        <Button data-library-save size="sm" variant="outline" class="h-7 gap-1 px-2 text-xs" :disabled="!!savingLibraryAssetKey" @click="actions.saveAssetsToLibrary(assetTab)">
+          <Download class="h-3.5 w-3.5" />
+          全部存入个人库
+        </Button>
+      </div>
+    </div>
 
     <LibraryAssetPickerDialog
       v-model:open="libraryPickerOpen"

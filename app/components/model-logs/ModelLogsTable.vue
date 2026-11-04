@@ -85,6 +85,7 @@ function statusVariant(status: ModelDebugLogEntry['status']): BadgeVariants['var
               :title="modelOperationLabel(item.operation)"
             >
               {{ modelOperationLabel(item.operation) }}
+              <div v-if="item.skillContext" class="mt-1 max-w-56 truncate text-xs text-muted-foreground" :title="item.skillContext.skills.map(s => s.name).join('、')">{{ item.skillContext.skills.map(s => s.name).join('、') }}</div>
             </TableCell>
             <TableCell class="min-w-[180px] max-w-[260px] text-xs">
               <div

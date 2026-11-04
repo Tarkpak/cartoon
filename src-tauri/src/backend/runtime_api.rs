@@ -679,6 +679,7 @@ fn llm_dev_write_db_log_impl(
       "provider": provider,
       "modelId": model,
       "operation": operation,
+      "skillContext": context.skill_context.clone(),
       "projectId": context.project_id.clone(),
       "sceneId": context.scene_id.clone(),
       "status": status,
@@ -703,8 +704,8 @@ fn llm_dev_write_db_log_impl(
           id, timestamp, provider, model, operation, status, duration_ms, endpoint, request_id,
           project_id, scene_id, task_id, request_json, request_raw_json, response_json,
           response_raw_json, media_refs_json, error_json, created_at, cloud_payload_json,
-          cloud_sync_status, owner_user_id
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'pending', ?21)",
+          cloud_sync_status, owner_user_id, skill_context_json
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'pending', ?21, ?22)",
             params![
                 log_id,
                 now.to_rfc3339(),
@@ -730,7 +731,8 @@ fn llm_dev_write_db_log_impl(
                 error_value.as_ref().map(Value::to_string),
                 now_iso(),
                 log_payload.to_string(),
-                owner_user_id.as_deref()
+                owner_user_id.as_deref(),
+                context.skill_context.as_ref().map(Value::to_string)
             ],
         );
         if should_run_log_retention() {
@@ -21882,7 +21884,7 @@ pub(super) async fn api_script_parse(
     let value = if json_string(body.get("scriptParseMode"), "premium_drama") == "origin_explainer" {
         value
     } else {
-        CURRENT_MODEL_LOG_CONTEXT.scope(context, script_scene_detail::refine(value, &body, &director, |request| {
+        CURRENT_MODEL_LOG_CONTEXT.scope(context, script_scene_detail::run(&state, value, &body, &director, |request| {
             let provider = &provider;
             let model_id = &model_id;
             let creds = &creds;
@@ -21951,6 +21953,7 @@ async fn generate_video_import_script_text_with_rule(
         scene_id: None,
         task_id: None,
         owner_user_id: config_connection().and_then(|conn| cloud_user_id(&conn)),
+        skill_context: None,
     };
     CURRENT_MODEL_LOG_CONTEXT
         .scope(context, async {
@@ -24515,6 +24518,20 @@ pub(super) async fn api_asset_video_review(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
+    let mut execution = super::skills::begin(&state, &body, "video_review")?;
+    if execution.skills.is_empty() {
+        execution.finish("skipped", json!({"message":"本项目未启用视频审片技能"}))?;
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "请在项目技能中启用视频审片技能"));
+    }
+    let result = CURRENT_MODEL_LOG_CONTEXT.scope(execution.model_log_context(), asset_video_review_with_skills(&state, &body, &execution.instructions())).await;
+    match &result {
+        Ok(Json(value)) => execution.finish("succeeded", json!({"passed":value["data"]["passed"],"issueCount":value["data"]["issues"].as_array().map(Vec::len),"message":value["data"]["summary"].as_str().unwrap_or("审片完成").chars().take(500).collect::<String>()}))?,
+        Err(error) => execution.finish("failed", json!({"message":error.message.chars().take(500).collect::<String>()}))?,
+    }
+    result
+}
+
+async fn asset_video_review_with_skills(state: &BackendState, body: &Value, instructions: &str) -> Result<Json<Value>, ApiError> {
     let video_url = required_json_string(&body, "videoUrl", "body")?;
     let (frame_data, actual_duration, dimensions) = extract_video_review_frames(&state, video_url).await?;
     let scene = body.get("scene").filter(|value| value.is_object())
@@ -24526,6 +24543,7 @@ pub(super) async fn api_asset_video_review(
         dimensions,
         actual_duration,
     );
+    let prompt = format!("{instructions}\n{prompt}");
     let (provider, model_id, creds) = {
         let conn = db_connection(&state)?;
         let all_creds = load_provider_creds(&conn);
@@ -24557,9 +24575,9 @@ pub(super) async fn api_asset_video_review(
     };
     let mut request = llm_http_client().post(&endpoint).json(&request_body);
     request = if provider == "gemini" { request.query(&[("key", key.as_str())]) } else { request.bearer_auth(key) };
-    let response = request.send().await.map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    let response = request.send().await.map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.without_url().to_string()))?;
     let status = response.status();
-    let raw = response.text().await.map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    let raw = response.text().await.map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.without_url().to_string()))?;
     if !status.is_success() {
         return Err(ApiError::new(StatusCode::BAD_GATEWAY, format!("审片模型调用失败: {}", truncate_for_error(&raw, 300))));
     }

@@ -59,6 +59,8 @@ function selectTab(tab: LogsTab) {
       />
       <ModelLogsPanel
         v-else
+        :initial-skill-run-id="getSingleQueryValue(route.query.skillRunId)"
+        :initial-skill="getSingleQueryValue(route.query.skill)"
         :initial-request-id="requestIdFilter"
       />
     </AppPageContent>

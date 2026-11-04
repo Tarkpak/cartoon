@@ -18,7 +18,6 @@ import type {
  * Replaces ~30 props and ~35 events passed through the page template.
  */
 export interface AssetsStageState {
-  toolbarActive?: boolean
   scenesCount: number
   characters: CharacterData[]
   environmentAssetCards: EnvironmentAssetCard[]

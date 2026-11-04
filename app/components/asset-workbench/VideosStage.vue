@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import AssetWorkbenchParseProgress from './ParseProgress.vue'
-import { inject, onActivated, onDeactivated, shallowRef, toRefs } from 'vue'
-import { assetWorkbenchToolbarTargetKey } from '~/lib/asset-workbench-toolbar'
+import { toRefs } from 'vue'
 import { useIntervalFn, useStorage } from '@vueuse/core'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { Check, ChevronLeft, ChevronRight, Clapperboard, Download, Ellipsis, Eraser, FileDown, FolderOpen, Loader2, Play, ScanEye } from 'lucide-vue-next'
@@ -20,7 +19,6 @@ import { resolveVideoPreviewAspectRatio } from '~/lib/video-preview-aspect-ratio
 import { vReadOnlyFence } from '~/lib/read-only-fence'
 import { useVideosStageContext, type EpisodePlanItemForVideoStage } from '~/lib/asset-workbench-videos-stage-context'
 import {
-  buildQueueProgressSegments,
   matchesSceneListFilter,
   resolveSceneListStatus,
   type SceneListFilter,
@@ -49,15 +47,9 @@ interface EpisodeDirectoryItem {
   overview: string
 }
 
-const componentActive = ref(true)
-const toolbarTarget = inject(assetWorkbenchToolbarTargetKey, shallowRef(null))
-onActivated(() => { componentActive.value = true })
-onDeactivated(() => { componentActive.value = false })
-
 // State and actions come from the workbench page (see asset-workbench-videos-stage-context).
 const { state, actions } = useVideosStageContext()
 const {
-  toolbarActive,
   canExport,
   scenes,
   selectedSceneId,
@@ -113,10 +105,6 @@ const selectedReviewLabel = computed(() => {
     case 'running': return '正在审片'
     default: return '等待审片'
   }
-})
-
-const readySceneCount = computed(() => {
-  return state.scenes.filter(scene => scene.referenceStatus === 'done').length
 })
 
 const normalizedEpisodePlan = computed(() => {
@@ -625,18 +613,6 @@ watch(() => state.selectedSceneId, (sceneId) => {
   }
 })
 
-const queueProgress = computed(() => buildQueueProgressSegments(state.queueSummary, state.scenes.length))
-const QUEUE_SEGMENT_CLASS: Record<string, string> = {
-  done: 'bg-success',
-  running: 'bg-primary motion-safe:animate-pulse',
-  error: 'bg-destructive',
-  pending: 'bg-muted-foreground/20'
-}
-const queueProgressTitle = computed(() => queueProgress.value.segments
-  .filter(segment => segment.count > 0)
-  .map(segment => `${segment.label} ${segment.count}`)
-  .join(' · '))
-
 // Jump to the first failed scene (switching episode if needed) with the list filtered to failures.
 function showFailedScenes() {
   const failed = state.scenes.find(scene => resolveSceneListStatus(scene, state.isSceneBusy(scene)) === 'error')
@@ -757,86 +733,7 @@ watch(episodeDirectoryCollapsed, (value) => {
     @action="actions.goToParse?.()"
   />
   <template v-else>
-    <Teleport v-if="toolbarTarget" :to="toolbarTarget">
-      <div v-if="toolbarActive && componentActive" v-read-only-fence="fenceOptions" class="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <div class="flex min-w-0 flex-1 items-center gap-3">
-          <!-- Stacked progress: done / running / failed / not started -->
-          <div
-            class="flex h-1.5 w-40 shrink-0 overflow-hidden rounded-full bg-muted sm:w-56"
-            role="img"
-            :aria-label="`分镜视频进度：${queueProgressTitle || '暂无'}`"
-            v-tooltip="queueProgressTitle"
-          >
-            <span
-              v-for="segment in queueProgress.segments"
-              v-show="segment.count > 0"
-              :key="segment.key"
-              class="h-full transition-[width] duration-300 ease-out motion-reduce:transition-none"
-              :class="QUEUE_SEGMENT_CLASS[segment.key]"
-              :style="{ width: `${segment.percent}%` }"
-            />
-          </div>
-          <div
-            class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
-            aria-live="polite"
-          >
-            <span class="tabular-nums">
-              <span class="font-medium text-foreground">{{ queueSummary.done }}</span> / {{ queueProgress.total }} 已出片
-            </span>
-            <span
-              v-if="queueSummary.running > 0"
-              class="inline-flex items-center gap-1 tabular-nums"
-            >
-              <Loader2 class="h-3 w-3 animate-spin text-primary" />
-              {{ queueSummary.running }} 生成中
-            </span>
-            <button
-              v-if="queueSummary.error > 0"
-              type="button"
-              data-readonly-allowed
-              class="rounded px-1 tabular-nums text-destructive underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              @click="showFailedScenes"
-            >
-              {{ queueSummary.error }} 失败，查看
-            </button>
-            <span class="hidden tabular-nums lg:inline">
-              {{ episodeCount }} 集 · {{ scenes.length }} 场景 · 环境图就绪 {{ readySceneCount }}
-            </span>
-          </div>
-        </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger as-child>
-            <Button
-              data-export
-              size="sm"
-              variant="ghost"
-              class="h-7 w-7 shrink-0 p-0 text-muted-foreground"
-              aria-label="更多操作"
-              v-tooltip="'更多操作'"
-            >
-              <Loader2
-                v-if="exportingScriptDocx"
-                class="h-3.5 w-3.5 animate-spin"
-              />
-              <Ellipsis
-                v-else
-                class="h-4 w-4"
-              />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              :disabled="canExport === false || exportingScriptDocx || scenes.length === 0"
-              @select="actions.exportFormattedScriptDocx()"
-            >
-              <FileDown class="mr-2 h-4 w-4" />
-              导出格式化 DOCX
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </Teleport>
 
     <!-- Scene grid -->
     <div
@@ -996,6 +893,7 @@ watch(episodeDirectoryCollapsed, (value) => {
       <div class="order-2 relative min-h-0 flex flex-col gap-2 overflow-hidden pr-1">
         <div
           class="flex shrink-0 items-center gap-2 rounded-xl bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+          data-video-list-toolbar
         >
           <Button
             v-if="episodeCount > 0"
@@ -1015,7 +913,7 @@ watch(episodeDirectoryCollapsed, (value) => {
               class="h-3 w-3"
             />
           </Button>
-          <span class="min-w-0 truncate">{{ sceneListHeaderLabel }}</span>
+          <span class="min-w-0 flex-1 truncate">{{ sceneListHeaderLabel }}</span>
           <div
             v-if="selectedEpisodeScenes.length > 0"
             class="ml-auto flex shrink-0 items-center gap-0.5 rounded-lg bg-background/60 p-0.5"
@@ -1040,6 +938,39 @@ watch(episodeDirectoryCollapsed, (value) => {
               {{ option.label }} {{ sceneFilterCounts[option.key] }}
             </button>
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <Button
+                data-export
+                size="sm"
+                variant="ghost"
+                class="h-7 w-7 shrink-0 p-0 text-muted-foreground"
+                aria-label="分镜操作"
+                v-tooltip="'分镜操作'"
+              >
+                <Loader2
+                  v-if="exportingScriptDocx"
+                  class="h-3.5 w-3.5 animate-spin"
+                />
+                <Ellipsis
+                  v-else
+                  class="h-4 w-4"
+                />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem v-if="queueSummary.error > 0" data-readonly-allowed @select="showFailedScenes">
+                查看失败场景（{{ queueSummary.error }}）
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                :disabled="canExport === false || exportingScriptDocx || scenes.length === 0"
+                @select="actions.exportFormattedScriptDocx()"
+              >
+                <FileDown class="mr-2 h-4 w-4" />
+                导出格式化 DOCX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div
           ref="sceneListContainer"

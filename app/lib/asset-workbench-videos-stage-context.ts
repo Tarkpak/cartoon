@@ -46,7 +46,6 @@ export interface ShotReview {
  * Replaces ~75 props passed through the page template.
  */
 export interface VideosStageState {
-  toolbarActive?: boolean
   canExport?: boolean
   scenes: SceneData[]
   projectName: string

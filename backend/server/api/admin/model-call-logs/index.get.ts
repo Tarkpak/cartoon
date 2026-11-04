@@ -40,6 +40,16 @@ export default defineEventHandler((event) => {
     }
   }
 
+  const skill = String(query.skill || '').trim()
+  if (skill) {
+    whereParts.push(`EXISTS (SELECT 1 FROM json_each(l.skill_context_json, '$.skills') s WHERE instr(lower(json_extract(s.value, '$.name')), lower(?)) > 0 OR json_extract(s.value, '$.id') = ?)`)
+    params.push(skill, skill)
+  }
+  if (query.skillRunId) {
+    whereParts.push("json_extract(l.skill_context_json, '$.runId') = ?")
+    params.push(String(query.skillRunId))
+  }
+
   const keyword = String(query.keyword || '').trim()
   if (keyword) {
     whereParts.push(`(
@@ -95,7 +105,7 @@ export default defineEventHandler((event) => {
     .prepare(`
       SELECT l.id, l.user_id, u.account, u.display_name, l.request_id, l.provider, l.model_id,
              l.operation, l.project_id, l.scene_id, l.status, l.duration_ms, l.estimated_cost,
-             l.credits_charged, l.error_message, l.created_at
+             l.credits_charged, l.error_message, l.created_at, l.skill_context_json
       FROM model_call_logs l
       LEFT JOIN users u ON u.id = l.user_id
       ${where}

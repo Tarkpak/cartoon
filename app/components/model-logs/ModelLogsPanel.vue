@@ -6,6 +6,8 @@ import ModelLogsTable from '@/components/model-logs/ModelLogsTable.vue'
 
 const props = defineProps<{
   initialRequestId?: string
+  initialSkillRunId?: string
+  initialSkill?: string
 }>()
 
 const {
@@ -44,10 +46,21 @@ watch(() => props.initialRequestId, (value) => {
   filters.requestId = value || ''
   void fetchLogs()
 })
+filters.skillRunId = props.initialSkillRunId || ''
+filters.skill = props.initialSkill || ''
+watch(() => [props.initialSkillRunId, props.initialSkill], ([runId, skill]) => {
+  filters.skillRunId = runId || ''
+  filters.skill = skill || ''
+  void fetchLogs()
+})
 </script>
 
 <template>
   <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+    <div v-if="filters.skillRunId" class="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
+      <span class="truncate">技能执行 · {{ filters.skillRunId }}</span>
+      <Button variant="ghost" size="sm" @click="filters.skillRunId = ''; fetchLogs()">查看全部调用</Button>
+    </div>
     <ModelLogsFilters
       class="shrink-0"
       v-model:auto-refresh="autoRefresh"
@@ -61,6 +74,8 @@ watch(() => props.initialRequestId, (value) => {
       v-model:scene-id="filters.sceneId"
       v-model:status="filters.status"
       v-model:task-id="filters.taskId"
+      v-model:skill="filters.skill"
+      v-model:skill-run-id="filters.skillRunId"
       :all-filter-value="allFilterValue"
       :clearing="clearing"
       :fetch-error="fetchError"

@@ -97,6 +97,5 @@ const emit = defineEmits<{
         <slot name="actions" />
       </div>
     </div>
-    <slot name="toolbar" />
   </div>
 </template>

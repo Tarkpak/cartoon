@@ -135,6 +135,8 @@ mod project_conflict;
 mod project_collaboration;
 #[path = "backend/prompts_api.rs"]
 mod prompts_api;
+#[path = "backend/skills.rs"]
+mod skills;
 #[path = "backend/runtime_api.rs"]
 mod runtime_api;
 #[path = "backend/short_video.rs"]
@@ -167,6 +169,7 @@ struct ModelLogContext {
     scene_id: Option<String>,
     task_id: Option<String>,
     owner_user_id: Option<String>,
+    skill_context: Option<Value>,
 }
 
 #[derive(Clone)]
@@ -542,6 +545,7 @@ fn build_model_log_context(
         scene_id: sanitize_model_log_context_value(scene_id),
         task_id: sanitize_model_log_context_value(task_id),
         owner_user_id: config_connection().and_then(|conn| cloud_user_id(&conn)),
+        skill_context: None,
     }
 }
 
@@ -4493,6 +4497,7 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
         ("project_id", "TEXT"),
         ("scene_id", "TEXT"),
         ("task_id", "TEXT"),
+        ("skill_context_json", "TEXT"),
         ("cloud_payload_json", "TEXT"),
         ("cloud_sync_status", "TEXT NOT NULL DEFAULT 'legacy'"),
         ("cloud_sync_attempts", "INTEGER NOT NULL DEFAULT 0"),
@@ -5195,9 +5200,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
     set_global_db_path(state.db_path.clone());
     ensure_dirs(&state).map_err(|error| error.message.clone())?;
     init_database(&state).map_err(|error| error.message.clone())?;
+    skills::recover_runs(&state).map_err(|error| error.message.clone())?;
     spawn_video_enhance_task_poller(state.clone());
     spawn_image_enhance_task_poller(state.clone());
-    spawn_model_call_log_sync_poller();
+    spawn_model_call_log_sync_poller(state.clone());
     spawn_project_sync_poller(state.clone());
     if let Err(error) = resume_video_import_tasks(&state) {
         eprintln!("恢复视频转项目任务失败: {}", error.message);
@@ -5205,6 +5211,14 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
 
     let observability_state = state.clone();
     let router = Router::new()
+        .route("/api/skills", get(skills::api_list))
+        .route("/api/skills/install", post(skills::api_install).layer(DefaultBodyLimit::max(8 * 1024 * 1024)))
+        .route("/api/skills/online/search", get(skills::online::api_search))
+        .route("/api/skills/online/preview", post(skills::online::api_preview).layer(DefaultBodyLimit::max(8192)))
+        .route("/api/skills/online/install", post(skills::online::api_install).layer(DefaultBodyLimit::max(8192)))
+        .route("/api/skills/{id}", put(skills::api_change))
+        .route("/api/project/{id}/skills", get(skills::api_project_get).put(skills::api_project_put))
+        .route("/api/project/{id}/skill-runs", get(skills::api_runs))
         .route("/api/project/list", get(api_project_list))
         .route("/api/project/create", post(api_project_create))
         .route("/api/project/{id}/edit-session", post(api_project_edit_session))
@@ -12024,11 +12038,12 @@ fn pending_model_call_logs(limit: i64) -> Vec<(String, Value, String)> {
         .collect()
 }
 
-fn spawn_model_call_log_sync_poller() {
+fn spawn_model_call_log_sync_poller(state: BackendState) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
             interval.tick().await;
+            skills::logs::schedule(&state);
             for (log_id, body, owner_user_id) in pending_model_call_logs(100) {
                 if let Err(error) = cloud_upload_model_call_log(&log_id, body, &owner_user_id).await
                 {
@@ -12695,8 +12710,8 @@ fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usi
                id, timestamp, provider, model, operation, status, duration_ms, request_id,
                project_id, scene_id, request_json, request_raw_json, response_json,
                response_raw_json, media_refs_json, error_json, created_at, cloud_sync_status, cloud_synced_at,
-               owner_user_id, owner_account, owner_display_name
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?12, ?13, ?14, ?2, 'synced', ?2, ?15, ?16, ?17)
+               owner_user_id, owner_account, owner_display_name, skill_context_json
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?12, ?13, ?14, ?2, 'synced', ?2, ?15, ?16, ?17, ?18)
              ON CONFLICT(id) DO UPDATE SET
                timestamp = excluded.timestamp,
                provider = excluded.provider,
@@ -12727,7 +12742,8 @@ fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usi
                cloud_synced_at = excluded.cloud_synced_at,
                owner_user_id = excluded.owner_user_id,
                owner_account = excluded.owner_account,
-               owner_display_name = excluded.owner_display_name",
+               owner_display_name = excluded.owner_display_name,
+               skill_context_json = COALESCE(excluded.skill_context_json, model_debug_logs.skill_context_json)",
             params![
                 local_id,
                 if timestamp.is_empty() { now_iso() } else { timestamp },
@@ -12745,7 +12761,8 @@ fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usi
                 log.get("error_json").and_then(Value::as_str),
                 cloud_value_text(log, "user_id"),
                 cloud_value_text(log, "owner_account"),
-                cloud_value_text(log, "owner_display_name")
+                cloud_value_text(log, "owner_display_name"),
+                log.get("skill_context_json").and_then(Value::as_str)
             ],
         )
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -14374,6 +14391,8 @@ async fn api_debug_logs_get(
     let scene_id_filter = require_non_empty_alias("sceneId", &["sceneId", "scene_id"])?;
     let task_id_filter = require_non_empty_alias("taskId", &["taskId", "task_id"])?;
     let id_filter = require_non_empty_alias("id", &["id"])?;
+    let skill_filter = require_non_empty_alias("skill", &["skill"])?;
+    let skill_run_filter = require_non_empty_alias("skillRunId", &["skillRunId"])?;
 
     use rusqlite::types::Value as Bind;
     let mut where_parts: Vec<String> = Vec::new();
@@ -14381,6 +14400,15 @@ async fn api_debug_logs_get(
     if !owner.is_admin {
         where_parts.push("owner_user_id = ?".to_string());
         binds.push(Bind::Text(owner.user_id));
+    }
+    if let Some(value) = &skill_run_filter {
+        where_parts.push("lower(json_extract(skill_context_json, '$.runId')) = ?".into());
+        binds.push(Bind::Text(value.clone()));
+    }
+    if let Some(value) = &skill_filter {
+        where_parts.push("EXISTS (SELECT 1 FROM json_each(skill_context_json, '$.skills') s WHERE instr(lower(json_extract(s.value, '$.name')), ?) > 0 OR lower(json_extract(s.value, '$.id')) = ?)".into());
+        binds.push(Bind::Text(value.clone()));
+        binds.push(Bind::Text(value.clone()));
     }
     if let Some(value) = &id_filter {
         where_parts.push("lower(id) = ?".to_string());
@@ -14460,7 +14488,7 @@ async fn api_debug_logs_get(
         .prepare(&format!(
             "SELECT id, timestamp, provider, model, operation, status, duration_ms,
                     endpoint, request_id, project_id, scene_id, task_id, {},
-                    owner_account, owner_display_name
+                    owner_account, owner_display_name, skill_context_json
              FROM model_debug_logs{} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
             detail_columns, where_clause
         ))
@@ -14489,6 +14517,7 @@ async fn api_debug_logs_get(
                 row.get::<_, Option<String>>(17)?,
                 row.get::<_, Option<String>>(18)?,
                 row.get::<_, Option<String>>(19)?,
+                row.get::<_, Option<String>>(20)?,
             ))
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -14528,6 +14557,7 @@ async fn api_debug_logs_get(
         error_json,
         owner_account,
         owner_display_name,
+        skill_context_json,
     ) in logs_raw
     {
         logs.push(json!({
@@ -14550,7 +14580,8 @@ async fn api_debug_logs_get(
           "mediaRefs": parse_json(media_refs_json),
           "error": parse_json(error_json),
           "ownerAccount": owner_account,
-          "ownerDisplayName": owner_display_name
+          "ownerDisplayName": owner_display_name,
+          "skillContext": parse_json(skill_context_json)
         }))
     }
     Ok(Json(

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { assetWorkbenchToolbarTargetKey } from '~/lib/asset-workbench-toolbar'
 import ProjectEditSessionBanner from '@/components/projects/ProjectEditSessionBanner.vue'
 import ProjectMembersDialog from '@/components/projects/ProjectMembersDialog.vue'
 import ProjectCollaboratorsMenu from '@/components/projects/ProjectCollaboratorsMenu.vue'
@@ -1368,7 +1367,6 @@ function reportWorkbenchActivity() {
 // context instead of ~30 props and ~35 events on the template.
 provideAssetsStageContext({
   state: reactive({
-    toolbarActive: computed(() => activeAutoStage.value === 'assets'),
     readOnly: computed(() => !canEditProject.value),
     canSaveToLibrary: canExportProject,
     scenesCount: computed(() => scenes.value.length),
@@ -1450,7 +1448,6 @@ provideAssetsStageContext({
 // The videos stage gets its ~75 inputs the same way.
 provideVideosStageContext({
   state: reactive({
-    toolbarActive: computed(() => activeAutoStage.value === 'videos'),
     readOnly: computed(() => !canEditProject.value),
     canExport: canExportProject,
     scenes,
@@ -1540,8 +1537,6 @@ provideVideosStageContext({
     selectSceneDescriptionVersion
   }
 })
-const toolbarTarget = shallowRef<HTMLElement | null>(null)
-provide(assetWorkbenchToolbarTargetKey, toolbarTarget)
 </script>
 
 <template>
@@ -1562,10 +1557,8 @@ provide(assetWorkbenchToolbarTargetKey, toolbarTarget)
       @back="router.push('/projects')"
       @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
     >
-      <template #toolbar>
-        <div ref="toolbarTarget" id="workbench-stage-toolbar" class="empty:hidden" />
-      </template>
       <template #actions>
+        <Button v-if="projectId" variant="ghost" size="sm" @click="router.push({ path: '/settings', query: { section: 'skills', project: projectId } })">项目技能</Button>
         <AssetWorkbenchTaskPanel
           :tasks="workbenchTasks"
           :read-only="!canEditProject"
@@ -1671,9 +1664,8 @@ provide(assetWorkbenchToolbarTargetKey, toolbarTarget)
       @go-to-videos="selectAutoStage('videos')"
     />
 
-    <!-- Keep the cache mounted across every stage. Leaving assets/videos must
-         deactivate the cached child (including its toolbar Teleport), rather
-         than destroy the cache while that child is still active. -->
+    <!-- Stage controls stay inside their cached panel, so inactive stages cannot
+         leave duplicate controls in the shared page header. -->
     <AssetWorkbenchStagePanel
       v-show="activeAutoStage === 'assets' || activeAutoStage === 'videos'"
       content-class="flex-1 min-h-0 overflow-hidden flex flex-col gap-2"

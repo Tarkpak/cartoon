@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SKILL_STAGE_LABELS } from '#shared/types/skill'
 import { Check, Copy, Music2, X } from 'lucide-vue-next'
 import type { ModelDebugLogEntry, ModelDebugMediaRef } from '@/composables/useModelDebugLogs'
 import DurationIndicator from '@/components/logs/DurationIndicator.vue'
@@ -314,6 +315,13 @@ watch(open, (value) => {
           v-if="props.activeLog"
           class="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 overscroll-contain"
         >
+          <section v-if="props.activeLog.skillContext" class="space-y-2 rounded-lg border p-4 text-sm">
+            <h3 class="font-medium">本次使用的技能 · {{ SKILL_STAGE_LABELS[props.activeLog.skillContext.stage] }}</h3>
+            <p v-for="skill in props.activeLog.skillContext.skills" :key="skill.id">{{ skill.name }} <span class="text-muted-foreground">v{{ skill.version }}</span></p>
+            <p v-if="props.activeLog.skillContext.batchStart" class="text-xs text-muted-foreground">第 {{ props.activeLog.skillContext.batchStart }}–{{ props.activeLog.skillContext.batchEnd }} 镜 · 第 {{ props.activeLog.skillContext.attempt }} 次尝试</p>
+            <p class="break-all text-xs text-muted-foreground">执行编号 {{ props.activeLog.skillContext.runId }}</p>
+            <RouterLink :to="{ path: '/logs', query: { tab: 'model', skillRunId: props.activeLog.skillContext.runId } }" class="inline-block text-primary hover:underline" @click="open = false">查看本次执行的全部调用</RouterLink>
+          </section>
           <div class="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
             <div class="rounded border p-3">
               <p class="text-xs text-muted-foreground">

@@ -19,6 +19,8 @@ const requestId = defineModel<string>('requestId', { required: true })
 const projectId = defineModel<string>('projectId', { required: true })
 const sceneId = defineModel<string>('sceneId', { required: true })
 const taskId = defineModel<string>('taskId', { required: true })
+const skill = defineModel<string>('skill', { required: true })
+const skillRunId = defineModel<string>('skillRunId', { required: true })
 const keyword = defineModel<string>('keyword', { required: true })
 const limit = defineModel<number>('limit', { required: true })
 
@@ -160,6 +162,8 @@ function normalizeSelectValue(value: string) {
           v-model="taskId"
           placeholder="任务 ID"
         />
+        <Input v-model="skill" placeholder="技能名称或 ID" aria-label="技能名称或 ID" />
+        <Input v-model="skillRunId" placeholder="技能执行编号" aria-label="技能执行编号" />
       </div>
 
       <div class="flex flex-wrap items-center gap-3">
