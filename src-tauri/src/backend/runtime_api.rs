@@ -5172,17 +5172,26 @@ fn extract_timeline_lines(text: &str) -> Vec<String> {
     text.lines()
         .map(str::trim)
         .filter(|line| {
-            let Some((range, rest)) = line.split_once(['：', ':']) else {
+            let line = line
+                .strip_prefix("镜头设计：")
+                .or_else(|| line.strip_prefix("镜头设计:"))
+                .unwrap_or(line)
+                .trim();
+            let Some((range, rest)) = line.split_once(['秒', 's', 'S']) else {
                 return false;
             };
-            if rest.trim().is_empty() || !range.contains('-') {
+            let rest = rest.trim_start();
+            if !rest.starts_with(['：', ':', '，', ',', '｜', '|'])
+                || rest.chars().skip(1).all(char::is_whitespace)
+            {
                 return false;
             }
-            let normalized = range.replace('秒', "").replace('s', "").replace('S', "");
+            let normalized = range.replace(['–', '—', '~', '～', '至'], "-");
             let mut parts = normalized.split('-');
             let start = parts.next().unwrap_or("").trim().parse::<f64>();
             let end = parts.next().unwrap_or("").trim().parse::<f64>();
-            start.is_ok() && end.is_ok()
+            matches!((start, end), (Ok(start), Ok(end)) if start.is_finite() && end.is_finite() && start >= 0.0 && end > start)
+                && parts.next().is_none()
         })
         .map(str::to_string)
         .collect()
@@ -5252,6 +5261,29 @@ fn normalize_refined_scene_description(
         format!("{}\n\n镜头设计：\n{}", refined_core, fallback_timeline)
             .trim()
             .to_string()
+    }
+}
+
+#[cfg(test)]
+mod scene_refinement_timeline_tests {
+    use super::*;
+
+    #[test]
+    fn keeps_model_timeline_without_duplicating_the_description() {
+        let refined = "场景功能与情绪：意外生疑。\n\n0.0—5.2秒｜中景，老板娘递餐。\n\n5.2—10.0秒｜主人公单人中近景。";
+        assert_eq!(normalize_refined_scene_description(refined, "旧描述", 10.0), refined);
+        for line in ["0-5秒：中景。", "镜头设计：0-5秒，中景。", "0–5s | 中景。", "0至5秒，中景。"] {
+            assert_eq!(extract_timeline_lines(line), vec![line.to_string()]);
+        }
+    }
+
+    #[test]
+    fn only_adds_a_fallback_when_no_valid_timeline_exists() {
+        for line in ["动作持续0-5秒，然后停住。", "5-0秒：中景。", "0-5-10秒：中景。"] {
+            assert!(extract_timeline_lines(line).is_empty());
+        }
+        let normalized = normalize_refined_scene_description("主人公停住目光。", "0-5秒：中景。", 5.0);
+        assert_eq!(normalized, "主人公停住目光。\n\n镜头设计：\n0-5秒：中景。");
     }
 }
 

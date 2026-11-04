@@ -598,7 +598,9 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
       return true
     } catch (error) {
       const message = getDisplayErrorMessage(error, '未知错误')
-      if (/413|payload too large|request entity too large/i.test(message)) {
+      const status = (error as { status?: number, statusCode?: number, response?: { status?: number } } | null)
+      if (status?.status === 413 || status?.statusCode === 413 || status?.response?.status === 413
+        || /\b413\b|payload too large|request entity too large/i.test(message)) {
         saveError.value = '图片数据过大，项目未完整保存。请增大反向代理请求体限制（例如 Nginx client_max_body_size 50m）后重试。'
       } else {
         saveError.value = message

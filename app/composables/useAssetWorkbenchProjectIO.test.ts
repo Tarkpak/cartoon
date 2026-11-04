@@ -254,6 +254,22 @@ describe('useAssetWorkbenchProjectIO', () => {
     expect(putCalls).toHaveLength(0)
   })
 
+  it.each([
+    ['分镜 scene_abc413def 引用了不存在的集数 episode_004', '分镜 scene_abc413def 引用了不存在的集数 episode_004'],
+    ['413 Payload Too Large', '图片数据过大']
+  ])('reports the correct save error for %s', async (message, expected) => {
+    fetchMock.mockImplementation(async (_url: string, options?: FetchOptions) => {
+      if (options?.method === 'PUT') throw new Error(message)
+      return createLoadResponse()
+    })
+    const { io, state } = createProjectIO()
+    await io.loadProject(projectId)
+    state.characters.value = [createCharacter('new_character')]
+
+    expect(await io.saveProject()).toBe(false)
+    expect(io.saveError.value).toContain(expected)
+  })
+
   it('does not mutate live character references while comparing save snapshots', async () => {
     collaborationMock.editable = false
     fetchMock.mockImplementation(async (_url: string, options?: FetchOptions) => options?.method === 'PUT'

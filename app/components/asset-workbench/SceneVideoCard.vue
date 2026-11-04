@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Clock3, History, ImagePlus, Loader2, Merge, MessageCircle, Split, Trash2 } from 'lucide-vue-next'
 import LazyImage from '~/components/LazyImage.vue'
+import { buildSceneDescriptionBlocks } from '~/lib/scene-description-layout'
 import type { SceneData } from '~/composables/useAssetWorkbench'
 import type {
   DisplayAsset,
@@ -91,6 +92,7 @@ const props = defineProps<{
 const videoBadge = computed(() => props.resolveSceneVideoBadge(props.scene))
 const voiceReferenceSummary = computed(() => props.resolveSceneVoiceReferenceSummary(props.scene))
 const descriptionSegments = computed(() => props.resolveSceneDescriptionRenderSegments(props.scene))
+const descriptionBlocks = computed(() => buildSceneDescriptionBlocks(descriptionSegments.value))
 const secondaryMentions = computed(() => props.resolveSceneDescriptionSecondaryMentionItems(props.scene))
 const inlineRenderedMentionAssetIdSet = computed(() => {
   const ids = new Set<string>()
@@ -239,43 +241,54 @@ function handleSetSceneNarrationVoiceReference(value: unknown) {
       </div>
     </div>
 
-    <div class="mt-1 break-words text-xs leading-6 text-muted-foreground">
-      <template
-        v-for="(segment, segmentIndex) in descriptionSegments"
-        :key="`scene_desc_segment_${scene.id}_${segmentIndex}`"
+    <div class="mt-3 space-y-3 break-words text-xs leading-6 text-muted-foreground">
+      <div
+        v-for="(block, blockIndex) in descriptionBlocks"
+        :key="blockIndex"
+        :class="block.label && blockIndex > 0 ? 'pt-3' : ''"
       >
-        <span
-          v-if="segment.type === 'text'"
-          class="whitespace-pre-wrap"
-        >
-          {{ segment.text }}
-        </span>
-        <Button
-          v-else-if="segment.asset?.referenceImage"
-          type="button"
-          variant="ghost"
-          class="mx-0.5 inline-flex h-7 max-w-[140px] items-center gap-1 rounded border bg-muted/30 px-1 align-middle"
-          @click.stop="onPreviewImage(segment.asset.referenceImage, `${scene.title} · ${segment.asset.name}`)"
-        >
-          <LazyImage
-            :image="segment.asset.referenceImage"
-            :alt="`${segment.asset.name} 参考图`"
-            class="h-5 w-5 rounded border object-cover"
-          />
-          <span class="truncate text-xs">
-            {{ segment.asset.name }}
-          </span>
-        </Button>
-        <Badge
-          v-else-if="segment.asset"
-          variant="outline"
-          class="mx-0.5 inline-flex max-w-[140px] align-middle text-xs"
-        >
-          <span class="truncate">
-            {{ segment.asset.name }}
-          </span>
-        </Badge>
-      </template>
+        <div v-if="block.label" class="mb-1 text-xs font-medium text-foreground/80">
+          {{ block.label }}
+        </div>
+        <div>
+          <template
+            v-for="(segment, segmentIndex) in block.segments"
+            :key="`scene_desc_segment_${scene.id}_${segmentIndex}`"
+          >
+            <span
+              v-if="segment.type === 'text'"
+              class="whitespace-pre-wrap"
+            >
+              {{ segment.text }}
+            </span>
+            <Button
+              v-else-if="segment.asset?.referenceImage"
+              type="button"
+              variant="ghost"
+              class="mx-0.5 inline-flex h-7 max-w-[140px] items-center gap-1 rounded border bg-muted/30 px-1 align-middle"
+              @click.stop="onPreviewImage(segment.asset.referenceImage, `${scene.title} · ${segment.asset.name}`)"
+            >
+              <LazyImage
+                :image="segment.asset.referenceImage"
+                :alt="`${segment.asset.name} 参考图`"
+                class="h-5 w-5 rounded border object-cover"
+              />
+              <span class="truncate text-xs">
+                {{ segment.asset.name }}
+              </span>
+            </Button>
+            <Badge
+              v-else-if="segment.asset"
+              variant="outline"
+              class="mx-0.5 inline-flex max-w-[140px] align-middle text-xs"
+            >
+              <span class="truncate">
+                {{ segment.asset.name }}
+              </span>
+            </Badge>
+          </template>
+        </div>
+      </div>
     </div>
 
     <div

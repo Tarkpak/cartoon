@@ -462,6 +462,7 @@ export function useAssetWorkbenchGeneration(
       const title = options.projectName.value && options.projectName.value !== '新项目'
         ? options.projectName.value
         : '科普拆解'
+      options.scenes.value = []
       options.episodePlan.value = [{
         id: 'episode_origin_explainer',
         title,
@@ -516,6 +517,9 @@ export function useAssetWorkbenchGeneration(
       )
       if (!isCurrentParseOperation(operation)) return false
       if (!episodes.length) throw new Error('分集目录模型结果为空，请重试或检查模型配置')
+      // Replace the directory and its derived scenes together before saving.
+      // Old scenes can reference episodes removed by the regenerated plan.
+      options.scenes.value = []
       options.episodePlan.value = episodes
       mergeCharactersFromEpisodeAssets(episodes)
       await saveProjectOrThrow('分集目录生成完成', operation.projectId)

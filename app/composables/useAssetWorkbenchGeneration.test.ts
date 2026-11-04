@@ -232,6 +232,34 @@ describe('useAssetWorkbenchGeneration', () => {
     })
   })
 
+  it('removes old scenes before saving a regenerated directory with fewer episodes', async () => {
+    const { generation, episodePlan, scenes, saveProject } = createGeneration()
+    episodePlan.value = [createEpisode(1), createEpisode(4)]
+    scenes.value = buildLoadedScenes([{ id: 'old_scene', episodeId: 'episode_004', description: '旧镜头', duration: 8 }])
+    prepareEpisodePlanMock.mockResolvedValue([createEpisode(1)])
+    saveProject.mockImplementation(async () => {
+      expect(episodePlan.value.map(episode => episode.id)).toEqual(['episode_001'])
+      expect(scenes.value).toEqual([])
+      return true
+    })
+
+    expect(await generation.prepareEpisodePlan()).toBe(true)
+    expect(saveProject).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves the existing directory and scenes when regeneration fails', async () => {
+    const { generation, episodePlan, scenes, saveProject } = createGeneration()
+    episodePlan.value = [createEpisode(4)]
+    scenes.value = buildLoadedScenes([{ id: 'old_scene', episodeId: 'episode_004', description: '旧镜头', duration: 8 }])
+    const previousScenes = JSON.parse(JSON.stringify(scenes.value))
+    prepareEpisodePlanMock.mockResolvedValue([])
+
+    expect(await generation.prepareEpisodePlan()).toBe(false)
+    expect(episodePlan.value).toEqual([createEpisode(4)])
+    expect(scenes.value).toEqual(previousScenes)
+    expect(saveProject).not.toHaveBeenCalled()
+  })
+
   it('plans assets using the project style and preserves existing visual settings and images', async () => {
     const { generation, characters } = createGeneration()
     characters.value = [{ id: 'char_plan_existing', name: '主人公', appearance: '用户指定的蓝色工装', baseImage: 'saved.png', role: '主角', generating: false, generatingViews: false }]

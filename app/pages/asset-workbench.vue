@@ -58,7 +58,7 @@ import type { GenerateSceneBaselineOptions } from '~/lib/asset-workbench-scene-g
 import { applyArkVirtualAssetBinding } from '~/lib/ark-virtual-assets'
 import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 import { requestSceneChatDescriptionRewrite } from '~/lib/asset-workbench-scene-chat'
-import { MessageCircle, Sparkles, X } from 'lucide-vue-next'
+import { Sparkles, X } from 'lucide-vue-next'
 import { Dialog, DialogTitle } from '@/components/ui/dialog'
 import { SheetContent } from '@/components/ui/sheet'
 import type { ShotReview } from '~/lib/asset-workbench-videos-stage-context'
@@ -1192,21 +1192,6 @@ function openDirector(sceneId: string) {
   directorOpen.value = true
 }
 
-function openFloatingAssistant() {
-  directorInstruction.value = ''
-  directorDrafts.value = []
-  directorError.value = ''
-  if (activeAutoStage.value === 'assets') {
-    directorMode.value = 'asset'
-    directorAssetId.value = assistantAssetOptions.value.some(item => item.id === focusedAssistantAsset.value?.id)
-      ? focusedAssistantAsset.value!.id : ''
-  } else {
-    directorMode.value = 'scene'
-    directorScope.value = activeAutoStage.value === 'videos' ? 'scene' : 'project'
-  }
-  directorOpen.value = true
-}
-
 watch(() => scenes.value.map(scene => `${scene.id}:${scene.videoStatus}:${scene.videoUrl || ''}`).join('|'), () => { void reviewPendingShots() }, { immediate: true })
 watch(canEditProject, () => { void reviewPendingShots() })
 
@@ -1231,11 +1216,18 @@ async function selectSceneDescriptionVersion(sceneId: string, versionId: string)
 }
 
 watch(
-  () => scenes.value.map(scene => scene.id),
-  (sceneIds) => {
+  () => scenes.value.map(scene => ({ id: scene.id, episodeId: scene.episodeId, episodeIndex: scene.episodeIndex })),
+  (currentScenes, previousScenes) => {
+    const previousSelection = previousScenes?.find(scene => scene.id === selectedSceneId.value)
+    if (previousSelection && !currentScenes.some(scene => scene.id === previousSelection.id)) {
+      const replacement = currentScenes.find(scene => previousSelection.episodeId
+        ? scene.episodeId === previousSelection.episodeId
+        : scene.episodeIndex === previousSelection.episodeIndex)
+      if (replacement) selectedSceneId.value = replacement.id
+    }
     synchronizeSceneConfigs()
     synchronizeQueueItems()
-    syncSceneChatValidScenes(sceneIds)
+    syncSceneChatValidScenes(currentScenes.map(scene => scene.id))
   },
   { immediate: true }
 )
@@ -1807,14 +1799,5 @@ provideVideosStageContext({
       @select="handleCharacterArkAssetSelect"
     />
 
-    <Button
-      v-if="canEditProject && !directorOpen && (scenes.length > 0 || (activeAutoStage === 'assets' && (characters.length > 0 || environmentAssetCards.length > 0 || propAssets.length > 0)))"
-      type="button"
-      class="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full p-0 shadow-lg shadow-black/20 transition-transform duration-150 active:scale-[0.96]"
-      aria-label="打开 AI 对话修改"
-      @click="openFloatingAssistant"
-    >
-      <MessageCircle class="h-5 w-5" />
-    </Button>
   </div>
 </template>

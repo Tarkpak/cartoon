@@ -346,7 +346,7 @@ onUnmounted(() => {
           <img
             :src="src"
             :alt="alt"
-            class="max-h-full max-w-full object-contain will-change-transform"
+            class="h-full w-full object-contain will-change-transform"
             :style="imageStyle"
             draggable="false"
             @click.stop
