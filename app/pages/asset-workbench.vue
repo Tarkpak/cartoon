@@ -27,6 +27,7 @@ import { useAssetWorkbenchWorkflowMetaAutoSave } from '~/composables/useAssetWor
 import { buildEpisodeOverviews } from '~/lib/asset-workbench-episode-overview'
 import { provideAssetsStageContext } from '~/lib/asset-workbench-assets-stage-context'
 import { provideVideosStageContext } from '~/lib/asset-workbench-videos-stage-context'
+import { hasWindowsTitlebarControls } from '~/lib/desktop-titlebar'
 import { projectAccessCan } from '#shared/types/project'
 import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
@@ -1271,7 +1272,7 @@ provideVideosStageContext({
 </script>
 
 <template>
-  <div class="h-full min-h-0 overflow-hidden p-3 flex flex-col gap-2" @input="reportWorkbenchActivity">
+  <div class="h-full min-h-0 overflow-hidden px-3 pb-3 flex flex-col gap-2" :class="hasWindowsTitlebarControls() ? 'pt-2' : 'pt-3'" @input="reportWorkbenchActivity">
     <AssetWorkbenchHeaderBar
       :project-name="projectName"
       :project-description="projectDescription"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Images, Library, MicVocal, PenLine, ChevronsUpDown, Monitor, Check } from 'lucide-vue-next'
+import { Folder, Settings, Clapperboard, Workflow, FileText, Palette, ScrollText, Cloud, SlidersHorizontal, FlaskConical, ChevronsLeft, ChevronsRight, LogOut, Sun, Moon, FileVideo, Wrench, WandSparkles, Download, Database, ChevronDown, AudioLines, Images, Library, MicVocal, PenLine, ChevronsUpDown, Monitor, Check, Minus, Square, Copy, X } from 'lucide-vue-next'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,7 +11,7 @@ import {
 import { useCloudAdmin } from '@/composables/useCloudAdmin'
 import { createClickRipple } from '@/lib/ripple'
 import type { ThemePreference } from '@/composables/useTheme'
-import { hasOverlayTitlebar } from '@/lib/desktop-titlebar'
+import { hasOverlayTitlebar, hasWindowsTitlebarControls } from '@/lib/desktop-titlebar'
 import { pageScrollMemory } from '@/lib/keep-alive-scroll-restore'
 
 const route = useRoute()
@@ -213,6 +213,21 @@ const visualSidebarCollapsed = computed(() => isCollapsed.value || isNarrowSideb
 // the logo row's center; full-width pages need a taller strip because the lights overlap their left edge.
 // SPA only (no SSR), so this is resolved synchronously to avoid a layout shift on first paint.
 const overlayTitlebar = hasOverlayTitlebar()
+const windowsTitlebarControls = hasWindowsTitlebarControls()
+const inlineWindowControls = computed(() => windowsTitlebarControls && route.path === '/asset-workbench')
+const windowMaximized = ref(false)
+if (windowsTitlebarControls) {
+  onMounted(async () => {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    windowMaximized.value = await getCurrentWindow().isMaximized()
+  })
+}
+async function controlWindow(action: 'minimize' | 'toggleMaximize' | 'close') {
+  const { getCurrentWindow } = await import('@tauri-apps/api/window')
+  const currentWindow = getCurrentWindow()
+  await currentWindow[action]()
+  if (action === 'toggleMaximize') windowMaximized.value = await currentWindow.isMaximized()
+}
 const titlebarStripClass = computed(() => {
   if (!overlayTitlebar) return ''
   return hideSidebar.value ? 'h-8' : 'h-5'
@@ -599,12 +614,12 @@ function handleThemeSelect(pref: ThemePreference, event: Event) {
       class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       :class="hideSidebar ? '' : 'pl-4'"
     >
-      <div
-        v-if="titlebarStripClass"
-        class="shrink-0"
-        :class="titlebarStripClass"
-        data-tauri-drag-region
-      />
+      <div v-if="windowsTitlebarControls" class="z-30 flex h-9 items-center justify-end" :class="inlineWindowControls ? 'absolute right-0 top-0' : 'shrink-0'" data-tauri-drag-region>
+        <button type="button" class="grid h-9 w-11 place-items-center text-muted-foreground hover:bg-accent" aria-label="最小化" @click="controlWindow('minimize')"><Minus class="h-4 w-4" /></button>
+        <button type="button" class="grid h-9 w-11 place-items-center text-muted-foreground hover:bg-accent" :aria-label="windowMaximized ? '还原窗口' : '最大化'" @click="controlWindow('toggleMaximize')"><Copy v-if="windowMaximized" class="h-3.5 w-3.5" /><Square v-else class="h-3.5 w-3.5" /></button>
+        <button type="button" class="grid h-9 w-11 place-items-center text-muted-foreground hover:bg-destructive hover:text-destructive-foreground" aria-label="关闭" @click="controlWindow('close')"><X class="h-4 w-4" /></button>
+      </div>
+      <div v-else-if="titlebarStripClass" class="shrink-0" :class="titlebarStripClass" data-tauri-drag-region />
       <div
         ref="pageScrollContainer"
         data-page-scroll-container

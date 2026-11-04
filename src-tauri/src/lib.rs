@@ -272,7 +272,9 @@ fn create_main_window(app: &tauri::App) -> Result<(), String> {
 
     let window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url));
     #[cfg(target_os = "windows")]
-    let window_builder = window_builder.additional_browser_args(WEBVIEW_DIRECT_NETWORK_ARGS);
+    let window_builder = window_builder
+        .additional_browser_args(WEBVIEW_DIRECT_NETWORK_ARGS)
+        .decorations(false);
     // macOS: hide the native title bar and let the web content extend under the traffic lights;
     // the frontend reserves room for them and marks drag regions (see app/lib/desktop-titlebar.ts).
     #[cfg(target_os = "macos")]
@@ -284,7 +286,7 @@ fn create_main_window(app: &tauri::App) -> Result<(), String> {
     window_builder
         .title("Playlet")
         .inner_size(1280.0, 860.0)
-        .min_inner_size(1024.0, 720.0)
+        .min_inner_size(1024.0, 560.0)
         .resizable(true)
         .build()
         .map_err(|error| format!("创建主窗口失败: {}", error))?;

@@ -12,3 +12,9 @@ export function hasOverlayTitlebar(runtime: TauriWindow | undefined = typeof win
   const isDesktop = !!runtime.__TAURI__ || !!runtime.__TAURI_INTERNALS__
   return isDesktop && /Mac/i.test(runtime.navigator?.userAgent ?? '')
 }
+
+export function hasWindowsTitlebarControls(runtime: TauriWindow | undefined = typeof window === 'undefined' ? undefined : window): boolean {
+  if (!runtime) return false
+  return (!!runtime.__TAURI__ || !!runtime.__TAURI_INTERNALS__)
+    && /Windows/i.test(runtime.navigator?.userAgent ?? '')
+}

@@ -2,6 +2,7 @@
 import { ArrowLeft, Eye } from 'lucide-vue-next'
 import type { ScriptParseMode } from '#shared/types/script'
 import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
+import { hasWindowsTitlebarControls } from '~/lib/desktop-titlebar'
 import type {
   AutoStageKey,
   AutoStageStatus
@@ -32,6 +33,14 @@ const styleSummary = computed(() => {
 })
 
 const metaSummary = computed(() => [styleSummary.value, props.projectAspectRatio].filter(Boolean).join(' · '))
+const windowsTitlebarControls = hasWindowsTitlebarControls()
+async function startWindowDrag(event: PointerEvent) {
+  if (!windowsTitlebarControls || event.button !== 0) return
+  const target = event.target
+  if (!(target instanceof Element) || target.closest('button, a, input, select, textarea, [role="button"], [data-no-window-drag]')) return
+  const { getCurrentWindow } = await import('@tauri-apps/api/window')
+  await getCurrentWindow().startDragging()
+}
 
 const emit = defineEmits<{
   (e: 'back'): void
@@ -40,9 +49,9 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="flex shrink-0 flex-col gap-1.5 border-b pb-2">
+  <div class="flex shrink-0 flex-col gap-1.5 border-b pb-2" :class="windowsTitlebarControls ? '-mt-1.5' : ''" data-tauri-drag-region @pointerdown="startWindowDrag">
     <!-- Three zones: identity | stage navigation | session & tasks -->
-    <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+    <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]" :class="windowsTitlebarControls ? 'pr-[132px]' : ''" data-tauri-drag-region>
       <div class="flex min-w-0 items-center gap-2">
         <IconActionButton
           label="返回项目列表"
