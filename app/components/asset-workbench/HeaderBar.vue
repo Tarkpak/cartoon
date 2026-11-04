@@ -97,6 +97,6 @@ const emit = defineEmits<{
         <slot name="actions" />
       </div>
     </div>
-    <div id="workbench-stage-toolbar" class="empty:hidden" />
+    <slot name="toolbar" />
   </div>
 </template>

@@ -98,21 +98,24 @@ fn canonical_dialogue(text: &str) -> String {
         .collect()
 }
 
-// Check explicit Markdown speaker lines. Unlabelled prose is preserved in the assigned source,
-// but cannot safely be classified as dialogue without an additional semantic model call.
+// Accept both Markdown speaker labels and plain speaker:quoted-speech lines.
+// Do not classify arbitrary prose/scene metadata containing a colon as dialogue.
 fn dialogue_lines(source: &str) -> Vec<String> {
     source
         .lines()
         .filter_map(|line| {
-            let line = line.trim().strip_prefix("**")?;
-            let end = line.find("**")?;
-            let speaker = &line[..end];
-            if speaker.contains(['【', '#']) || speaker.chars().count() > 40 {
+            let raw = line.trim();
+            let markdown = raw.starts_with("**");
+            let line = without_parentheticals(raw);
+            let (speaker, dialogue) = line.split_once('：').or_else(|| line.split_once(':'))?;
+            let speaker = speaker.trim().trim_matches('*');
+            if speaker.is_empty() || speaker.contains(['【', '#', '。', '，']) || speaker.chars().count() > 40 {
                 return None;
             }
-            // A direction can contain a colon: **甲**（心声：先想一想）：真正台词。
-            let line = without_parentheticals(line);
-            let (_, dialogue) = line.split_once('：').or_else(|| line.split_once(':'))?;
+            let dialogue = dialogue.trim();
+            if !markdown && !dialogue.starts_with(['“', '「', '『', '"']) {
+                return None;
+            }
             Some(dialogue.to_string())
         })
         .flat_map(|dialogue| {
@@ -160,7 +163,6 @@ fn validate_batch(value: &Value, source: &str, max_duration: u64) -> Result<(), 
         .and_then(Value::as_array)
         .filter(|scenes| !scenes.is_empty())
         .ok_or("分镜列表为空")?;
-    let mut output = String::new();
     for scene in scenes {
         if !scene
             .pointer("/setting/location")
@@ -171,7 +173,7 @@ fn validate_batch(value: &Value, source: &str, max_duration: u64) -> Result<(), 
         {
             return Err("分镜缺少地点、人物或道具列表".into());
         }
-        let description = scene
+        scene
             .get("description")
             .and_then(Value::as_str)
             .filter(|s| !s.trim().is_empty())
@@ -183,13 +185,20 @@ fn validate_batch(value: &Value, source: &str, max_duration: u64) -> Result<(), 
         {
             return Err(format!("分镜时长必须为 4-{max_duration} 秒的整数"));
         }
-        output.push_str(&canonical_dialogue(description));
     }
+    validate_dialogue(value, source)
+}
+
+pub(super) fn validate_dialogue(value: &Value, source: &str) -> Result<(), String> {
+    let data = value.get("data").unwrap_or(value);
+    let output = data.get("scenes").and_then(Value::as_array).into_iter().flatten()
+        .filter_map(|scene| scene.get("description").and_then(Value::as_str))
+        .map(canonical_dialogue).collect::<String>();
     // Consume in sequence: repeated lines must appear repeatedly, and order must match the source.
     let mut rest = output.as_str();
     for dialogue in dialogue_lines(source) {
         let Some(offset) = rest.find(&dialogue) else {
-            return Err("原文对白存在遗漏、改写或顺序错误，请完整保留本批全部台词".to_string());
+            return Err("原文对白存在遗漏、改写或顺序错误，请完整保留输入正文的全部台词".to_string());
         };
         rest = &rest[offset + dialogue.len()..];
     }
@@ -554,6 +563,16 @@ mod tests {
         assert!(!should_batch(
             &json!({"text": text, "scriptParseMode": "origin_explainer"})
         ));
+    }
+
+    #[test]
+    fn validates_plain_quoted_dialogue_without_treating_metadata_as_speech() {
+        let source = "老板娘：“三十八一份。”\n主人公（心声：先确认）：\"带米饭吗？\"\n老板娘：「带。」";
+        assert_eq!(dialogue_lines(source), vec!["三十八一份", "带米饭吗", "带"]);
+        assert!(validate_batch(&valid_batch("三十八一份。带米饭吗？带。"), source, 15).is_ok());
+        assert!(validate_batch(&valid_batch("三十八一份。带。"), source, 15).is_err());
+        assert!(validate_dialogue(&valid_batch("带米饭吗？三十八一份。带。"), source).is_err());
+        assert!(dialogue_lines("场景：旧摊\n说明：午后。\n## 剧本：标题").is_empty());
     }
 
     #[test]

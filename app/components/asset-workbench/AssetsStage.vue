@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { vReadOnlyFence } from '~/lib/read-only-fence'
 import { useAssetsStageContext } from '~/lib/asset-workbench-assets-stage-context'
-import { onActivated, onDeactivated, toRefs } from 'vue'
+import { inject, onActivated, onDeactivated, shallowRef, toRefs } from 'vue'
+import { assetWorkbenchToolbarTargetKey } from '~/lib/asset-workbench-toolbar'
 import type { LibraryAssetCategory } from '#shared/types/library'
 import { Database, Download, Loader2, Plus } from 'lucide-vue-next'
 import type { AssetTab } from '~/lib/asset-workbench-types'
 import { isPropAssetMediaReady } from '~/lib/asset-workbench-prop-media'
 
 const componentActive = ref(true)
+const toolbarTarget = inject(assetWorkbenchToolbarTargetKey, shallowRef(null))
 onActivated(() => { componentActive.value = true })
 onDeactivated(() => { componentActive.value = false })
 
@@ -114,7 +116,7 @@ const fenceOptions = computed(() => ({
 
 <template>
   <div v-read-only-fence="fenceOptions" class="flex min-h-0 flex-1 flex-col gap-3">
-    <Teleport to="#workbench-stage-toolbar">
+    <Teleport v-if="toolbarTarget" :to="toolbarTarget">
       <div v-if="toolbarActive && componentActive" v-read-only-fence="fenceOptions" class="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <div
           class="flex shrink-0 items-center gap-2 whitespace-nowrap"

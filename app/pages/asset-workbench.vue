@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { assetWorkbenchToolbarTargetKey } from '~/lib/asset-workbench-toolbar'
 import ProjectEditSessionBanner from '@/components/projects/ProjectEditSessionBanner.vue'
 import ProjectMembersDialog from '@/components/projects/ProjectMembersDialog.vue'
 import ProjectCollaboratorsMenu from '@/components/projects/ProjectCollaboratorsMenu.vue'
@@ -1539,6 +1540,8 @@ provideVideosStageContext({
     selectSceneDescriptionVersion
   }
 })
+const toolbarTarget = shallowRef<HTMLElement | null>(null)
+provide(assetWorkbenchToolbarTargetKey, toolbarTarget)
 </script>
 
 <template>
@@ -1559,6 +1562,9 @@ provideVideosStageContext({
       @back="router.push('/projects')"
       @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
     >
+      <template #toolbar>
+        <div ref="toolbarTarget" id="workbench-stage-toolbar" class="empty:hidden" />
+      </template>
       <template #actions>
         <AssetWorkbenchTaskPanel
           :tasks="workbenchTasks"

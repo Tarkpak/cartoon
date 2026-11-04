@@ -19,6 +19,17 @@ describe('SceneDurationSchema', () => {
 })
 
 describe('open scene time descriptions', () => {
+  it('does not mistake post-midnight darkness for dawn', () => {
+    for (const text of ['回溯中的凌晨一点后，摊灯照明', '凌晨1:30', '凌晨四点', '凌晨五点，天还没亮', '凌晨五点，尚未天亮']) {
+      expect(resolveTimeOfDayCategoryText(text)).toBe('夜晚')
+      expect(normalizeTimeOfDayValue(text)).toBe(text)
+    }
+    expect(resolveTimeOfDayCategoryText('凌晨五点，晨光照亮街道')).toBe('黎明')
+    expect(resolveTimeOfDayCategoryText('凌晨六点')).toBe('凌晨六点')
+    expect(resolveTimeOfDayCategoryText('凌晨')).toBe('凌晨')
+    expect(resolveTimeOfDayCategoryText('拂晓')).toBe('黎明')
+  })
+
   it('keeps known aliases compatible while preserving specific descriptions', () => {
     expect(normalizeTimeOfDayValue('midnight')).toBe('夜晚')
     expect(normalizeTimeOfDayValue('暴雨前的昏暗午后')).toBe('暴雨前的昏暗午后')

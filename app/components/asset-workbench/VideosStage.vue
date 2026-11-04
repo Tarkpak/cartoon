@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AssetWorkbenchParseProgress from './ParseProgress.vue'
-import { onActivated, onDeactivated, toRefs } from 'vue'
+import { inject, onActivated, onDeactivated, shallowRef, toRefs } from 'vue'
+import { assetWorkbenchToolbarTargetKey } from '~/lib/asset-workbench-toolbar'
 import { useIntervalFn, useStorage } from '@vueuse/core'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { Check, ChevronLeft, ChevronRight, Clapperboard, Download, Ellipsis, Eraser, FileDown, FolderOpen, Loader2, Play, ScanEye } from 'lucide-vue-next'
@@ -49,6 +50,7 @@ interface EpisodeDirectoryItem {
 }
 
 const componentActive = ref(true)
+const toolbarTarget = inject(assetWorkbenchToolbarTargetKey, shallowRef(null))
 onActivated(() => { componentActive.value = true })
 onDeactivated(() => { componentActive.value = false })
 
@@ -755,7 +757,7 @@ watch(episodeDirectoryCollapsed, (value) => {
     @action="actions.goToParse?.()"
   />
   <template v-else>
-    <Teleport to="#workbench-stage-toolbar">
+    <Teleport v-if="toolbarTarget" :to="toolbarTarget">
       <div v-if="toolbarActive && componentActive" v-read-only-fence="fenceOptions" class="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <div class="flex min-w-0 flex-1 items-center gap-3">
           <!-- Stacked progress: done / running / failed / not started -->

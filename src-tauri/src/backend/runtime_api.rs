@@ -24,6 +24,8 @@ mod context_budget;
 mod character_registry;
 #[path = "script_offsets.rs"]
 mod script_offsets;
+#[path = "script_document.rs"]
+mod script_document;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::convert::Infallible;
@@ -6601,7 +6603,8 @@ fn build_script_parse_prompt(
             // Render user-editable text last so placeholders inside it stay literal.
             ("directorPrompt", director_prompt),
         ],
-    ), &video_model) + "\n\n" + &character_registry::prompt(body))
+    ), &video_model) + "\n\n" + &character_registry::prompt(body)
+        + &json_string(body.get("scriptDocumentContext"), ""))
 }
 
 fn append_video_planning_rules(prompt: String, model_id: &str) -> String {
@@ -6985,7 +6988,14 @@ fn normalize_episode_asset_items(
         else {
             continue;
         };
-        let identity_key = identity.to_lowercase();
+        // A location at night and at noon needs distinct lighting references.
+        // Keep name-only deduplication for characters and props.
+        let identity_key = if identity_key == "location" {
+            format!("{}\u{0}{}", identity.to_lowercase(),
+                item.get("timeOfDay").and_then(Value::as_str).unwrap_or("").trim().to_lowercase())
+        } else {
+            identity.to_lowercase()
+        };
         if seen.iter().any(|value: &String| value == &identity_key) {
             continue;
         }
@@ -7293,7 +7303,13 @@ async fn build_model_episode_plan(
             false,
         ));
     }
-    let mut chunks = std::collections::VecDeque::from(split_text_into_episode_plan_chunks(&normalized_text));
+    let source_range = script_document::body_range(&normalized_text);
+    let source = &normalized_text[source_range.clone()];
+    if source.is_empty() {
+        return Err("剧本正文为空，请在正文标题下补充内容".into());
+    }
+    let document_context = script_document::context(&normalized_text, &source_range);
+    let mut chunks = std::collections::VecDeque::from(split_text_into_episode_plan_chunks(source));
     let mut chunk_results = Vec::new();
     let mut provider_name = String::new();
     let mut model_name = String::new();
@@ -7312,7 +7328,7 @@ async fn build_model_episode_plan(
             )
             .map_err(|error| error.message)?
         };
-        let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}", json_string(body.get("style"), "遵循原文时代与题材"), character_registry::source_prompt(&segment_body, &chunk.text));
+        let prompt = format!("{prompt}\n\n【项目画风】\n{}\n{}{document_context}", json_string(body.get("style"), "遵循原文时代与题材"), character_registry::source_prompt(&segment_body, &chunk.text));
         if context_budget::check(&prompt).is_err() {
             let chars = chunk.text.chars().collect::<Vec<_>>();
             if chars.len() <= 512 || chunk_count >= 256 {
@@ -7336,10 +7352,11 @@ async fn build_model_episode_plan(
     }
     let segmented = chunk_results.len() > 1;
     let mut episodes = if segmented {
-        merge_chunked_episode_plans(&normalized_text, chunk_results)
+        merge_chunked_episode_plans(source, chunk_results)
     } else {
         chunk_results.pop().map(|(_, episodes)| episodes).unwrap_or_default()
     };
+    script_document::restore_episode_offsets(&mut episodes, &normalized_text[..source_range.start]);
     normalize_episode_character_baselines(&mut episodes, body);
     Ok((
         episodes,
@@ -18974,6 +18991,25 @@ mod tests {
     }
 
     #[test]
+    fn episode_environment_deduplication_preserves_lighting_variants() {
+        let assets = normalize_episode_assets_for_episode(&json!({"episodeAssets": {
+            "characters": [{"name":"甲"},{"name":"甲"}],
+            "props": [{"name":"饭盒"},{"name":"饭盒"}],
+            "environments": [
+                {"location":"原炒鸡摊","timeOfDay":"深夜","mood":"摊灯照明"},
+                {"location":"原炒鸡摊","timeOfDay":"中午","mood":"自然日光"},
+                {"location":"原炒鸡摊","timeOfDay":"中午","mood":"重复记录"}
+            ]
+        }}));
+        assert_eq!(assets["characters"].as_array().unwrap().len(), 1);
+        assert_eq!(assets["props"].as_array().unwrap().len(), 1);
+        let environments = assets["environments"].as_array().unwrap();
+        assert_eq!(environments.len(), 2);
+        assert_eq!(environments[1]["timeOfDay"], "中午");
+        assert_eq!(environments[1]["mood"], "自然日光");
+    }
+
+    #[test]
     fn build_episode_plan_normalizes_model_asset_variants() {
         let text = "苏晚拖着行李走进林家别墅，婆婆冷眼看着她。夜晚，苏晚在医院走廊拿出玉佩。第二天，陆霆出现撑腰。";
         let output = json!({
@@ -21800,6 +21836,8 @@ pub(super) async fn api_script_parse(
 ) -> Result<Json<Value>, ApiError> {
     ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
     validate_script_parse_request(&body)?;
+    let body = script_document::prepare_parse_body(body)
+        .map_err(|message| ApiError::new(StatusCode::BAD_REQUEST, message))?;
     let context = model_log_context_from_workflow_body(&body, None, None);
     if script_parse_pipeline::should_batch(&body) {
         return script_parse_pipeline::parse(&state, &body).await.map(Json);
@@ -21808,25 +21846,30 @@ pub(super) async fn api_script_parse(
         let conn = db_connection(&state)?;
         build_script_parse_prompt(&conn, &body)?
     };
-    let (model_text, provider, model_id) = CURRENT_MODEL_LOG_CONTEXT
+    let (value, provider, model_id) = CURRENT_MODEL_LOG_CONTEXT
         .scope(context, async {
-            run_workflow_text_model(&state, "script_parsing", &prompt).await
+            let mut request = prompt.clone();
+            for attempt in 0..2 {
+                let (model_text, provider, model_id) =
+                    run_workflow_text_model(&state, "script_parsing", &request).await?;
+                let value = character_registry::expand(extract_json_from_text(&model_text)?, &body)?;
+                let validation = if json_string(body.get("scriptParseMode"), "premium_drama") == "origin_explainer" {
+                    Ok(())
+                } else {
+                    script_parse_pipeline::validate_dialogue(&value, &json_string(body.get("text"), ""))
+                };
+                match validation {
+                    Ok(()) => return Ok((value, provider, model_id)),
+                    Err(error) if attempt == 0 => {
+                        request = format!("{prompt}\n上一轮校验失败：{error}。请重新输出完整 JSON。");
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            unreachable!()
         })
         .await
-        .map_err(|error| {
-            ApiError::new(
-                StatusCode::BAD_GATEWAY,
-                format!("剧本解析模型调用失败: {}", error),
-            )
-        })?;
-    let value = extract_json_from_text(&model_text).map_err(|error| {
-        ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            format!("剧本解析模型 JSON 解析失败: {}", error),
-        )
-    })?;
-    let value = character_registry::expand(value, &body)
-        .map_err(|message| ApiError::new(StatusCode::BAD_GATEWAY, message))?;
+        .map_err(|error: String| ApiError::new(StatusCode::BAD_GATEWAY, format!("剧本解析失败: {error}")))?;
     let mut payload = normalize_model_script_result(value, &body);
     if let Some(object) = payload.as_object_mut() {
         object.insert(

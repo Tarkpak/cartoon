@@ -86,7 +86,20 @@ export function normalizeOptionalTimeOfDayCategory(raw: unknown): TimeOfDayCateg
   }
 
   if (/^(?:none|null|unknown|n\/a|na|unspecified|未指定|未知|无)$/u.test(normalized)) return undefined
-  if (/拂晓|黎明|凌晨/u.test(value)) return '黎明'
+  if (/拂晓|黎明/u.test(value)) return '黎明'
+  // 凌晨 describes the hours after midnight, not necessarily sunrise. Preserve
+  // explicit lighting cues; don't turn a 1 AM night scene into a dawn reference.
+  if (/凌晨/u.test(value)) {
+    if (/天亮前|日出前|(?:未|没|尚未|还没)天亮/u.test(value)) return '夜晚'
+    if (/天亮|日出|晨光/u.test(value)) return '黎明'
+    if (/昏暗|漆黑|夜色|暗调|摊灯|未亮|没亮/u.test(value)) return '夜晚'
+    const hour = value.match(/凌晨\s*(零|一|二|两|三|四|五|六|七|八|九|十|\d{1,2})\s*(?:点|时|[:：])/u)?.[1]
+    const hours: Record<string, number> = { 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }
+    const numericHour = hour === undefined ? undefined : (hours[hour] ?? Number(hour))
+    if (numericHour !== undefined && numericHour < 5) return '夜晚'
+    // A late or unspecified pre-dawn hour alone doesn't determine the light.
+    return undefined
+  }
   if (/清晨|早晨|早上|上午/u.test(value)) return '早晨'
   if (/白天|日间/u.test(value)) return '白天'
   if (/中午|正午/u.test(value)) return '中午'
