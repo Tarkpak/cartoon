@@ -383,6 +383,8 @@ function updateField(assetId: string, field: 'name' | 'description', value: stri
       <PropAssetCard
         v-for="asset in visiblePropAssets"
         :key="asset.id"
+        :data-ai-asset-type="asset.category === 'other' ? 'other' : 'prop'"
+        :data-ai-asset-id="asset.id"
         :asset="asset"
         :media-type="currentMediaType"
         :usage-count="getPropUsageCount(asset.id)"

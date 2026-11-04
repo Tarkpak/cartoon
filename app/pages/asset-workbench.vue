@@ -33,6 +33,7 @@ import type { CharacterData, SceneData } from '~/composables/useAssetWorkbench'
 import type { PropAsset, SceneConsistencyConfig } from '~/composables/useAssetWorkflowMeta'
 import type {
   AutoStageKey,
+  AssetTab,
   AssetImageHistoryEntry,
   ArkVirtualAssetBinding,
   EnvironmentAssetCard,
@@ -47,7 +48,7 @@ import {
   uniqueSorted
 } from '~/lib/asset-workbench-strings'
 import { findCharacterByAssetRefId } from '~/lib/asset-workbench-scene-references'
-import { invalidateSceneGenerationState } from '~/lib/asset-workbench-scenes'
+import { invalidateSceneGenerationState, invalidateSceneVideoState } from '~/lib/asset-workbench-scenes'
 import {
   buildSceneMentionDescription,
   extractSceneDescriptionMentionTokens,
@@ -56,6 +57,13 @@ import {
 import type { GenerateSceneBaselineOptions } from '~/lib/asset-workbench-scene-generation'
 import { applyArkVirtualAssetBinding } from '~/lib/ark-virtual-assets'
 import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
+import { requestSceneChatDescriptionRewrite } from '~/lib/asset-workbench-scene-chat'
+import { MessageCircle, Sparkles, X } from 'lucide-vue-next'
+import { Dialog, DialogTitle } from '@/components/ui/dialog'
+import { SheetContent } from '@/components/ui/sheet'
+import type { ShotReview } from '~/lib/asset-workbench-videos-stage-context'
+import { evaluateVideoReviewMetadata } from '~/lib/video-review-frames'
+import { actionableReviewIssues, buildVideoReviewRepairInstruction } from '~/lib/video-review-repair'
 
 // 创作工作台页面
 definePageMeta({
@@ -137,6 +145,56 @@ const readOnlyHint = computed(() => {
 const projectMembersOpen = ref(false)
 
 const selectedSceneId = ref<string>('')
+type AssistantAssetType = 'character' | 'environment' | 'prop' | 'other'
+const assistantAssetTab = ref<AssetTab>('characters')
+const focusedAssistantAsset = ref<{ type: AssistantAssetType, id: string } | null>(null)
+const directorMode = ref<'scene' | 'asset'>('scene')
+const directorAssetId = ref('')
+const assistantAssetOptions = computed(() => {
+  if (assistantAssetTab.value === 'characters') return characters.value.map(item => ({ id: item.id, name: item.name, type: 'character' as const }))
+  if (assistantAssetTab.value === 'environments') return environmentAssetCards.value.map(item => ({ id: item.id, name: item.name, type: 'environment' as const }))
+  return propAssets.value
+    .filter(item => assistantAssetTab.value === 'others' ? item.category === 'other' : item.category !== 'other')
+    .map(item => ({ id: item.id, name: item.name, type: (item.category === 'other' ? 'other' : 'prop') as 'other' | 'prop' }))
+})
+const directorAsset = computed(() => assistantAssetOptions.value.find(item => item.id === directorAssetId.value))
+const directorAssetSupportsImageEdit = computed(() => {
+  if (!directorAsset.value) return false
+  if (directorAsset.value.type === 'character' || directorAsset.value.type === 'environment') return true
+  const asset = propAssets.value.find(item => item.id === directorAssetId.value)
+  return !asset?.mediaType || asset.mediaType === 'image'
+})
+const directorAssetPlaceholder = computed(() => {
+  if (directorAsset.value?.type === 'environment') return '例如：保持建筑布局，把时间改成雨夜，路面增加倒影'
+  if (directorAsset.value?.type === 'prop' || directorAsset.value?.type === 'other') return '例如：保留轮廓，把表面改得更旧，增加使用痕迹'
+  return '例如：保留角色身份和服装，把表情改得更克制'
+})
+const assistantContextLabel = computed(() => {
+  if (activeAutoStage.value === 'videos') return selectedScene.value?.title || '当前分镜'
+  if (activeAutoStage.value === 'assets') {
+    const focused = assistantAssetOptions.value.find(item => item.id === focusedAssistantAsset.value?.id)
+    return focused?.name || ({ characters: '角色资产', environments: '环境资产', props: '道具资产', others: '其他素材' }[assistantAssetTab.value])
+  }
+  return '当前项目'
+})
+const directorOpen = ref(false)
+const directorInstruction = ref('')
+const directorScope = ref<'scene' | 'episode' | 'project'>('scene')
+const directorBusy = ref(false)
+const directorError = ref('')
+const directorDrafts = ref<Array<{ id: string, title: string, before: string, after: string }>>([])
+const shotReviews = ref<Record<string, ShotReview>>({})
+const reviewRunning = ref(false)
+const autoRepairReviews = ref(true)
+const automaticRepairAttempts = ref<Record<string, number>>({})
+const repairingShotIds = ref<Record<string, boolean>>({})
+const directorTargets = computed(() => {
+  const selected = scenes.value.find(scene => scene.id === selectedSceneId.value) || scenes.value[0]
+  if (!selected) return []
+  if (directorScope.value === 'scene') return [selected]
+  if (directorScope.value === 'episode') return scenes.value.filter(scene => scene.episodeId === selected.episodeId)
+  return scenes.value
+})
 useAssetWorkbenchArkBindings({ characters, loading, projectId, saveProject })
 
 const sceneConfigs = ref<Record<string, SceneConsistencyConfig>>({})
@@ -945,6 +1003,213 @@ const {
   onModelTaskFailed: notifyGenerationFailed
 })
 
+async function previewDirectorChange() {
+  const instruction = directorInstruction.value.trim()
+  if (!canEditProject.value || !instruction || !projectId.value) return
+  directorBusy.value = true
+  directorError.value = ''
+  directorDrafts.value = []
+  try {
+    const drafts = [] as typeof directorDrafts.value
+    for (const scene of directorTargets.value) {
+      const after = await requestSceneChatDescriptionRewrite({
+        projectId: projectId.value,
+        scene,
+        userMessage: instruction,
+        history: [],
+        mentionedAssets: [],
+        workflowStylePrompt: workflowStylePrompt.value,
+        buildAssetWorkflowScenePayload
+      })
+      if (after !== scene.description) drafts.push({ id: scene.id, title: scene.title, before: scene.description, after })
+    }
+    directorDrafts.value = drafts
+  } catch (error) {
+    directorError.value = getDisplayErrorMessage(error, 'AI 修改预览失败')
+  } finally {
+    directorBusy.value = false
+  }
+}
+
+async function applyDirectorChange() {
+  if (!canEditProject.value || directorBusy.value || directorDrafts.value.length === 0) return
+  directorBusy.value = true
+  directorError.value = ''
+  try {
+    for (const draft of directorDrafts.value) {
+      const scene = scenes.value.find(item => item.id === draft.id)
+      if (!scene || scene.description !== draft.before) throw new Error(`分镜「${draft.title}」已发生变化，请重新预览`)
+    }
+    for (const draft of directorDrafts.value) {
+      const scene = scenes.value.find(item => item.id === draft.id)!
+      scene.descriptionHistory = [
+        ...(scene.descriptionHistory || []),
+        { id: `director_${Date.now()}_${scene.id}`, description: draft.before, createdAt: Date.now(), label: 'AI 修改前' }
+      ].slice(-20)
+      scene.description = draft.after
+      invalidateSceneGenerationState(scene)
+    }
+    await saveProject()
+    toast.success(`已更新 ${directorDrafts.value.length} 个分镜，请在视频阶段重生成受影响片段`)
+    directorDrafts.value = []
+    directorOpen.value = false
+    selectAutoStage('videos')
+  } catch (error) {
+    directorError.value = getDisplayErrorMessage(error, '应用 AI 修改失败')
+  } finally {
+    directorBusy.value = false
+  }
+}
+
+async function applyAssistantAssetInstruction() {
+  const target = directorAsset.value
+  const instruction = directorInstruction.value.trim()
+  if (!canEditProject.value || !target || !instruction || directorBusy.value) return
+  directorBusy.value = true
+  directorError.value = ''
+  try {
+    if (target.type === 'character') {
+      const character = characters.value.find(item => item.id === target.id)
+      if (!character?.baseImage) throw new Error('请先生成该角色的基础参考图')
+      openCharacterRegenerateDialog(character)
+      setCharacterRegeneratePrompt(instruction)
+      directorOpen.value = false
+      await submitCharacterRegeneration()
+    } else if (target.type === 'environment') {
+      const environment = environmentAssetCards.value.find(item => item.id === target.id)
+      if (!environment?.referenceImage && !environment?.panoramaImage) throw new Error('请先生成该环境的基础参考图')
+      openEnvironmentRegenerateDialog(target.id)
+      setEnvironmentRegeneratePrompt(instruction)
+      directorOpen.value = false
+      await submitEnvironmentRegeneration()
+    } else {
+      const asset = propAssets.value.find(item => item.id === target.id)
+      if (!asset || (asset.mediaType && asset.mediaType !== 'image')) throw new Error('当前素材不是图片，请在分镜中指定它的使用方式')
+      asset.description = `${asset.description.trim()}\n修改要求：${instruction}`.trim()
+      await saveWorkflowMeta()
+      directorOpen.value = false
+      await handleGeneratePropImage(asset.id)
+    }
+  } catch (error) {
+    directorOpen.value = true
+    directorError.value = getDisplayErrorMessage(error, '资产修改失败')
+  } finally {
+    directorBusy.value = false
+  }
+}
+
+async function reviewShot(scene: SceneData) {
+  if (!projectId.value || !scene.videoUrl || reviewRunning.value) return
+  reviewRunning.value = true
+  const videoUrl = scene.videoUrl
+  let shouldAutoRepair = false
+  shotReviews.value[scene.id] = { videoUrl, status: 'running', summary: '正在抽帧并审片', issues: [], unverified: [] }
+  try {
+    const index = scenes.value.findIndex(item => item.id === scene.id)
+    const response = await $fetch<{ success: boolean, actualDuration: number, dimensions: string, data: { passed: boolean, summary: string, issues: ShotReview['issues'], unverified: string[] } }>('/api/asset-workflow/video/review', {
+      method: 'POST',
+      body: {
+        projectId: projectId.value,
+        videoUrl,
+        scene: { title: scene.title, description: scene.description, characters: scene.characters, duration: scene.duration, setting: scene.setting },
+        neighbors: { previous: scenes.value[index - 1]?.description, next: scenes.value[index + 1]?.description }
+      }
+    })
+    if (scene.videoUrl !== videoUrl) return
+    const issues = Array.isArray(response.data.issues) ? response.data.issues : []
+    shouldAutoRepair = autoRepairReviews.value
+      && (automaticRepairAttempts.value[scene.id] || 0) < 1
+      && actionableReviewIssues(issues).length > 0
+    issues.push(...evaluateVideoReviewMetadata(response, scene.duration, projectAspectRatio.value))
+    shotReviews.value[scene.id] = { videoUrl, status: issues.length || !response.data.passed ? 'issues' : 'passed', summary: response.data.summary || '审片完成', issues, unverified: Array.isArray(response.data.unverified) ? response.data.unverified : [] }
+  } catch (error) {
+    if (scene.videoUrl === videoUrl) shotReviews.value[scene.id] = { videoUrl, status: 'error', summary: getDisplayErrorMessage(error, '审片失败，请检查可看图模型配置'), issues: [], unverified: [] }
+  } finally {
+    reviewRunning.value = false
+    if (shouldAutoRepair) void repairShotFromReview(scene.id, true)
+    void reviewPendingShots()
+  }
+}
+
+async function repairShotFromReview(sceneId: string, automatic = false) {
+  const scene = scenes.value.find(item => item.id === sceneId)
+  const review = shotReviews.value[sceneId]
+  if (!canEditProject.value || !projectId.value || !scene || !review || !['issues', 'error'].includes(review.status) || repairingShotIds.value[sceneId]) return
+  const instruction = buildVideoReviewRepairInstruction(review.issues, scene.duration)
+  if (!instruction) return
+  if (automatic) automaticRepairAttempts.value[sceneId] = (automaticRepairAttempts.value[sceneId] || 0) + 1
+  repairingShotIds.value[sceneId] = true
+  shotReviews.value[sceneId] = { ...review, status: 'repairing', summary: automatic ? '正在自动修正提示词并重生成' : '正在按审片建议修正提示词并重生成' }
+  try {
+    const before = scene.description
+    const rewritten = await requestSceneChatDescriptionRewrite({
+      projectId: projectId.value,
+      scene,
+      userMessage: instruction,
+      history: [],
+      mentionedAssets: [],
+      workflowStylePrompt: workflowStylePrompt.value,
+      buildAssetWorkflowScenePayload
+    })
+    if (scene.description !== before || scene.videoUrl !== review.videoUrl) throw new Error('分镜已被其他操作修改，请重新审片')
+    if (rewritten === before) throw new Error('AI 未产生有效的分镜修改，请人工复核审片建议')
+    scene.descriptionHistory = [
+      ...(scene.descriptionHistory || []),
+      { id: `review_repair_${Date.now()}_${scene.id}`, description: before, createdAt: Date.now(), label: '审片修复前' }
+    ].slice(-20)
+    scene.description = rewritten
+    invalidateSceneVideoState(scene)
+    if (!await saveProject()) throw new Error('保存修复后的分镜描述失败，未启动重生成')
+    await retryScene(scene.id)
+    if (scene.videoStatus !== 'done' || !scene.videoUrl || scene.videoUrl === review.videoUrl) {
+      throw new Error(scene.videoError || '重生成未得到新的视频，请在分镜任务中查看原因')
+    }
+    // 新视频地址变化后，现有 watcher 会自动触发复审。
+  } catch (error) {
+    shotReviews.value[sceneId] = { ...review, status: 'error', summary: getDisplayErrorMessage(error, '审片修复失败'), issues: review.issues }
+  } finally {
+    delete repairingShotIds.value[sceneId]
+  }
+}
+
+async function reviewPendingShots() {
+  if (!canEditProject.value || reviewRunning.value) return
+  const next = scenes.value.find(scene => scene.videoStatus === 'done' && scene.videoUrl && shotReviews.value[scene.id]?.videoUrl !== scene.videoUrl)
+  if (next) await reviewShot(next)
+}
+
+function retryShotReview(sceneId: string) {
+  delete shotReviews.value[sceneId]
+  void reviewPendingShots()
+}
+
+function openDirector(sceneId: string) {
+  directorMode.value = 'scene'
+  selectedSceneId.value = sceneId
+  directorScope.value = 'scene'
+  directorDrafts.value = []
+  directorError.value = ''
+  directorOpen.value = true
+}
+
+function openFloatingAssistant() {
+  directorInstruction.value = ''
+  directorDrafts.value = []
+  directorError.value = ''
+  if (activeAutoStage.value === 'assets') {
+    directorMode.value = 'asset'
+    directorAssetId.value = assistantAssetOptions.value.some(item => item.id === focusedAssistantAsset.value?.id)
+      ? focusedAssistantAsset.value!.id : ''
+  } else {
+    directorMode.value = 'scene'
+    directorScope.value = activeAutoStage.value === 'videos' ? 'scene' : 'project'
+  }
+  directorOpen.value = true
+}
+
+watch(() => scenes.value.map(scene => `${scene.id}:${scene.videoStatus}:${scene.videoUrl || ''}`).join('|'), () => { void reviewPendingShots() }, { immediate: true })
+watch(canEditProject, () => { void reviewPendingShots() })
+
 async function selectSceneDescriptionVersion(sceneId: string, versionId: string) {
   const scene = scenes.value.find(item => item.id === sceneId)
   const version = scene?.descriptionHistory?.find(item => item.id === versionId)
@@ -1143,6 +1408,13 @@ provideAssetsStageContext({
     setCharacterEditDraft: updateCharacterEditDraft
   }),
   actions: {
+    setAssistantAssetTab: (tab) => {
+      assistantAssetTab.value = tab
+      focusedAssistantAsset.value = null
+    },
+    focusAssistantAsset: (type, id) => {
+      if (focusedAssistantAsset.value?.type !== type || focusedAssistantAsset.value.id !== id) focusedAssistantAsset.value = { type, id }
+    },
     selectStage: stage => selectAutoStage(stage),
     previewImage: ({ src, alt }) => openImagePreview(src, alt),
     startCharacterEdit: startEditCharacter,
@@ -1196,6 +1468,8 @@ provideVideosStageContext({
     episodeOverviews: episodeOverviewById,
     selectedSceneId,
     selectedScene,
+    shotReviews,
+    autoRepairReviews,
     queueSummary,
     autoRunning,
     parsing,
@@ -1248,6 +1522,10 @@ provideVideosStageContext({
     handleDeleteScene,
     generateSceneBaseline: handleGenerateSceneBaseline,
     retryScene,
+    openDirector,
+    retryShotReview,
+    repairShotFromReview,
+    setAutoRepairReviews: (enabled: boolean) => { autoRepairReviews.value = enabled },
     applySubtitleErasure: async (scene) => {
       updateScene(scene)
       await saveProject()
@@ -1310,6 +1588,61 @@ provideVideosStageContext({
         />
       </template>
     </AssetWorkbenchHeaderBar>
+
+    <Dialog v-model:open="directorOpen">
+      <SheetContent class="w-[min(92vw,460px)] max-w-none gap-0 p-0">
+      <div class="flex items-start justify-between gap-3 border-b px-5 py-4">
+        <div class="min-w-0">
+          <DialogTitle class="text-base font-semibold">对话修改</DialogTitle>
+          <p class="mt-1 truncate text-xs text-muted-foreground">{{ directorMode === 'asset' ? (directorAsset?.name || assistantContextLabel) : (selectedScene?.title || '当前分镜') }} · {{ directorMode === 'asset' ? '修改当前资产' : '先预览，再应用修改' }}</p>
+        </div>
+        <Button type="button" variant="ghost" size="icon" class="h-8 w-8 shrink-0" aria-label="关闭对话修改" @click="directorOpen = false"><X class="h-4 w-4" /></Button>
+      </div>
+      <section class="min-h-0 flex-1 space-y-3 overflow-y-auto p-5" aria-label="对话修改剧集">
+      <div v-if="directorMode === 'asset'" class="space-y-3">
+        <div class="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
+          已识别当前{{ { characters: '角色', environments: '环境', props: '道具', others: '其他素材' }[assistantAssetTab] }}页面。选择具体资产后，指令会用于该资产的图片重生成。
+        </div>
+        <label class="block space-y-1 text-xs font-medium">
+          <span>修改对象</span>
+          <select v-model="directorAssetId" class="h-9 w-full rounded-md border bg-background px-2" aria-label="修改对象">
+            <option value="">请选择资产</option>
+            <option v-for="asset in assistantAssetOptions" :key="asset.id" :value="asset.id">{{ asset.name }}</option>
+          </select>
+        </label>
+        <Textarea v-model="directorInstruction" class="min-h-28 text-sm" :placeholder="directorAssetPlaceholder" />
+        <p v-if="directorAssetId && !directorAssetSupportsImageEdit" class="text-xs text-muted-foreground">当前是声音或视频素材。请在分镜中描述它的使用方式；此入口只修改图片资产。</p>
+        <p v-if="directorError" class="text-xs text-destructive" role="alert">{{ directorError }}</p>
+        <Button class="w-full" :disabled="directorBusy || !directorAssetSupportsImageEdit || !directorInstruction.trim()" @click="applyAssistantAssetInstruction">{{ directorBusy ? '正在修改资产…' : '按指令重生成资产' }}</Button>
+      </div>
+      <template v-else>
+      <div class="flex flex-wrap items-center gap-2">
+        <Sparkles class="h-4 w-4 text-primary" />
+        <strong class="text-sm">告诉 AI 想改什么</strong>
+        <select v-model="directorScope" class="ml-auto h-8 rounded-md border bg-background px-2 text-xs" aria-label="修改范围" @change="directorDrafts = []">
+          <option value="scene">当前分镜</option>
+          <option value="episode">当前集</option>
+          <option value="project">整个项目</option>
+        </select>
+        <span class="text-xs text-muted-foreground">预计影响 {{ directorTargets.length }} 个分镜</span>
+      </div>
+      <Textarea v-model="directorInstruction" class="mt-2 min-h-16 text-sm" placeholder="例如：把当前集的追逐戏改成雨夜，保持角色服装和剧情不变" @input="directorDrafts = []" />
+      <div class="mt-2 flex items-center gap-2">
+        <Button size="sm" :disabled="directorBusy || !directorInstruction.trim()" @click="previewDirectorChange">{{ directorBusy ? '正在生成修改方案…' : '预览修改方案' }}</Button>
+        <Button v-if="directorDrafts.length" size="sm" variant="secondary" :disabled="directorBusy" @click="applyDirectorChange">应用到 {{ directorDrafts.length }} 个分镜</Button>
+        <Button size="sm" variant="ghost" @click="directorOpen = false">关闭</Button>
+      </div>
+      <p v-if="directorError" class="mt-2 text-xs text-destructive" role="alert">{{ directorError }}</p>
+      <div v-if="directorDrafts.length" class="mt-3 space-y-2 border-t pt-3">
+        <details v-for="draft in directorDrafts" :key="draft.id" class="rounded-md bg-muted/40 p-2 text-xs">
+          <summary class="cursor-pointer font-medium">{{ draft.title }} · 描述将更新，原视频需重生成</summary>
+          <p class="mt-2 whitespace-pre-wrap text-muted-foreground">{{ draft.after }}</p>
+        </details>
+      </div>
+      </template>
+      </section>
+      </SheetContent>
+    </Dialog>
 
     <!-- Only takes a row when the session needs action (locked, offline, conflict). -->
     <ProjectEditSessionBanner
@@ -1473,5 +1806,15 @@ provideVideosStageContext({
       :current-asset-id="arkAssetSelectCharacter?.arkAsset?.assetId"
       @select="handleCharacterArkAssetSelect"
     />
+
+    <Button
+      v-if="canEditProject && !directorOpen && (scenes.length > 0 || (activeAutoStage === 'assets' && (characters.length > 0 || environmentAssetCards.length > 0 || propAssets.length > 0)))"
+      type="button"
+      class="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full p-0 shadow-lg shadow-black/20 transition-transform duration-150 active:scale-[0.96]"
+      aria-label="打开 AI 对话修改"
+      @click="openFloatingAssistant"
+    >
+      <MessageCircle class="h-5 w-5" />
+    </Button>
   </div>
 </template>

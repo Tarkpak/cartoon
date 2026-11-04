@@ -33,6 +33,14 @@ export interface EpisodePlanItemForVideoStage {
   }
 }
 
+export interface ShotReview {
+  videoUrl: string
+  status: 'running' | 'passed' | 'issues' | 'repairing' | 'error'
+  summary: string
+  issues: Array<{ severity: string, reason: string, suggestion: string }>
+  unverified: string[]
+}
+
 /**
  * Everything the videos stage reads and does, provided by the workbench page.
  * Replaces ~75 props passed through the page template.
@@ -50,6 +58,8 @@ export interface VideosStageState {
   /** Read-only projects can still browse scenes, preview and (with export permission) download. */
   readOnly?: boolean
   selectedScene: SceneData | null
+  shotReviews: Record<string, ShotReview>
+  autoRepairReviews: boolean
   queueSummary: QueueSummary
   autoRunning: boolean
   parsing: boolean
@@ -116,6 +126,10 @@ export interface VideosStageActions {
   handleDeleteScene: (scene: SceneData) => void
   generateSceneBaseline: (sceneId: string) => void
   retryScene: (sceneId: string) => void
+  openDirector: (sceneId: string) => void
+  retryShotReview: (sceneId: string) => void
+  repairShotFromReview: (sceneId: string) => void | Promise<void>
+  setAutoRepairReviews: (enabled: boolean) => void
   applySubtitleErasure: (scene: Partial<SceneData> & { id: string }) => Promise<void>
   openSceneVideoHistory: (sceneId: string) => void
   setScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void

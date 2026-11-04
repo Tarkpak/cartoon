@@ -41,6 +41,21 @@ const {
 
 
 const assetTab = ref<AssetTab>('characters')
+function selectAssetTab(tab: AssetTab) {
+  assetTab.value = tab
+  actions.setAssistantAssetTab(tab)
+}
+
+function trackAssetInteraction(event: MouseEvent | PointerEvent) {
+  const target = event.target
+  if (!(target instanceof Element)) return
+  const card = target.closest<HTMLElement>('[data-ai-asset-id][data-ai-asset-type]')
+  const id = card?.dataset.aiAssetId
+  const type = card?.dataset.aiAssetType
+  if (id && (type === 'character' || type === 'environment' || type === 'prop' || type === 'other')) {
+    actions.focusAssistantAsset(type, id)
+  }
+}
 const libraryPickerOpen = ref(false)
 
 const libraryPickerCategories = computed<LibraryAssetCategory[]>(() => {
@@ -170,7 +185,7 @@ const fenceOptions = computed(() => ({
           :class="assetTab === tab.key
             ? 'text-foreground'
             : 'text-muted-foreground hover:text-foreground/80'"
-          @click="assetTab = tab.key"
+          @click="selectAssetTab(tab.key)"
         >
           {{ tab.label }}
           <span class="ml-1 text-xs text-muted-foreground/70">{{ tab.count }}</span>
@@ -183,7 +198,7 @@ const fenceOptions = computed(() => ({
     </div>
 
     <!-- Tab content -->
-    <div class="min-h-0 flex-1 overflow-y-auto pr-1">
+    <div class="min-h-0 flex-1 overflow-y-auto pr-1" @click.capture="trackAssetInteraction" @pointerover.capture="trackAssetInteraction">
       <AssetWorkbenchCharacterAssetsTab
         v-if="assetTab === 'characters'"
         :characters="characters"

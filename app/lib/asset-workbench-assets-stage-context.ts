@@ -58,6 +58,8 @@ export interface AssetsStageState {
 }
 
 export interface AssetsStageActions {
+  setAssistantAssetTab: (tab: AssetTab) => void
+  focusAssistantAsset: (type: 'character' | 'environment' | 'prop' | 'other', id: string) => void
   addCharacter: () => void
   removeCharacter: (characterId: string) => void
   selectStage: (stage: AutoStageKey) => void

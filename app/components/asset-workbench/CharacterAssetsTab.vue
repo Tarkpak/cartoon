@@ -304,6 +304,8 @@ watch(
     <div
       v-for="char in visibleRootCharacters"
       :key="char.id"
+      data-ai-asset-type="character"
+      :data-ai-asset-id="char.id"
       class="group rounded-xl bg-muted/25 transition-colors hover:bg-muted/35"
     >
       <!-- Card body -->
@@ -578,6 +580,8 @@ watch(
             <div
               v-for="variant in resolveCharacterVariants(char)"
               :key="variant.id"
+              data-ai-asset-type="character"
+              :data-ai-asset-id="variant.id"
               class="px-3 py-2.5"
             >
               <div class="flex items-start gap-3">

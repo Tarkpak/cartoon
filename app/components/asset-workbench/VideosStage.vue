@@ -3,7 +3,7 @@ import AssetWorkbenchParseProgress from './ParseProgress.vue'
 import { onActivated, onDeactivated, toRefs } from 'vue'
 import { useIntervalFn, useStorage } from '@vueuse/core'
 import { invoke, isTauri } from '@tauri-apps/api/core'
-import { Check, ChevronLeft, ChevronRight, Clapperboard, Download, Ellipsis, Eraser, FileDown, FolderOpen, Loader2, Play } from 'lucide-vue-next'
+import { Check, ChevronLeft, ChevronRight, Clapperboard, Download, Ellipsis, Eraser, FileDown, FolderOpen, Loader2, Play, ScanEye } from 'lucide-vue-next'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -101,6 +101,17 @@ const {
 } = toRefs(state)
 
 const previewAspectRatio = computed(() => resolveVideoPreviewAspectRatio(state.projectAspectRatio))
+const selectedReview = computed(() => state.selectedScene ? state.shotReviews[state.selectedScene.id] : undefined)
+const selectedReviewLabel = computed(() => {
+  switch (selectedReview.value?.status) {
+    case 'passed': return '抽帧通过'
+    case 'issues': return '需要复核'
+    case 'error': return '审片失败'
+    case 'repairing': return '正在修复'
+    case 'running': return '正在审片'
+    default: return '等待审片'
+  }
+})
 
 const readySceneCount = computed(() => {
   return state.scenes.filter(scene => scene.referenceStatus === 'done').length
@@ -914,6 +925,7 @@ watch(episodeDirectoryCollapsed, (value) => {
                           aria-hidden="true"
                         />
                         <span class="truncate">{{ scene.title }}</span>
+                        <span v-if="state.shotReviews[scene.id]?.status === 'issues' || state.shotReviews[scene.id]?.status === 'error'" class="shrink-0 text-2xs text-warning">待复核</span>
                       </span>
                       <span
                         class="mt-0.5 block truncate tabular-nums"
@@ -1202,6 +1214,29 @@ watch(episodeDirectoryCollapsed, (value) => {
               </div>
             </div>
           </div>
+          <details v-if="selectedScene.videoUrl" class="max-h-48 shrink-0 overflow-y-auto border-t border-border/60 px-4 py-3 text-xs" :open="selectedReview?.status === 'issues' || selectedReview?.status === 'error'">
+            <summary class="flex cursor-pointer list-none items-center gap-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <ScanEye class="h-3.5 w-3.5 text-primary" />
+              <span>AI 审片</span>
+              <span class="ml-auto" :class="selectedReview?.status === 'passed' ? 'text-success' : selectedReview?.status === 'issues' || selectedReview?.status === 'error' ? 'text-warning' : 'text-muted-foreground'">{{ selectedReviewLabel }}</span>
+            </summary>
+            <div class="mt-3 space-y-2 text-muted-foreground">
+              <p>{{ selectedReview?.summary || '视频完成后自动审片' }}</p>
+              <ul v-if="selectedReview?.issues.length" class="space-y-1.5">
+                <li v-for="(issue, index) in selectedReview.issues" :key="index" class="rounded-md bg-warning/10 px-2 py-1.5 text-foreground">
+                  {{ issue.reason }}<span class="block text-muted-foreground">建议：{{ issue.suggestion }}</span>
+                </li>
+              </ul>
+              <p v-if="selectedReview?.unverified.length">需人工复核：{{ selectedReview.unverified.join('、') }}</p>
+              <div v-if="!state.readOnly" class="flex flex-wrap items-center gap-2 pt-1">
+                <Button v-if="selectedReview && selectedReview.status !== 'running' && selectedReview.status !== 'repairing'" size="sm" variant="ghost" class="h-7 px-2 text-xs" @click="actions.retryShotReview(selectedScene.id)">重新审片</Button>
+                <Button v-if="selectedReview && ['issues', 'error'].includes(selectedReview.status) && selectedReview.issues.some(issue => ['high', 'medium'].includes(issue.severity))" size="sm" variant="secondary" class="h-7 px-2 text-xs" @click="actions.repairShotFromReview(selectedScene.id)">采纳建议并重生成</Button>
+                <label class="ml-auto flex items-center gap-1.5 text-2xs">
+                  <input type="checkbox" :checked="state.autoRepairReviews" class="accent-primary" @change="actions.setAutoRepairReviews(($event.target as HTMLInputElement).checked)" />自动修复一次
+                </label>
+              </div>
+            </div>
+          </details>
         </template>
         <div
           v-else

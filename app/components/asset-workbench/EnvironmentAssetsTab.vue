@@ -156,6 +156,8 @@ function resolveEnvironmentGenerateTitle(asset: EnvironmentAssetCard): string {
       <div
         v-for="(asset, idx) in visibleEnvironmentAssetCards"
         :key="`asset_env_${asset.id}`"
+        data-ai-asset-type="environment"
+        :data-ai-asset-id="asset.id"
         class="group overflow-hidden rounded-xl bg-muted/25 transition-colors hover:bg-muted/35"
       >
         <!-- Image area -->

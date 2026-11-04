@@ -24357,6 +24357,131 @@ pub(super) async fn api_asset_reference_generate(
     })))
 }
 
+async fn extract_video_review_frames(
+    state: &BackendState,
+    video_url: &str,
+) -> Result<(Vec<String>, f64, String), ApiError> {
+    let temp_dir = std::env::temp_dir().join(format!("playlet_review_{}", Uuid::new_v4().simple()));
+    fs::create_dir_all(&temp_dir)
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let result = async {
+        let video_path = materialize_media_source(state, video_url, &temp_dir, "review_video", 500 * 1024 * 1024).await?;
+        let probe_binary = std::env::var("FFPROBE_PATH").unwrap_or_else(|_| "ffprobe".to_string());
+        let output = hidden_command(probe_binary)
+            .args(["-v", "error", "-show_streams", "-show_format", "-of", "json"])
+            .arg(&video_path)
+            .output()
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("启动 FFprobe 失败: {error}")))?;
+        if !output.status.success() {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "无法读取视频参数"));
+        }
+        let metadata: Value = serde_json::from_slice(&output.stdout)
+            .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, format!("视频参数无效: {error}")))?;
+        let stream = metadata["streams"].as_array()
+            .and_then(|streams| streams.iter().find(|item| item["codec_type"] == "video"))
+            .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "视频没有可读取的画面轨道"))?;
+        let width = stream["width"].as_u64().unwrap_or(0);
+        let height = stream["height"].as_u64().unwrap_or(0);
+        let duration = metadata["format"]["duration"].as_str().and_then(|raw| raw.parse::<f64>().ok())
+            .or_else(|| stream["duration"].as_str().and_then(|raw| raw.parse::<f64>().ok()))
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "无法读取视频时长"))?;
+        if width == 0 || height == 0 {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "无法读取视频尺寸"));
+        }
+        let mut frames = Vec::with_capacity(3);
+        for (index, ratio) in [0.1, 0.5, 0.9].iter().enumerate() {
+            let frame_path = temp_dir.join(format!("frame_{index}.jpg"));
+            run_ffmpeg_blocking(vec![
+                "-y".to_string(), "-ss".to_string(), format!("{:.3}", duration * ratio),
+                "-i".to_string(), video_path.to_string_lossy().to_string(),
+                "-frames:v".to_string(), "1".to_string(),
+                "-vf".to_string(), "scale=640:640:force_original_aspect_ratio=decrease".to_string(),
+                "-q:v".to_string(), "5".to_string(), frame_path.to_string_lossy().to_string(),
+            ]).await?;
+            let bytes = fs::read(&frame_path)
+                .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("读取视频抽帧失败: {error}")))?;
+            if bytes.is_empty() || bytes.len() > 1_000_000 {
+                return Err(ApiError::new(StatusCode::BAD_REQUEST, "视频抽帧尺寸无效"));
+            }
+            frames.push(BASE64_STANDARD.encode(bytes));
+        }
+        Ok((frames, duration, format!("{width}x{height}")))
+    }.await;
+    let _ = fs::remove_dir_all(&temp_dir);
+    result
+}
+
+pub(super) async fn api_asset_video_review(
+    State(state): State<BackendState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    ensure_project_permission_from_body(&state, &body, super::ProjectPermission::Generate).await?;
+    let video_url = required_json_string(&body, "videoUrl", "body")?;
+    let (frame_data, actual_duration, dimensions) = extract_video_review_frames(&state, video_url).await?;
+    let scene = body.get("scene").filter(|value| value.is_object())
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "缺少分镜资料"))?;
+    let prompt = format!(
+        "你是影视成片质检员。依次查看视频的开头、中段、结尾抽帧，对照分镜资料审查人物身份与服装、场景、动作可见性、画幅和前后镜头衔接。抽帧不能证明口型、对白音频或完整动作；对此必须标记为未验证，不得猜测。仅返回 JSON：{{\"passed\":boolean,\"summary\":string,\"issues\":[{{\"severity\":\"high|medium|low\",\"reason\":string,\"suggestion\":string}}],\"unverified\":[string]}}。分镜资料：{}。相邻镜头：{}。实际视频尺寸：{}；实际时长：{}秒。",
+        scene,
+        body.get("neighbors").unwrap_or(&Value::Null),
+        dimensions,
+        actual_duration,
+    );
+    let (provider, model_id, creds) = {
+        let conn = db_connection(&state)?;
+        let all_creds = load_provider_creds(&conn);
+        let model_id = resolve_runtime_workflow_model_id(&conn, "scene_description_refinement")
+            .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error))?;
+        let provider = resolve_model_provider_required_string(&model_id, &all_creds)
+            .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error))?;
+        let creds = if provider == "custom_openai" {
+            let entry = custom_openai_entry_for_model(&model_id, &all_creds)
+                .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "未配置自定义 OpenAI 供应商"))?;
+            wrap_custom_openai_creds(&entry)
+        } else { all_creds };
+        (provider, model_id, creds)
+    };
+    let keys = provider_sync_api_keys(&provider, &creds);
+    let key = keys.first().ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "审片模型未配置 API Key"))?;
+    let base_url = provider_sync_base_url(&provider, &creds)
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "审片模型未配置 Base URL"))?;
+    let (endpoint, request_body) = if provider == "gemini" {
+        let mut parts = vec![json!({"text": prompt})];
+        parts.extend(frame_data.iter().map(|data| json!({"inlineData": {"mimeType": "image/jpeg", "data": data}})));
+        (provider_gemini_generate_endpoint(&base_url, &model_id), json!({"contents": [{"role": "user", "parts": parts}]}))
+    } else if matches!(provider.as_str(), "openai" | "custom_openai" | "qwen" | "volcengine") {
+        let mut content = vec![json!({"type": "text", "text": prompt})];
+        content.extend(frame_data.iter().map(|data| json!({"type": "image_url", "image_url": {"url": format!("data:image/jpeg;base64,{data}")}})));
+        (provider_chat_completions_endpoint(&base_url), json!({"model": normalize_model_id_for_remote(&model_id), "messages": [{"role": "user", "content": content}]}))
+    } else {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "当前文本模型供应商不支持图片审片，请选择可看图的模型"));
+    };
+    let mut request = llm_http_client().post(&endpoint).json(&request_body);
+    request = if provider == "gemini" { request.query(&[("key", key.as_str())]) } else { request.bearer_auth(key) };
+    let response = request.send().await.map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    let status = response.status();
+    let raw = response.text().await.map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    if !status.is_success() {
+        return Err(ApiError::new(StatusCode::BAD_GATEWAY, format!("审片模型调用失败: {}", truncate_for_error(&raw, 300))));
+    }
+    let parsed: Value = serde_json::from_str(&raw)
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error.to_string()))?;
+    let text = if provider == "gemini" {
+        parsed["candidates"][0]["content"]["parts"].as_array()
+            .map(|parts| parts.iter().filter_map(|part| part["text"].as_str()).collect::<Vec<_>>().join("\n"))
+            .unwrap_or_default()
+    } else {
+        parsed["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string()
+    };
+    let review = extract_json_from_text(&text)
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, format!("审片结果解析失败: {error}")))?;
+    if !review["passed"].is_boolean() || !review["issues"].is_array() {
+        return Err(ApiError::new(StatusCode::BAD_GATEWAY, "审片结果缺少必要字段"));
+    }
+    Ok(Json(json!({"success": true, "data": review, "modelId": model_id, "actualDuration": actual_duration, "dimensions": dimensions})))
+}
+
 pub(super) async fn api_asset_scene_description_refinement(
     State(state): State<BackendState>,
     Json(body): Json<Value>,

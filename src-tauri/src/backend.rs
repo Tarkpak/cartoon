@@ -5468,6 +5468,10 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             post(api_asset_scene_description_refinement),
         )
         .route(
+            "/api/asset-workflow/video/review",
+            post(api_asset_video_review).layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
+        )
+        .route(
             "/api/asset-workflow/reference/generate",
             post(api_asset_reference_generate),
         )
