@@ -26,6 +26,8 @@ mod character_registry;
 mod script_offsets;
 #[path = "script_document.rs"]
 mod script_document;
+#[path = "script_scene_detail.rs"]
+mod script_scene_detail;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::convert::Infallible;
@@ -6604,7 +6606,8 @@ fn build_script_parse_prompt(
             ("directorPrompt", director_prompt),
         ],
     ), &video_model) + "\n\n" + &character_registry::prompt(body)
-        + &json_string(body.get("scriptDocumentContext"), ""))
+        + &json_string(body.get("scriptDocumentContext"), "")
+        + script_scene_detail::INITIAL_RULES)
 }
 
 fn append_video_planning_rules(prompt: String, model_id: &str) -> String {
@@ -21842,16 +21845,21 @@ pub(super) async fn api_script_parse(
     if script_parse_pipeline::should_batch(&body) {
         return script_parse_pipeline::parse(&state, &body).await.map(Json);
     }
-    let prompt = {
+    cloud_refresh_model_runtime_config(&state).await?;
+    let (prompt, director, selected_provider, selected_model, creds) = {
         let conn = db_connection(&state)?;
-        build_script_parse_prompt(&conn, &body)?
+        let creds = load_provider_creds(&conn);
+        let model = resolve_runtime_workflow_model_id(&conn, "script_parsing")
+            .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error))?;
+        let provider = resolve_model_provider_required_string(&model, &creds)
+            .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, error))?;
+        (build_script_parse_prompt(&conn, &body)?, script_scene_detail::director(&conn)?, provider, model, creds)
     };
     let (value, provider, model_id) = CURRENT_MODEL_LOG_CONTEXT
-        .scope(context, async {
+        .scope(context.clone(), async {
             let mut request = prompt.clone();
             for attempt in 0..2 {
-                let (model_text, provider, model_id) =
-                    run_workflow_text_model(&state, "script_parsing", &request).await?;
+                let model_text = run_text_model_test_remote(&selected_provider, &selected_model, &request, &creds).await?;
                 let value = character_registry::expand(extract_json_from_text(&model_text)?, &body)?;
                 let validation = if json_string(body.get("scriptParseMode"), "premium_drama") == "origin_explainer" {
                     Ok(())
@@ -21859,7 +21867,7 @@ pub(super) async fn api_script_parse(
                     script_parse_pipeline::validate_dialogue(&value, &json_string(body.get("text"), ""))
                 };
                 match validation {
-                    Ok(()) => return Ok((value, provider, model_id)),
+                    Ok(()) => return Ok((value, selected_provider.clone(), selected_model.clone())),
                     Err(error) if attempt == 0 => {
                         request = format!("{prompt}\n上一轮校验失败：{error}。请重新输出完整 JSON。");
                     }
@@ -21870,6 +21878,20 @@ pub(super) async fn api_script_parse(
         })
         .await
         .map_err(|error: String| ApiError::new(StatusCode::BAD_GATEWAY, format!("剧本解析失败: {error}")))?;
+    let refinement_started = std::time::Instant::now();
+    let value = if json_string(body.get("scriptParseMode"), "premium_drama") == "origin_explainer" {
+        value
+    } else {
+        CURRENT_MODEL_LOG_CONTEXT.scope(context, script_scene_detail::refine(value, &body, &director, |request| {
+            let provider = &provider;
+            let model_id = &model_id;
+            let creds = &creds;
+            async move {
+                let text = run_text_model_test_remote(provider, model_id, &request, creds).await?;
+                extract_json_from_text(&text)
+            }
+        })).await.map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, format!("分镜细化失败: {error}")))?
+    };
     let mut payload = normalize_model_script_result(value, &body);
     if let Some(object) = payload.as_object_mut() {
         object.insert(
@@ -21877,7 +21899,8 @@ pub(super) async fn api_script_parse(
             json!({
               "modelProvider": provider,
               "modelId": model_id,
-              "fallback": false
+              "fallback": false,
+              "parseTiming": {"refinementMs": refinement_started.elapsed().as_millis() as u64}
             }),
         );
     }

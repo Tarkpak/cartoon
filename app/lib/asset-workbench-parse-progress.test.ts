@@ -3,7 +3,7 @@ import { buildParseProgressPhases, formatParseElapsed, parseBatchSummary, isSele
 
 describe('parse progress display', () => {
   it('shows completed planning and running batches, including retries', () => {
-    for (const step of ['batch_generating', 'batch_retry', 'generating']) {
+    for (const step of ['batch_generating', 'batch_retry', 'generating', 'refining_details']) {
       expect(buildParseProgressPhases({ step }, 'episode').map(phase => phase.status))
         .toEqual(['done', 'running', 'pending'])
     }

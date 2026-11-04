@@ -46,7 +46,7 @@ fn progress(step: &str, message: String, completed: usize, total: usize) {
         sender.send_replace(json!({
             "type": "progress", "payload": {
                 "step": step, "message": message,
-                "progress": if total == 0 { 3 } else { 10 + completed * 85 / total },
+                "progress": if step == "completed" { 100 } else if step == "merging" { 97 } else if total == 0 { 3 } else { 10 + completed * 60 / total },
                 "chunkIndex": completed, "chunkCount": total
             }
         }))
@@ -292,7 +292,7 @@ async fn parse_inner(
     cloud_refresh_model_runtime_config(state)
         .await
         .map_err(|error| error.message)?;
-    let (model, planning_prompt, batch_prompts, max_duration) = {
+    let (model, planning_prompt, batch_prompts, max_duration, director) = {
         let conn = db_connection(state).map_err(|error| error.message)?;
         let creds = load_provider_creds(&conn);
         let id = resolve_runtime_workflow_model_id(&conn, "script_parsing")?;
@@ -326,7 +326,7 @@ async fn parse_inner(
             .and_then(Value::as_u64)
             .unwrap_or(15)
             .min(30);
-        (model, planning_prompt, prompts, max_duration)
+        (model, planning_prompt, prompts, max_duration, script_scene_detail::director(&conn).map_err(|error| error.message)?)
     };
     progress("planning", "正在制定全局视觉与角色方案".into(), 0, 0);
     let planning_started = std::time::Instant::now();
@@ -363,7 +363,7 @@ async fn parse_inner(
                  本批首镜不引用上一批末帧。镜头编号从 scene_001 开始，后端统一重编号；description 不再写镜头编号。\n\
                  角色稳定外观沿用全局方案，scenes[].characters 使用 characterId 引用全局方案或项目身份表中的 id。\n\
                  顶层 newCharacters 只补充全局方案和项目身份表均未登记的新角色，不再输出顶层 characters；没有新增角色用 []。\n\
-                 不输出全局风格分析和导演思路，直接输出本批完整分镜的紧凑 JSON。",
+                 不输出全局风格分析和导演思路；JSON省略缩进，description仍须写完整的逐镜执行细节。",
                 index + 1, chunks.len(),
             );
             let mut batch_context = body.clone();
@@ -404,20 +404,26 @@ async fn parse_inner(
     }).collect();
     let results = collect_batches(tasks, chunks.len()).await?;
     let details_ms = details_started.elapsed().as_millis() as u64;
+    let merged = merge_batches(results, &plan, body)?;
+    let refinement_started = std::time::Instant::now();
+    let merged = script_scene_detail::refine(merged, body, &director, |prompt| {
+        let model = &model;
+        async move { model.generate(&prompt).await }
+    }).await?;
+    let refinement_ms = refinement_started.elapsed().as_millis() as u64;
     progress(
         "merging",
         "正在校验并合并分镜".into(),
         chunks.len(),
         chunks.len(),
     );
-    let merged = merge_batches(results, &plan, body)?;
     let mut payload = normalize_model_script_result(merged, body);
     payload["parseStrategy"] =
         json!({ "segmented": true, "chunkCount": chunks.len(), "episodeCount": 1 });
     payload["usage"] =
         json!({ "modelProvider": model.provider, "modelId": model.id, "fallback": false });
     payload["usage"]["parseTiming"] =
-        json!({"planningMs": planning_ms, "detailsMs": details_ms, "batchCount": chunks.len()});
+        json!({"planningMs": planning_ms, "detailsMs": details_ms, "refinementMs": refinement_ms, "batchCount": chunks.len()});
     progress(
         "completed",
         "分镜解析完成，已按原文顺序合并".into(),

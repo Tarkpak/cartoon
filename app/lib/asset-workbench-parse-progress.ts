@@ -23,7 +23,7 @@ export function buildParseProgressPhases(state: ParseProgressDisplayState, mode:
   const step = state.step === 'error' ? state.failedStep : state.step
   const current = mode === 'directory' ? 0
     : step === 'merging' || step === 'completed' || complete ? 2
-      : ['batch_generating', 'batch_retry', 'generating', 'parsing'].includes(step || '') ? 1 : 0
+      : ['batch_generating', 'batch_retry', 'generating', 'parsing', 'refining_details'].includes(step || '') ? 1 : 0
   const labels = mode === 'directory'
     ? ['生成分集目录']
     : ['全局视觉与角色方案', '生成详细分镜', '校验与保存']
