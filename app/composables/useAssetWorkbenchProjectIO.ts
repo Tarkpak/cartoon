@@ -319,6 +319,8 @@ export function useAssetWorkbenchProjectIO(options: UseAssetWorkbenchProjectIOOp
         method: 'POST',
         body: {
           projectId: options.projectId.value,
+          expectedSceneCount: options.scenes.value.length,
+          allowPartial: pendingScenes.length > 0,
           scenes: orderedReadyScenes.map(scene => ({
             id: scene.id,
             title: scene.title,

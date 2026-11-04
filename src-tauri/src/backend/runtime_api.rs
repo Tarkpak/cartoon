@@ -25279,8 +25279,59 @@ fn copy_or_concat_videos(
             .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         return Ok(());
     }
+    let probe_binary = std::env::var("FFPROBE_PATH").unwrap_or_else(|_| "ffprobe".to_string());
+    let probe = hidden_command(probe_binary)
+        .args(["-v", "error", "-show_streams", "-of", "json"])
+        .arg(&clips[0])
+        .output()
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("启动 FFprobe 失败: {error}")))?;
+    if !probe.status.success() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "无法读取首个分镜的视频参数"));
+    }
+    let metadata: Value = serde_json::from_slice(&probe.stdout)
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, format!("视频参数无效: {error}")))?;
+    let first_video = metadata["streams"].as_array()
+        .and_then(|streams| streams.iter().find(|stream| stream["codec_type"] == "video"))
+        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "首个分镜没有视频轨道"))?;
+    let width = first_video["width"].as_u64().unwrap_or(1280);
+    let height = first_video["height"].as_u64().unwrap_or(720);
+    let (target_width, target_height) = if width > height { (1280, 720) }
+        else if height > width { (720, 1280) }
+        else { (1024, 1024) };
+    let mut normalized = Vec::with_capacity(clips.len());
+    for (index, clip) in clips.iter().enumerate() {
+        let probe = hidden_command(std::env::var("FFPROBE_PATH").unwrap_or_else(|_| "ffprobe".to_string()))
+            .args(["-v", "error", "-show_streams", "-of", "json"])
+            .arg(clip)
+            .output()
+            .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("启动 FFprobe 失败: {error}")))?;
+        if !probe.status.success() {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, format!("无法读取第 {} 个分镜的视频参数", index + 1)));
+        }
+        let streams: Value = serde_json::from_slice(&probe.stdout)
+            .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, format!("视频参数无效: {error}")))?;
+        let has_audio = streams["streams"].as_array()
+            .is_some_and(|items| items.iter().any(|stream| stream["codec_type"] == "audio"));
+        let path = temp_dir.join(format!("normalized_{index}.mp4"));
+        let mut args = vec!["-y".to_string(), "-i".to_string(), clip.to_string_lossy().to_string()];
+        if !has_audio {
+            args.extend(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+                .into_iter().map(str::to_string));
+        }
+        args.extend([
+            "-map".to_string(), "0:v:0".to_string(), "-map".to_string(),
+            if has_audio { "0:a:0" } else { "1:a:0" }.to_string(),
+            "-vf".to_string(), format!("scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30"),
+            "-c:v".to_string(), "libx264".to_string(), "-pix_fmt".to_string(), "yuv420p".to_string(),
+            "-af".to_string(), "apad".to_string(), "-c:a".to_string(), "aac".to_string(), "-ar".to_string(), "48000".to_string(),
+            "-ac".to_string(), "2".to_string(), "-shortest".to_string(),
+            path.to_string_lossy().to_string(),
+        ]);
+        run_ffmpeg(&args)?;
+        normalized.push(path);
+    }
     let list_path = temp_dir.join("concat_list.txt");
-    let list_content = clips
+    let list_content = normalized
         .iter()
         .map(|path| format!("file '{}'", escape_ffmpeg_concat_path(path)))
         .collect::<Vec<_>>()
@@ -25560,6 +25611,19 @@ fn parse_video_merge_request(body: &Value) -> Result<(String, Vec<Value>), ApiEr
             "body.scenes",
             "Array must contain at least 1 item",
         ));
+    }
+    if let Some(expected) = body.get("expectedSceneCount") {
+        let count = expected.as_u64().filter(|count| *count > 0).ok_or_else(|| {
+            workflow_validation_error("body.expectedSceneCount", "Expected positive integer")
+        })?;
+        if u64::try_from(scenes.len()).ok() != Some(count)
+            && body.get("allowPartial").and_then(Value::as_bool) != Some(true)
+        {
+            return Err(workflow_validation_error(
+                "body.scenes",
+                "分镜未全部就绪；如需导出部分预览，请明确允许部分合成",
+            ));
+        }
     }
     for (index, scene) in scenes.iter().enumerate() {
         validate_merge_video_scene(scene, &format!("body.scenes.{index}"))?;

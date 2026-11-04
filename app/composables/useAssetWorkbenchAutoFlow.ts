@@ -104,6 +104,10 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
 
       await options.runBatchSceneGeneration()
       await options.retryFailedQueueItemsOnce()
+      const missingScenes = options.scenes.value.filter(scene => scene.videoStatus !== 'done' || !scene.videoUrl)
+      if (missingScenes.length > 0) {
+        throw new Error(`仍有 ${missingScenes.length} 个分镜未生成成功，请检查并重试后再进入成片：${missingScenes.slice(0, 3).map(scene => scene.title).join('、')}`)
+      }
       selectAutoStage('final')
     } catch (error) {
       autoRunError.value = options.resolveUiError(error, '分镜视频生成失败')
@@ -121,8 +125,9 @@ export function useAssetWorkbenchAutoFlow(options: UseAssetWorkbenchAutoFlowOpti
     autoRunCurrentStage.value = 'final'
 
     try {
-      if (options.queueSummary.value.done === 0) {
-        throw new Error('请先在“分镜视频”步骤生成至少一个分镜视频')
+      const missingScenes = options.scenes.value.filter(scene => scene.videoStatus !== 'done' || !scene.videoUrl)
+      if (options.scenes.value.length === 0 || missingScenes.length > 0) {
+        throw new Error(`请先完成全部分镜视频，当前仍有 ${missingScenes.length} 个未就绪`)
       }
       await handleMergeVideos(input)
       if (options.finalVideo.value?.videoUrl) {

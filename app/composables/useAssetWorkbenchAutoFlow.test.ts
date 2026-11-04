@@ -17,6 +17,45 @@ function createScene(id: string): SceneData {
 }
 
 describe('useAssetWorkbenchAutoFlow', () => {
+  it('keeps automatic generation out of the final stage when a shot is missing', async () => {
+    const scenes = ref<SceneData[]>([createScene('shot_1'), createScene('shot_2')])
+    const mergeAllVideos = vi.fn(async () => undefined)
+    const flow = useAssetWorkbenchAutoFlow({
+      route: reactive({ path: '/other', query: {} }) as never,
+      router: { push: vi.fn() } as never,
+      projectId: computed(() => 'project_1'),
+      projectAssetWorkflow: ref(null),
+      selectedStyleId: ref(''),
+      projectStyleId: ref(''),
+      selectedSceneId: ref(''),
+      scenes,
+      queueSummary: computed(() => ({ total: 2, running: 0, done: 1, error: 1 })),
+      assetsReady: computed(() => true),
+      finalVideo: ref(null),
+      resolveUiError: error => String(error),
+      mergeAllVideos,
+      loadProject: vi.fn(async () => undefined),
+      loadWorkflowMeta: vi.fn(async () => false),
+      saveWorkflowMeta: vi.fn(async () => undefined),
+      persistAutomaticAssetPlan: vi.fn(async () => undefined),
+      synchronizeSceneConfigs: vi.fn(),
+      synchronizeQueueItems: vi.fn(),
+      ensureCharacterAssetsReady: vi.fn(async () => undefined),
+      ensurePropAssetsReady: vi.fn(async () => undefined),
+      runBatchSceneGeneration: vi.fn(async () => {
+        scenes.value[0].videoStatus = 'done'
+        scenes.value[0].videoUrl = '/shot_1.mp4'
+      }),
+      retryFailedQueueItemsOnce: vi.fn(async () => undefined)
+    })
+
+    await flow.runSimpleVideosStep()
+    expect(flow.activeAutoStage.value).not.toBe('final')
+    expect(flow.autoRunError.value).toContain('1 个分镜未生成成功')
+    await flow.runSimpleFinalStep()
+    expect(mergeAllVideos).not.toHaveBeenCalled()
+  })
+
   it.each([true, false])('opens asset preparation for an existing plan with scenes=%s and reloads on project changes', async (hasScenes) => {
     const route = reactive({
       path: '/asset-workbench',
