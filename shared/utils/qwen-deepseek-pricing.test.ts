@@ -18,6 +18,10 @@ describe('Qwen / DeepSeek official reference pricing', () => {
     const priced = priceQwenDeepSeekRecord(record)
     expect(priced.usage).toMatchObject({ costNanoCny: 2800000, currency: 'CNY', pricingStatus: 'priced', inputTokens: 1000 })
   })
+  it('uses Chinese official CNY pricing for DeepSeek instead of converting USD', () => {
+    const record = { provider: 'deepseek', model: 'deepseek-flash', operation: 'generateText', usage: { inputTokens: 1000, outputTokens: 100, cachedTokens: 0 } }
+    expect(priceQwenDeepSeekRecord(record).usage).toMatchObject({ costNanoCny: 2800000, costNanoUsd: null, currency: 'CNY', priceSnapshot: { source: 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing' } })
+  })
   it('shows native media units without inventing tokens', () => {
     expect(logUsageTokens({ billingUnit: 'images', inputImages: 1, outputImages: 2 })).toBe('图片输入 1 / 输出 2 张')
     expect(logUsageTokens({ billingUnit: 'seconds', inputVideoSeconds: 3, durationSeconds: 10, videoStatus: 'SUCCEEDED' })).toBe('视频输入 3 / 输出 10 秒')

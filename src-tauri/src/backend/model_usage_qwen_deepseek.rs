@@ -39,7 +39,9 @@ mod tests {
         assert_eq!(qwen["costNanoCny"], 2_000_000);
         let deepseek = capture("deepseek", "deepseek-v4-pro", "generateText", None, Some(r#"{"usage":{"prompt_tokens":1000,"completion_tokens":100,"prompt_cache_hit_tokens":500,"prompt_cache_miss_tokens":500}}"#)).unwrap();
         assert_eq!(deepseek["cachedTokens"], 500);
-        assert_eq!(deepseek["costNanoUsd"], 1_078_000);
+        assert_eq!(deepseek["costNanoCny"], 7_350_000);
+        assert!(deepseek["costNanoUsd"].is_null());
+        assert_eq!(deepseek["currency"], "CNY");
         assert_eq!(deepseek["totalTokens"], 1100);
         assert_eq!(capture("deepseek", "deepseek-v4-pro", "generateText", None, None).unwrap()["usageStatus"], "unknown");
         assert_eq!(region(Some("https://workspace.cn-beijing.maas.aliyuncs.com/api/v1")), "cn-beijing");
@@ -85,12 +87,14 @@ pub(super) fn estimate(provider: &str, model: &str, operation: &str, usage: &Val
         ((input + output) * rate as f64).round() as i128
     } else { return None; };
     if !(0..=9_007_199_254_740_991).contains(&cost) { return None; }
-    Some((cost as i64, json!({"version":c["version"],"source":c["sources"][provider],"model":model,"currency":if provider=="qwen"{"CNY"}else{"USD"},"basis":basis,"region":usage["pricingRegion"]})))
+    Some((cost as i64, json!({"version":c["version"],"source":c["sources"][provider],"model":model,"currency":"CNY","basis":basis,"region":usage["pricingRegion"]})))
 }
 
 pub(super) fn price(provider: &str, model: &str, operation: &str, usage: &mut Value) {
     if let Some((cost, snapshot)) = estimate(provider, model, operation, usage) {
-        usage[if provider == "qwen" { "costNanoCny" } else { "costNanoUsd" }] = json!(cost);
+        usage["costNanoCny"] = json!(cost);
+        usage["costNanoUsd"] = Value::Null;
+        usage["currency"] = json!("CNY");
         usage["priceSnapshot"] = snapshot;
         usage["pricingStatus"] = json!("priced");
     }

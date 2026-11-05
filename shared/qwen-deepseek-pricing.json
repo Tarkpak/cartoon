@@ -1,8 +1,8 @@
 {
-  "version": "qwen-deepseek-2026-11-05-v1",
+  "version": "qwen-deepseek-2026-11-05-v2",
   "sources": {
     "qwen": "https://help.aliyun.com/zh/model-studio/model-pricing",
-    "deepseek": "https://api-docs.deepseek.com/quick_start/pricing"
+    "deepseek": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing"
   },
   "cacheSource": "https://help.aliyun.com/zh/model-studio/context-cache",
   "textUnit": "nano currency per token; rows: max input, input, implicit cache, output",
@@ -23,10 +23,10 @@
     "qwen-long": [[10000000, 500, null, 2000]]
   },
   "deepseek": {
-    "deepseek-flash": [[1000000, 300, 6, 1200]],
-    "deepseek-v4-flash": [[1000000, 300, 6, 1200]],
-    "deepseek-v4-flash-vision-exp": [[1000000, 300, 6, 1200]],
-    "deepseek-v4-pro": [[1000000, 1320, 44, 3960]]
+    "deepseek-flash": [[1000000, 2000, 40, 8000]],
+    "deepseek-v4-flash": [[1000000, 2000, 40, 8000]],
+    "deepseek-v4-flash-vision-exp": [[1000000, 2000, 40, 8000]],
+    "deepseek-v4-pro": [[1000000, 9000, 300, 27000]]
   },
   "imageNanoCny": {
     "qwen-image-3.0": [20000000, 180000000],

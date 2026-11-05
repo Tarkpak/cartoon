@@ -96,7 +96,7 @@ function projectName(id?: string) { return data.value?.options.projects.find(ite
         </div>
       </div>
       <p class="text-xs text-muted-foreground">当前账号、本应用采集的调用；日期按北京时间，结束日期含当天。美元与人民币分开统计，不做换算。费用仅合计已估价调用，不含平台积分。价格更改不会重算历史记录。</p>
-      <p class="text-xs text-muted-foreground">DeepSeek 按官方高峰参考价估算，未扣除低峰及节假日折扣；通义按北京地域公开原价估算，不含活动优惠。缺少价格或计费信息时显示未估价。</p>
+      <p class="text-xs text-muted-foreground">DeepSeek 按中文官网人民币高峰参考价估算，未扣除低峰及节假日折扣；通义按北京地域公开原价估算，不含活动优惠。缺少价格或计费信息时显示未估价。</p>
       <div v-if="data.total.calls" class="grid gap-3 lg:grid-cols-2">
         <section v-for="group in breakdowns" :key="group.key" class="rounded-lg border p-4">
           <h3 class="mb-3 text-sm font-medium">{{ group.title }}</h3>

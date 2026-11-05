@@ -139,7 +139,7 @@
     "inputTokens": 1000,
     "outputTokens": 100,
     "cachedTokens": 500,
-    "expected": 1078000
+    "expected": 7350000
   },
   {
     "provider": "deepseek",
@@ -149,7 +149,7 @@
     "inputTokens": 1000,
     "outputTokens": 100,
     "cachedTokens": 500,
-    "expected": 273000
+    "expected": 1820000
   },
   {
     "provider": "deepseek",
@@ -159,7 +159,7 @@
     "inputTokens": 1000,
     "outputTokens": 100,
     "cachedTokens": 0,
-    "expected": 420000
+    "expected": 2800000
   },
   {
     "provider": "qwen",

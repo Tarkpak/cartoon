@@ -96,12 +96,12 @@ Seedance 1.0 Pro 在线 15 元、离线 7.5 元/百万 token；1.0 Pro Fast 在�
 
 ## 通义与 DeepSeek 统计
 
-价格目录为 `shared/qwen-deepseek-pricing.json`，版本 `qwen-deepseek-2026-11-05-v1`，Rust 与云端 TypeScript 使用同一目录和共享计价用例。
+价格目录为 `shared/qwen-deepseek-pricing.json`，版本 `qwen-deepseek-2026-11-05-v2`，Rust 与云端 TypeScript 使用同一目录和共享计价用例。v2 改用 DeepSeek 中文官网人民币单价，新调用记入 CNY；v1 已保存的美元费用保留历史快照，不做汇率换算或覆盖。
 
-- 官方来源：[通义模型价格](https://help.aliyun.com/zh/model-studio/model-pricing)、[通义缓存计费](https://help.aliyun.com/zh/model-studio/context-cache)、[DeepSeek 价格](https://api-docs.deepseek.com/quick_start/pricing)。
+- 官方来源：[通义模型价格](https://help.aliyun.com/zh/model-studio/model-pricing)、[通义缓存计费](https://help.aliyun.com/zh/model-studio/context-cache)、[DeepSeek 人民币价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing)。
 - 通义文本：采集输入、输出、缓存和推理 token；按单次输入总量选择整笔请求的阶梯。目录覆盖 3.8 Max/Flash、3.7 Max/Plus/Flash、3.6 Plus、qwen-max、qwen-long 及目录明确列出的版本。缓存创建、特殊服务档位、未知模型保持未估价。3.8 Max/Flash 的隐式缓存单价需控制台确认，因此命中缓存时不猜价。
 - 通义价格仅匹配北京官方域名（`dashscope.aliyuncs.com` 或业务空间 `.cn-beijing.maas.aliyuncs.com`）；其他地域和代理域名仍采集用量，但不套用北京价格。使用公开原价，不扣免费额度、资源包或限时优惠。
-- DeepSeek 文本：支持 `prompt_cache_hit_tokens`，缓存不重复累加。目录覆盖 `deepseek-flash`、`deepseek-v4-flash`、`deepseek-v4-flash-vision-exp`、`deepseek-v4-pro`。**当前按官方高峰参考价估算，不计算低峰及中国节假日折扣**，页面会注明；因此不是供应商实际扣款。Flash 输入/缓存/输出分别为 $0.30/$0.006/$1.20 每百万 token，Pro 为 $1.32/$0.044/$3.96。
+- DeepSeek 文本：支持 `prompt_cache_hit_tokens`，缓存不重复累加。目录覆盖 `deepseek-flash`、`deepseek-v4-flash`、`deepseek-v4-flash-vision-exp`、`deepseek-v4-pro`。**当前按中文官网人民币高峰参考价估算，不计算低峰及中国节假日折扣**，页面会注明；因此不是供应商实际扣款。Flash 输入/缓存/输出分别为 ¥2/¥0.04/¥8 每百万 token，Pro 为 ¥9/¥0.30/¥27。官网空闲时段价格为上述价格的一半。
 - 通义图片：采集 API `usage.image_count` 与请求输入图片数量，以张展示。目录覆盖 Qwen Image 3.0、2.1 Pro/Turbo、2.0/Pro、Wan 2.7 Image/Pro、Wan 2.6 Image；3.0 Pro 等尚未匹配完整计价规则的型号保留用量、未估价，不拿图片张数当 token。
 - 通义视频：只记录 SUCCEEDED/FAILED/CANCELED 终态，以供应商、查询 endpoint、账号、上游 task ID 稳定去重，正常轮询与重启恢复不重复累加。读取 `usage.output_video_duration`（回退 `duration`）、`input_video_duration` 和 `SR`；万相 3.0/Prime 按输入加输出秒数，Wan 2.7 T2V/I2V、2.6 T2V/I2V 按输出秒数和分辨率估价。HappyHorse、参考生视频等未配置价格的型号仍统计返回的时长；缺失时长/分辨率、终态失败不猜零费用。提交任务、处理中和查询 HTTP 错误不另计生成次数。
 - 通义语音合成：采集上游 `usage.characters` 并展示字符数，暂不估价。未提供字符数时标记未知。不包含尚未接入采集的其他语音识别接口。

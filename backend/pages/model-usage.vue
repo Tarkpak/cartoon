@@ -5,7 +5,7 @@
         <div><h1>用量与费用</h1><p class="muted">查看已同步的客户端调用，日期按北京时间统计。</p></div>
         <n-button :loading="loading" @click="load">刷新</n-button>
       </header>
-      <n-alert type="info" :bordered="false">费用为客户端上报的估算，美元与人民币分开统计，不做汇率换算。DeepSeek 使用官方高峰参考价，通义使用北京地域公开原价，不扣除优惠。仅涵盖已同步记录，不代表供应商账单，也不参与平台积分扣费。</n-alert>
+      <n-alert type="info" :bordered="false">费用为客户端上报的估算，美元与人民币分开统计，不做汇率换算。DeepSeek 使用中文官网人民币高峰参考价，通义使用北京地域公开原价，不扣除优惠。仅涵盖已同步记录，不代表供应商账单，也不参与平台积分扣费。</n-alert>
       <section class="usage-filters" aria-label="用量筛选">
         <label>币种<select v-model="filters.currency" aria-label="币种"><option value="USD">美元 USD</option><option value="CNY">人民币 CNY</option></select></label>
         <label>开始日期<input v-model="filters.startDate" type="date"></label>

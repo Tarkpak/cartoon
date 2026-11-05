@@ -36,7 +36,7 @@ export function estimateQwenDeepSeek(provider: string, model: string, operation:
   } else return null
   if (!integer(cost)) return null
   return { cost, snapshot: { version: catalog.version, source: catalog.sources[provider], model,
-    currency: provider === 'qwen' ? 'CNY' : 'USD', basis, region: usage.pricingRegion } }
+    currency: 'CNY', basis, region: usage.pricingRegion } }
 }
 
 export function priceQwenDeepSeekRecord(record: Record<string, unknown>) {
@@ -45,6 +45,6 @@ export function priceQwenDeepSeekRecord(record: Record<string, unknown>) {
   const provider = String(record.provider)
   const result = estimateQwenDeepSeek(provider, String(usage.model ?? record.model), String(record.operation), usage)
   if (!result) return record
-  return { ...record, usage: { ...usage, [provider === 'qwen' ? 'costNanoCny' : 'costNanoUsd']: result.cost,
+  return { ...record, usage: { ...usage, costNanoCny: result.cost, costNanoUsd: null,
     currency: result.snapshot.currency, pricingStatus: 'priced', priceSnapshot: result.snapshot } }
 }

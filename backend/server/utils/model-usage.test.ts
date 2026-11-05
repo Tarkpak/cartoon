@@ -14,7 +14,7 @@ describe('usage ledger', () => {
       saveModelUsage(db, 'alice', 'deepseek', { ...base, id: 'deepseek', provider: 'deepseek', model: 'deepseek-flash', operation: 'generateText', usage: { usageStatus: 'reported', inputTokens: 1000, outputTokens: 100, cachedTokens: 0 } })
       const rows = db.query('SELECT user_id,record_json FROM model_usage_records ORDER BY id,user_id').all() as Array<{ user_id: string, record_json: string }>
       expect(rows).toHaveLength(3)
-      expect(JSON.parse(rows[0].record_json).usage).toMatchObject({ costNanoUsd: 420000, currency: 'USD' })
+      expect(JSON.parse(rows[0].record_json).usage).toMatchObject({ costNanoCny: 2800000, costNanoUsd: null, currency: 'CNY' })
       expect(JSON.parse(rows[1].record_json).usage).toMatchObject({ outputImages: 2, billingUnit: 'images', costNanoCny: 500000000, currency: 'CNY' })
       expect(JSON.parse(rows[1].record_json).usage.inputTokens).toBeUndefined()
       expect(() => saveModelUsage(db, 'alice', base.id, { ...base, usage: { ...base.usage, outputImages: -1 } })).toThrow()

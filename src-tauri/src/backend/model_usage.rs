@@ -210,7 +210,7 @@ pub(super) fn capture(
         "cachedTokens":cached,"reasoningTokens":reasoning,"textInputTokens":text_input,"imageInputTokens":image_input,
         "textOutputTokens":text_output,"cacheWriteTokens":cache_write,
         "model":actual_model,"serviceTier":tier,"upstreamId":payload["id"],"rawUsage":usage,
-        "costNanoUsd":cost,"costNanoCny":null,"currency":if provider=="qwen"{"CNY"}else{"USD"},"pricingRegion":qwen_deepseek::region(endpoint),"pricingStatus":if cost.is_some() {"priced"} else {reason},"priceSnapshot":price});
+        "costNanoUsd":cost,"costNanoCny":null,"currency":if matches!(provider,"qwen"|"deepseek"){"CNY"}else{"USD"},"pricingRegion":qwen_deepseek::region(endpoint),"pricingStatus":if cost.is_some() {"priced"} else {reason},"priceSnapshot":price});
     qwen_deepseek::price(provider, actual_model, operation, &mut result);
     Some(result)
 }

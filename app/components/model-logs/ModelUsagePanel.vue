@@ -71,7 +71,7 @@ const periods = computed(() => data.value ? [
         </table>
       </div>
       <p v-else-if="!compact" class="py-10 text-center text-sm text-muted-foreground">暂无用量记录。完成一次已接入统计的模型调用后即可查看。</p>
-      <p v-if="data.records.some(r => r.provider === 'deepseek')" class="text-xs text-muted-foreground">DeepSeek 按官方高峰参考价估算，未扣除低峰及节假日折扣；通义按北京地域公开原价估算，不含活动优惠。</p>
+      <p v-if="data.records.some(r => r.provider === 'deepseek')" class="text-xs text-muted-foreground">DeepSeek 按中文官网人民币高峰参考价估算，未扣除低峰及节假日折扣；通义按北京地域公开原价估算，不含活动优惠。</p>
       <p v-if="data.total.calls > data.records.length" class="text-xs text-muted-foreground">展示最近 {{ data.records.length }} 条；汇总包含全部匹配调用。清理调用日志不会删除用量台账。</p>
     </template>
   </section>

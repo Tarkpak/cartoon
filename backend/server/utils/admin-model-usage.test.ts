@@ -27,8 +27,9 @@ describe('admin usage analytics', () => {
       const qwen = queryAdminModelUsage(db, { provider: 'qwen', currency: 'CNY' })
       expect(qwen.total).toMatchObject({ calls: 1, costNanoCny: 7800000000, inputTokens: 0, outputTokens: 0 })
       expect(qwen.records[0]).toMatchObject({ billingUnit: 'seconds', durationSeconds: 10, inputVideoSeconds: 3 })
-      const ds = queryAdminModelUsage(db, { provider: 'deepseek', currency: 'USD' })
-      expect(ds.total).toMatchObject({ calls: 1, costNanoUsd: 420000, inputTokens: 1000, outputTokens: 100 })
+      const ds = queryAdminModelUsage(db, { provider: 'deepseek', currency: 'CNY' })
+      expect(ds.total).toMatchObject({ calls: 1, costNanoUsd: 0, costNanoCny: 2800000, inputTokens: 1000, outputTokens: 100 })
+      expect(queryAdminModelUsage(db, { provider: 'deepseek', currency: 'USD' }).total.calls).toBe(0)
       expect(ds.records[0].userName).toBe('Bob')
     } finally { db.close() }
   })
