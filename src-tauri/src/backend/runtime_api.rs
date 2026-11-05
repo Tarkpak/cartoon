@@ -653,11 +653,16 @@ fn llm_dev_write_db_log_impl(
     error: Option<&str>,
 ) {
     let now = Utc::now();
-    let log_id = format!("log_{}", Uuid::new_v4().simple());
+    let context = current_model_log_context();
+    let owner_user_id = context.owner_user_id.clone().or_else(|| config_connection().and_then(|conn| cloud_user_id(&conn)));
+    let seedance_usage = super::model_usage::capture_seedance(provider, model, operation, request, response_raw);
+    let qwen_usage = super::model_usage::capture_qwen_media(provider, model, operation, endpoint, request, response_raw);
+    let log_id = seedance_usage.as_ref().and_then(|usage| super::model_usage::seedance_event_id(provider, endpoint, owner_user_id.as_deref(), usage))
+        .or_else(|| qwen_usage.as_ref().filter(|_| operation == "generateVideo").and_then(|usage| super::model_usage::seedance_event_id(provider, endpoint, owner_user_id.as_deref(), usage)).map(|id| id.replace("log_seedance_", "log_qwen_video_")))
+        .or_else(super::model_usage::attempt_id).unwrap_or_else(|| format!("log_{}", Uuid::new_v4().simple()));
     let duration_ms = (now.timestamp_millis() - started_at_ms).max(1);
     let endpoint_value = endpoint.map(llm_dev_log_url_without_query);
     let request_id = current_request_id();
-    let context = current_model_log_context();
     let request_value = request.map(|value| llm_dev_file_sanitize_value(value, None));
     let response_value = response.map(|value| llm_dev_file_sanitize_value(value, None));
     let response_raw_value = response_raw.map(llm_dev_file_response_raw_value);
@@ -673,7 +678,15 @@ fn llm_dev_write_db_log_impl(
             serde_json::from_str::<Value>(raw).unwrap_or_else(|_| Value::String(raw.to_string()));
         collect_model_log_media_refs(&raw_value, "response", &mut media_refs);
     }
+    let mut usage_record = seedance_usage.or(qwen_usage).or_else(|| (super::model_usage::attempt_id().is_some() || response_raw.is_some())
+      .then(|| super::model_usage::capture(provider, model, operation, endpoint, response_raw)).flatten()).map(|usage| json!({
+      "id": log_id, "createdAt": now.to_rfc3339(), "requestId": request_id,
+      "projectId": context.project_id, "sceneId": context.scene_id, "taskId": context.task_id,
+      "provider": provider, "model": model, "operation": operation, "status": status, "usage": usage
+    }));
+    if let Some(record) = &mut usage_record { super::model_usage::decorate(record); super::model_usage::finish(record); }
     let log_payload = json!({
+      "usageRecord": usage_record,
       "eventId": log_id.clone(),
       "requestId": request_id.clone(),
       "provider": provider,
@@ -695,10 +708,12 @@ fn llm_dev_write_db_log_impl(
       "createdAt": now.to_rfc3339()
     });
 
-    let owner_user_id = context.owner_user_id.clone().or_else(|| {
-        config_connection().and_then(|conn| cloud_user_id(&conn))
-    });
     if let Some(conn) = config_connection() {
+        if let Some(record) = &usage_record {
+            if let Err(error) = super::model_usage::save(&conn, record, owner_user_id.as_deref()) {
+                eprintln!("用量记录保存失败: {error}");
+            }
+        }
         let _ = conn.execute(
             "INSERT INTO model_debug_logs (
           id, timestamp, provider, model, operation, status, duration_ms, endpoint, request_id,
@@ -8036,6 +8051,19 @@ async fn request_custom_openai_image_generation_with_options(
     creds: &Value,
     image_options: &Value,
 ) -> Result<ImageTestOutput, String> {
+    super::model_usage::track(request_custom_openai_image_generation_tracked(provider, model_id, prompt, size, quality_override, reference_images, creds, image_options)).await
+}
+
+async fn request_custom_openai_image_generation_tracked(
+    provider: &str,
+    model_id: &str,
+    prompt: &str,
+    size: &str,
+    quality_override: Option<&str>,
+    reference_images: &[String],
+    creds: &Value,
+    image_options: &Value,
+) -> Result<ImageTestOutput, String> {
     let custom_openai = if provider == "custom_openai" {
         custom_openai_entry_for_model(model_id, creds)
             .ok_or_else(|| "未配置自定义 OpenAI 供应商".to_string())?
@@ -8200,6 +8228,7 @@ async fn request_custom_openai_image_generation_with_options(
                     })?,
                 );
             }
+            super::model_usage::begin(provider, model_id, "generateImage", &endpoint_for_log, &request_creds);
             llm_http_client()
                 .post(&endpoint_for_log)
                 .header(reqwest::header::AUTHORIZATION, openai_auth_header(&api_key))
@@ -8253,6 +8282,7 @@ async fn request_custom_openai_image_generation_with_options(
                 for (key, value) in options { request_body[key] = value.clone(); }
             }
             request_log_payload = request_body.clone();
+            super::model_usage::begin(provider, model_id, "generateImage", &endpoint_for_log, &request_creds);
             llm_http_client()
                 .post(&endpoint_for_log)
                 .header(reqwest::header::AUTHORIZATION, openai_auth_header(&api_key))
@@ -8819,6 +8849,16 @@ async fn request_qwen_image_generation(
     reference_images: &[String],
     creds: &Value,
 ) -> Result<(String, Option<String>), String> {
+    super::model_usage::track(request_qwen_image_generation_tracked(model_id, prompt, size, reference_images, creds)).await
+}
+
+async fn request_qwen_image_generation_tracked(
+    model_id: &str,
+    prompt: &str,
+    size: &str,
+    reference_images: &[String],
+    creds: &Value,
+) -> Result<(String, Option<String>), String> {
     let api_keys = provider_sync_api_keys("qwen", creds);
     if api_keys.is_empty() {
         llm_dev_log!(
@@ -8875,6 +8915,7 @@ async fn request_qwen_image_generation(
             "watermark": false
           }
         });
+        super::model_usage::begin("qwen", model_id, "generateImage", &endpoint, creds);
         let response = llm_http_client()
             .post(&endpoint)
             .bearer_auth(api_key)
@@ -11924,7 +11965,7 @@ async fn refresh_tracked_video_task(
                         )
                         .await?;
                     }
-                    "FAILED" | "UNKNOWN" => {
+                    "FAILED" | "CANCELED" | "UNKNOWN" => {
                         let message = payload
                             .get("output")
                             .and_then(|output| output.get("message"))
@@ -11940,7 +11981,7 @@ async fn refresh_tracked_video_task(
                 if upstream_task_id.trim().is_empty() {
                     return Ok::<(), ApiError>(());
                 }
-                let payload = query_volcengine_video_task(state, model_id, upstream_task_id)
+                let payload = query_volcengine_video_task(state, model_id, upstream_task_id, upstream_task.get("request").unwrap_or(&Value::Null))
                     .await
                     .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, error))?;
                 match parse_volcengine_task_status(&payload).as_str() {
@@ -12798,7 +12839,7 @@ where
                 );
                 return Ok(url);
             }
-            "FAILED" => {
+            "FAILED" | "CANCELED" => {
                 let message = payload
                     .get("output")
                     .and_then(|output| output.get("message"))
@@ -12925,6 +12966,9 @@ async fn query_qwen_video_task(
         );
         message
     })?;
+    if matches!(parse_qwen_task_status(&payload).as_str(), "SUCCEEDED" | "FAILED" | "CANCELED") {
+        llm_dev_write_db_log("qwen", model_id, "generateVideo", if parse_qwen_task_status(&payload) == "SUCCEEDED" { "success" } else { "error" }, started_at, Some(&endpoint), Some(&request_body), Some(&payload), Some(&body_text), None);
+    }
     Ok(payload)
 }
 
@@ -12993,6 +13037,13 @@ async fn request_qwen_text_to_speech(
     model_id: &str,
     body: &Value,
 ) -> Result<(String, Option<String>, bool, Value), String> {
+    super::model_usage::track(request_qwen_text_to_speech_tracked(model_id, body)).await
+}
+
+async fn request_qwen_text_to_speech_tracked(
+    model_id: &str,
+    body: &Value,
+) -> Result<(String, Option<String>, bool, Value), String> {
     let _log_started_at = Utc::now().timestamp_millis();
     let api_key = provider_sync_api_key("qwen", &current_provider_creds()).ok_or_else(|| {
         llm_dev_log!(
@@ -13055,6 +13106,7 @@ async fn request_qwen_text_to_speech(
         "format" => format.as_str()
     );
 
+    super::model_usage::begin("qwen", model_id, "textToSpeech", &endpoint, &current_provider_creds());
     let response = llm_http_client()
         .post(&endpoint)
         .bearer_auth(api_key)
@@ -14724,7 +14776,9 @@ where
       "billing": {
         "durationSeconds": generation_request.get("duration").cloned().unwrap_or(Value::Null),
         "resolution": generation_request.get("resolution").cloned().unwrap_or(Value::Null),
-        "hasVideoInput": has_video_input
+        "hasVideoInput": has_video_input,
+        "serviceTier": generation_request.get("service_tier").cloned().unwrap_or(json!("default")),
+        "draftSourceUnknown": generation_request.get("draft_task_id").is_some()
       }
     });
 
@@ -14844,6 +14898,7 @@ async fn query_volcengine_video_task(
     state: &BackendState,
     model_id: Option<&str>,
     upstream_task_id: &str,
+    generation_request: &Value,
 ) -> Result<Value, String> {
     let model_id = model_id.unwrap_or("").trim();
     let started_at = Utc::now().timestamp_millis();
@@ -14853,7 +14908,12 @@ async fn query_volcengine_video_task(
         .ok_or_else(|| "未配置火山引擎 API Key，请在设置中配置".to_string())?;
     let base_url = volcengine_video_base_url(&creds);
     let endpoint = volcengine_task_endpoint(&base_url, upstream_task_id);
-    let request_body = json!({ "taskId": upstream_task_id });
+    let request_body = json!({ "taskId": upstream_task_id, "billing": {
+        "resolution":generation_request["resolution"],
+        "hasVideoInput":generation_request["content"].as_array().map(|items|items.iter().any(|item|item["type"]=="video_url")),
+        "serviceTier":generation_request.get("service_tier").cloned().unwrap_or(json!("default")),
+        "draftSourceUnknown":generation_request.get("draft_task_id").is_some()
+    }});
     let response = llm_http_client()
         .get(&endpoint)
         .bearer_auth(&api_key)
@@ -14929,6 +14989,9 @@ async fn query_volcengine_video_task(
         );
         message
     })?;
+    if matches!(parse_volcengine_task_status(&payload).as_str(), "succeeded" | "failed" | "cancelled" | "expired") {
+        llm_dev_write_db_log("volcengine", model_id, "generateVideo", if payload["status"]=="succeeded" {"success"}else{"error"}, started_at, Some(&endpoint), Some(&request_body), Some(&payload), Some(&body_text), None);
+    }
     Ok(payload)
 }
 
@@ -19796,7 +19859,7 @@ fn resolve_image_test_size(model_id: &str, provider: &str, aspect_ratio: &str) -
     resolve_image_size_for_resolution(model_id, provider, &size, "4K").unwrap_or(size)
 }
 
-fn normalize_model_id_for_remote(raw: &str) -> String {
+pub(super) fn normalize_model_id_for_remote(raw: &str) -> String {
     raw.trim().trim_start_matches("models/").trim().to_string()
 }
 
@@ -20134,6 +20197,15 @@ async fn request_openai_compatible_text_completion(
     prompt: &str,
     creds: &Value,
 ) -> Result<String, String> {
+    super::model_usage::track(request_openai_compatible_text_completion_tracked(provider, model_id, prompt, creds)).await
+}
+
+async fn request_openai_compatible_text_completion_tracked(
+    provider: &str,
+    model_id: &str,
+    prompt: &str,
+    creds: &Value,
+) -> Result<String, String> {
     let resolved_custom_openai;
     let reasoning_creds = creds;
     let request_creds = if provider == "custom_openai" {
@@ -20176,6 +20248,7 @@ async fn request_openai_compatible_text_completion(
 
     for api_key in api_keys {
         let mut request_body = openai_compatible_text_request_body(model.as_str(), prompt);
+        super::model_usage::begin(provider, model_id, "generateText", &endpoint, creds);
         apply_qwen_text_options(&mut request_body, provider, model.as_str(), true);
         apply_text_reasoning_effort(&mut request_body, provider, model_id, reasoning_creds);
         if provider == "openai" {
@@ -20187,6 +20260,9 @@ async fn request_openai_compatible_text_completion(
             }
         }
         request_body["stream"] = json!(true);
+        if matches!(provider, "openai" | "qwen" | "deepseek") {
+            request_body["stream_options"] = json!({"include_usage": true});
+        }
         text_stream_connecting();
         let response = llm_http_client()
             .post(&endpoint)
@@ -20221,10 +20297,11 @@ async fn request_openai_compatible_text_completion(
             })?;
 
         let status = response.status();
-        let body_text = read_text_model_response(response).await.map_err(|message| {
+        let mut captured_response = Vec::new();
+        let body_text = read_text_model_response_captured(response, &mut captured_response).await.map_err(|message| {
             llm_dev_write_db_log(
                 provider, model_id, "generateText", "error", _log_started_at,
-                Some(endpoint.as_str()), Some(&request_body), None, None, Some(message.as_str()),
+                Some(endpoint.as_str()), Some(&request_body), None, Some(String::from_utf8_lossy(&captured_response).as_ref()), Some(message.as_str()),
             );
             message
         })?;

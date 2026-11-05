@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import ModelUsagePanel from '@/components/model-logs/ModelUsagePanel.vue'
 import { useIntervalFn } from '@vueuse/core'
 import { Check, ChevronRight, Circle, CircleAlert, Loader2 } from 'lucide-vue-next'
 import {
@@ -52,6 +53,7 @@ const sinceLastOutput = computed(() => Math.max(0, Math.floor(
       </span>
     </div>
 
+    <ModelUsagePanel v-if="!running && state?.requestId" :request-id="state.requestId" compact class="mt-3" />
     <ol class="mt-3 space-y-2" aria-label="解析阶段">
       <li
         v-for="phase in phases"

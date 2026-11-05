@@ -139,6 +139,8 @@ mod prompts_api;
 mod skills;
 #[path = "backend/runtime_api.rs"]
 mod runtime_api;
+#[path = "backend/model_usage.rs"]
+mod model_usage;
 #[path = "backend/short_video.rs"]
 mod short_video;
 #[path = "backend/video_import.rs"]
@@ -4521,6 +4523,7 @@ fn ensure_runtime_schema(conn: &Connection) -> Result<(), ApiError> {
 
 fn init_database(state: &BackendState) -> Result<(), ApiError> {
     let conn = db_connection(state)?;
+    model_usage::init(&conn).map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     conn.execute_batch(
         "
       CREATE TABLE IF NOT EXISTS projects (
@@ -5715,6 +5718,8 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
             "/api/debug/model-logs",
             get(api_debug_logs_get).delete(api_debug_logs_delete),
         )
+        .route("/api/model-usage", get(model_usage::get))
+        .route("/api/model-usage/export", get(model_usage::export))
         .route("/api/{*path}", any(api_not_implemented))
         .route("/", get(frontend_index))
         .route("/{*path}", get(frontend_assets))
@@ -12044,6 +12049,9 @@ fn spawn_model_call_log_sync_poller(state: BackendState) {
         loop {
             interval.tick().await;
             skills::logs::schedule(&state);
+            if let Err(error) = model_usage::push_pending(&state).await {
+                eprintln!("用量上传等待重试: {}", error.message);
+            }
             for (log_id, body, owner_user_id) in pending_model_call_logs(100) {
                 if let Err(error) = cloud_upload_model_call_log(&log_id, body, &owner_user_id).await
                 {
@@ -12675,32 +12683,12 @@ fn apply_cloud_model_call_logs(state: &BackendState, logs: &Value) -> Result<usi
             continue;
         };
         let local_id = if let Some(client_event_id) = client_event_id {
-            let has_local_event = transaction
-                .query_row(
-                    "SELECT 1 FROM model_debug_logs WHERE id = ?1 LIMIT 1",
-                    params![client_event_id],
-                    |_| Ok(()),
-                )
-                .optional()
-                .map_err(|error| {
-                    ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                })?
-                .is_some();
-            if has_local_event {
-                if cloud_id != client_event_id {
-                    transaction
-                        .execute(
-                            "DELETE FROM model_debug_logs WHERE id = ?1",
-                            params![cloud_id],
-                        )
-                        .map_err(|error| {
-                            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-                        })?;
-                }
-                client_event_id
-            } else {
-                cloud_id
+            // Keep the original event ID on every device so ledger/detail joins remain stable.
+            if cloud_id != client_event_id {
+                transaction.execute("DELETE FROM model_debug_logs WHERE id = ?1", params![cloud_id])
+                    .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
             }
+            client_event_id
         } else {
             cloud_id
         };
@@ -13103,6 +13091,9 @@ async fn cloud_pull_model_call_logs(
     base_url: &str,
     token: &str,
 ) -> Result<usize, ApiError> {
+    if let Err(error) = model_usage::pull(state, base_url, token).await {
+        eprintln!("用量同步暂未完成: {}", error.message);
+    }
     let (user_id, cursor) = {
         let conn = db_connection(state)?;
         let user_id = cloud_user_id(&conn)
@@ -14488,7 +14479,9 @@ async fn api_debug_logs_get(
         .prepare(&format!(
             "SELECT id, timestamp, provider, model, operation, status, duration_ms,
                     endpoint, request_id, project_id, scene_id, task_id, {},
-                    owner_account, owner_display_name, skill_context_json
+                    owner_account, owner_display_name, skill_context_json,
+                    (SELECT json_extract(usage.record_json, '$.usage') FROM model_usage_records usage
+                     WHERE usage.id=model_debug_logs.id AND usage.owner_user_id IS model_debug_logs.owner_user_id)
              FROM model_debug_logs{} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
             detail_columns, where_clause
         ))
@@ -14518,6 +14511,7 @@ async fn api_debug_logs_get(
                 row.get::<_, Option<String>>(18)?,
                 row.get::<_, Option<String>>(19)?,
                 row.get::<_, Option<String>>(20)?,
+                row.get::<_, Option<String>>(21)?,
             ))
         })
         .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -14558,6 +14552,7 @@ async fn api_debug_logs_get(
         owner_account,
         owner_display_name,
         skill_context_json,
+        usage_json,
     ) in logs_raw
     {
         logs.push(json!({
@@ -14581,7 +14576,8 @@ async fn api_debug_logs_get(
           "error": parse_json(error_json),
           "ownerAccount": owner_account,
           "ownerDisplayName": owner_display_name,
-          "skillContext": parse_json(skill_context_json)
+          "skillContext": parse_json(skill_context_json),
+          "usage": parse_json(usage_json)
         }))
     }
     Ok(Json(

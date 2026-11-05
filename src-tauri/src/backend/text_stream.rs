@@ -69,6 +69,7 @@ struct TextStreamFeedback {
     terminal: bool,
     output_chars: usize,
     thinking: bool,
+    failure: Option<String>,
 }
 
 impl TextStreamFeedback {
@@ -86,7 +87,7 @@ impl TextStreamFeedback {
                 .iter()
                 .any(|value| reason.eq_ignore_ascii_case(value))
             {
-                return Err(format!(
+                self.failure = Some(format!(
                     "模型生成未完整结束（finish_reason={reason}），请重试"
                 ));
             }
@@ -124,6 +125,7 @@ impl TextStreamFeedback {
 
     fn finish(&self) -> Result<(), String> {
         self.decoder.finish()?;
+        if let Some(error) = &self.failure { return Err(error.clone()); }
         if self.decoder.seen && !self.decoder.done && !self.terminal {
             return Err("模型流提前结束，未收到完成标记，请重试".into());
         }
@@ -142,7 +144,14 @@ impl TextStreamFeedback {
 }
 
 pub(super) async fn read_text_model_response(
+    response: reqwest::Response,
+) -> Result<String, String> {
+    read_text_model_response_captured(response, &mut Vec::new()).await
+}
+
+pub(super) async fn read_text_model_response_captured(
     mut response: reqwest::Response,
+    raw: &mut Vec<u8>,
 ) -> Result<String, String> {
     if !response.status().is_success() {
         return response
@@ -150,7 +159,6 @@ pub(super) async fn read_text_model_response(
             .await
             .map_err(|error| build_llm_transport_error_message(&error));
     }
-    let mut raw = Vec::new();
     let mut line_start = 0;
     let mut feedback = TextStreamFeedback::default();
     let mut last_feedback = std::time::Instant::now() - Duration::from_secs(1);
@@ -182,7 +190,7 @@ pub(super) async fn read_text_model_response(
     }
     feedback.consume_line(&raw[line_start..])?;
     feedback.finish()?;
-    String::from_utf8(raw).map_err(|error| error.to_string())
+    String::from_utf8(raw.clone()).map_err(|error| error.to_string())
 }
 
 pub(super) fn parse_gemini_completion_response(raw: &str) -> Result<Value, serde_json::Error> {
@@ -232,6 +240,15 @@ pub(super) fn parse_gemini_completion_response(raw: &str) -> Result<Value, serde
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn preserves_final_usage_after_truncation() {
+        let bytes = b"data: {\"choices\":[{\"finish_reason\":\"length\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":34}}\n\ndata: [DONE]\n\n";
+        let response = reqwest::Response::from(axum::http::Response::new(reqwest::Body::from(bytes.to_vec())));
+        let mut raw=Vec::new();
+        assert!(read_text_model_response_captured(response,&mut raw).await.is_err());
+        assert!(String::from_utf8(raw).unwrap().contains("completion_tokens"));
+    }
 
     #[tokio::test]
     async fn reports_partial_output_before_completion_and_preserves_utf8() {

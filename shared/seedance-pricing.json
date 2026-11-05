@@ -1,0 +1,14 @@
+{
+  "version": "seedance-2026-11-05-v1",
+  "source": "https://docs.volcengine.com/docs/ark/model-pricing?lang=zh#02affcb8",
+  "currency": "CNY",
+  "unit": "CNY per million completion tokens",
+  "models": {
+    "doubao-seedance-2-5": { "online": { "480p": [70, 42], "720p": [70, 42], "1080p": [77, 46] } },
+    "doubao-seedance-2-0": { "online": { "480p": [46, 28], "720p": [46, 28], "1080p": [51, 31], "4k": [26, 16] } },
+    "doubao-seedance-2-0-fast": { "online": { "480p": [37, 22], "720p": [37, 22] } },
+    "doubao-seedance-2-0-mini": { "online": { "480p": [23, 14], "720p": [23, 14] } },
+    "doubao-seedance-1-0-pro": { "online": { "*": [15, 15] }, "offline": { "*": [7.5, 7.5] } },
+    "doubao-seedance-1-0-pro-fast": { "online": { "*": [4.2, 4.2] }, "offline": { "*": [2.1, 2.1] } }
+  }
+}

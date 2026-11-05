@@ -200,6 +200,7 @@ function buildFallbackJianyingProjectFileName(date = new Date()): string {
 }
 
 export async function parseAssetWorkbenchScript(options: {
+  requestId?: string
   text: string
   projectId?: string
   targetEpisodeId: string
@@ -223,13 +224,14 @@ export async function parseAssetWorkbenchScript(options: {
   if (!options.onProgress) {
     return await $fetch<ParseScriptResponse>('/api/script/parse', {
       method: 'POST',
+      headers: options.requestId ? { 'x-request-id': options.requestId } : undefined,
       signal: options.signal,
       body: requestBody
     })
   }
 
   return readScriptWorkflowStream<ParseScriptResponse>(
-    '/api/script/parse-stream', requestBody, options.onProgress, options.signal
+    '/api/script/parse-stream', requestBody, options.onProgress, options.signal, options.requestId
   )
 }
 
@@ -237,13 +239,15 @@ async function readScriptWorkflowStream<T>(
   endpoint: string,
   requestBody: unknown,
   onProgress: (event: ParseScriptProgressEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  requestId?: string
 ): Promise<T> {
   const response = await observedFetch(endpoint, {
     method: 'POST',
     signal,
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...(requestId ? { 'x-request-id': requestId } : {})
     },
     body: JSON.stringify(requestBody)
   })
@@ -367,6 +371,7 @@ export async function prepareAssetWorkbenchEpisodePlan(
   text: string,
   scriptParseMode: ScriptParseMode = DEFAULT_SCRIPT_PARSE_MODE,
   options: {
+    requestId?: string
     projectId?: string
     onProgress?: (event: ParseScriptProgressEvent) => void
     signal?: AbortSignal
@@ -383,10 +388,11 @@ export async function prepareAssetWorkbenchEpisodePlan(
   }
   const response = options.onProgress
     ? await readScriptWorkflowStream<EpisodePlanResponse>(
-        '/api/script/episode-plan-stream', body, options.onProgress, options.signal
+        '/api/script/episode-plan-stream', body, options.onProgress, options.signal, options.requestId
       )
     : await $fetch<EpisodePlanResponse>('/api/script/episode-plan', {
-        method: 'POST', signal: options.signal, body
+        method: 'POST', signal: options.signal, body,
+        headers: options.requestId ? { 'x-request-id': options.requestId } : undefined
       })
 
   if (!response.success || !Array.isArray(response.data?.episodes)) {

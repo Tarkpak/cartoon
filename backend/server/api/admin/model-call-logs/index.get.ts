@@ -2,6 +2,7 @@ import { getQuery } from 'h3'
 import { getDb } from '../../../utils/db'
 import { requireAdmin } from '../../../utils/auth'
 import { pagination, type SqlBinding } from '../../../utils/http'
+import { modelLogUsageSql } from '../../../utils/model-usage'
 
 const filterFields = [
   ['userId', 'l.user_id'],
@@ -14,7 +15,8 @@ const filterFields = [
 const sortColumns = {
   createdAt: 'l.created_at',
   duration: 'l.duration_ms',
-  cost: 'l.estimated_cost',
+  cost: "(SELECT json_extract(usage.record_json,'$.usage.costNanoUsd') FROM model_usage_records usage WHERE usage.user_id=l.user_id AND usage.id=l.client_event_id)",
+  costCny: "(SELECT json_extract(usage.record_json,'$.usage.costNanoCny') FROM model_usage_records usage WHERE usage.user_id=l.user_id AND usage.id=l.client_event_id)",
   credits: 'l.credits_charged'
 } as const
 
@@ -105,7 +107,8 @@ export default defineEventHandler((event) => {
     .prepare(`
       SELECT l.id, l.user_id, u.account, u.display_name, l.request_id, l.provider, l.model_id,
              l.operation, l.project_id, l.scene_id, l.status, l.duration_ms, l.estimated_cost,
-             l.credits_charged, l.error_message, l.created_at, l.skill_context_json
+             l.credits_charged, l.error_message, l.created_at, l.skill_context_json,
+             ${modelLogUsageSql} AS usage_json
       FROM model_call_logs l
       LEFT JOIN users u ON u.id = l.user_id
       ${where}
@@ -133,7 +136,7 @@ export default defineEventHandler((event) => {
   return {
     success: true,
     data: {
-      logs,
+      logs: (logs as Array<Record<string, unknown>>).map(({ usage_json, ...log }) => ({ ...log, usage: typeof usage_json === 'string' ? JSON.parse(usage_json) : null })),
       summary: {
         total: Number(summary.total || 0),
         failed: Number(summary.failed || 0),

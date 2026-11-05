@@ -39,6 +39,7 @@ export interface TestSelectedModels {
 }
 
 export interface TestResult {
+  requestId?: string
   status: 'idle' | 'testing' | 'success' | 'error'
   message?: string
   latencyMs?: number

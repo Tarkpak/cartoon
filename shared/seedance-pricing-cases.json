@@ -1,0 +1,20 @@
+[
+  { "model": "doubao-seedance-2-0-260128", "videoStatus": "succeeded", "outputTokens": 108900, "resolution": "720p", "hasVideoInput": false, "expected": 5009400000 },
+  { "model": "doubao-seedance-2.0", "videoStatus": "succeeded", "outputTokens": 200000, "resolution": "720p", "hasVideoInput": true, "expected": 5600000000 },
+  { "model": "doubao-seedance-2-0", "videoStatus": "succeeded", "outputTokens": 100000, "resolution": "1080p", "hasVideoInput": true, "expected": 3100000000 },
+  { "model": "doubao-seedance-2-0", "videoStatus": "succeeded", "outputTokens": 100000, "resolution": "4k", "hasVideoInput": false, "expected": 2600000000 },
+  { "model": "doubao-seedance-2-0-fast-260128", "videoStatus": "succeeded", "outputTokens": 100000, "resolution": "720p", "hasVideoInput": false, "expected": 3700000000 },
+  { "model": "doubao-seedance-2-0-mini-260615", "videoStatus": "succeeded", "outputTokens": 100000, "resolution": "480p", "hasVideoInput": true, "expected": 1400000000 },
+  { "model": "doubao-seedance-2-5-260628", "videoStatus": "succeeded", "outputTokens": 100000, "resolution": "720p", "hasVideoInput": false, "expected": 7000000000 },
+  { "model": "doubao-seedance-2-5", "videoStatus": "succeeded", "outputTokens": 100000, "resolution": "1080p", "hasVideoInput": true, "expected": 4600000000 },
+  { "model": "doubao-seedance-1-0-pro-fast-251015", "videoStatus": "succeeded", "outputTokens": 100000, "serviceTier": "flex", "expected": 210000000 },
+  { "model": "doubao-seedance-1-0-pro", "videoStatus": "succeeded", "outputTokens": 100000, "expected": 1500000000 },
+  { "model": "doubao-seedance-2-0", "videoStatus": "succeeded", "outputTokens": 100000, "resolution": "720p", "expected": null },
+  { "model": "doubao-seedance-2-0-fast", "videoStatus": "succeeded", "outputTokens": 100000, "resolution": "1080p", "hasVideoInput": false, "expected": null },
+  { "model": "doubao-seedance-2-5", "videoStatus": "succeeded", "outputTokens": 100000, "resolution": "720p", "hasVideoInput": false, "serviceTier": "flex", "expected": null },
+  { "model": "doubao-seedance-2-5", "videoStatus": "succeeded", "resolution": "720p", "hasVideoInput": false, "expected": null },
+  { "model": "doubao-seedance-2-5", "videoStatus": "succeeded", "outputTokens": 100000, "resolution": "720p", "hasVideoInput": false, "draftSourceUnknown": true, "expected": null },
+  { "model": "doubao-seedance-2-5", "videoStatus": "failed", "expected": 0 },
+  { "model": "doubao-seedance-2-5", "videoStatus": "running", "expected": null },
+  { "model": "doubao-seedance-2-5-unknown", "videoStatus": "succeeded", "outputTokens": 100000, "resolution": "720p", "hasVideoInput": false, "expected": null }
+]

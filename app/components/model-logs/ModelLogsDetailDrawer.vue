@@ -3,6 +3,7 @@ import { SKILL_STAGE_LABELS } from '#shared/types/skill'
 import { Check, Copy, Music2, X } from 'lucide-vue-next'
 import type { ModelDebugLogEntry, ModelDebugMediaRef } from '@/composables/useModelDebugLogs'
 import DurationIndicator from '@/components/logs/DurationIndicator.vue'
+import ModelUsagePanel from '@/components/model-logs/ModelUsagePanel.vue'
 import {
   mediaDirectionLabel,
   mediaStatusLabel,
@@ -315,6 +316,7 @@ watch(open, (value) => {
           v-if="props.activeLog"
           class="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 overscroll-contain"
         >
+          <ModelUsagePanel :log-id="props.activeLog.id" compact />
           <section v-if="props.activeLog.skillContext" class="space-y-2 rounded-lg border p-4 text-sm">
             <h3 class="font-medium">本次使用的技能 · {{ SKILL_STAGE_LABELS[props.activeLog.skillContext.stage] }}</h3>
             <p v-for="skill in props.activeLog.skillContext.skills" :key="skill.id">{{ skill.name }} <span class="text-muted-foreground">v{{ skill.version }}</span></p>

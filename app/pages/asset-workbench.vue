@@ -1558,6 +1558,7 @@ provideVideosStageContext({
       @select-stage="(stage) => selectAutoStage(stage as AutoStageKey)"
     >
       <template #actions>
+        <Button v-if="projectId" variant="ghost" size="sm" @click="router.push({ path: '/logs', query: { tab: 'usage', projectId } })">项目用量</Button>
         <Button v-if="projectId" variant="ghost" size="sm" @click="router.push({ path: '/settings', query: { section: 'skills', project: projectId } })">项目技能</Button>
         <AssetWorkbenchTaskPanel
           :tasks="workbenchTasks"

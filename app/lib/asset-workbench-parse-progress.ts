@@ -1,6 +1,7 @@
 export type ParsePhaseStatus = 'pending' | 'running' | 'done' | 'error'
 
 export interface ParseProgressDisplayState {
+  requestId?: string
   streamState?: 'connecting' | 'waiting' | 'thinking' | 'receiving'
   outputChars?: number
   lastModelActivityAt?: number

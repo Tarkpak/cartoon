@@ -33,6 +33,7 @@ export interface AssetWorkbenchParseProgressLogItem {
 }
 
 export interface AssetWorkbenchParseProgressState {
+  requestId?: string
   streamState?: ParseScriptProgressEvent['streamState']
   outputChars?: number
   lastModelActivityAt?: number
@@ -495,6 +496,7 @@ export function useAssetWorkbenchGeneration(
       active: true,
       startedAt: Date.now(),
       kind: 'directory',
+      requestId: crypto.randomUUID(),
       step: 'episode-plan',
       message: '正在生成分集目录与统一资产设定',
       progress: 5
@@ -507,6 +509,7 @@ export function useAssetWorkbenchGeneration(
         options.scriptParseMode.value,
         {
           projectId: options.projectId?.value,
+          requestId: options.parseProgress.value.requestId,
           signal: operation.signal,
           style: options.currentStylePrompt.value,
           characterBaselines: characterBaselines(),
@@ -589,6 +592,7 @@ export function useAssetWorkbenchGeneration(
       active: true,
       startedAt: Date.now(),
       kind: 'episode',
+      requestId: crypto.randomUUID(),
       targetEpisodeId: input.targetEpisodeId,
       step: 'queued',
       message: parseModeText,
@@ -601,6 +605,7 @@ export function useAssetWorkbenchGeneration(
       options.parseProgress.value.targetEpisodeId = parsePayload.targetEpisodeId
       options.parseProgress.value.targetEpisodeTitle = parsePayload.targetEpisodeTitle
       const response = await parseAssetWorkbenchScript({
+        requestId: options.parseProgress.value.requestId,
         text: parsePayload.requestText,
         signal: operation.signal,
         projectId: options.projectId?.value,

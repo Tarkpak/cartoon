@@ -2,13 +2,14 @@
 import AppLogsPanel from '@/components/app-logs/AppLogsPanel.vue'
 import LogsTabSwitcher from '@/components/logs/LogsTabSwitcher.vue'
 import ModelLogsPanel from '@/components/model-logs/ModelLogsPanel.vue'
+import ModelUsageDashboard from '@/components/model-logs/ModelUsageDashboard.vue'
 import AppPage from '@/components/layout/AppPage.vue'
 import AppPageContent from '@/components/layout/AppPageContent.vue'
 import AppPageHeader from '@/components/layout/AppPageHeader.vue'
 
 definePageMeta({ layout: 'default' })
 
-type LogsTab = 'system' | 'model'
+type LogsTab = 'system' | 'model' | 'usage'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,7 +21,7 @@ function getSingleQueryValue(value: unknown): string | undefined {
 
 function normalizeTab(value: unknown): LogsTab {
   const raw = getSingleQueryValue(value)
-  return raw === 'system' ? 'system' : 'model'
+  return raw === 'system' || raw === 'usage' ? raw : 'model'
 }
 
 const activeTab = computed<LogsTab>(() => normalizeTab(route.query.tab))
@@ -53,8 +54,9 @@ function selectTab(tab: LogsTab) {
     </AppPageHeader>
 
     <AppPageContent inner-class="flex h-full min-h-0 flex-col">
+      <ModelUsageDashboard v-if="activeTab === 'usage'" :project-id="getSingleQueryValue(route.query.projectId)" class="overflow-y-auto" />
       <AppLogsPanel
-        v-if="activeTab === 'system'"
+        v-else-if="activeTab === 'system'"
         :initial-request-id="requestIdFilter"
       />
       <ModelLogsPanel

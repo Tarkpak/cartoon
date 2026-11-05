@@ -1,4 +1,5 @@
 import { normalizeSkillContext } from '../../utils/skill-logs'
+import { saveModelUsage } from '../../utils/model-usage'
 import { randomUUID } from 'node:crypto'
 import { getAppSettings, getDb, jsonText, nowIso } from '../../utils/db'
 import { readJsonBody, requireAuth } from '../../utils/auth'
@@ -8,6 +9,7 @@ import { mergeModelLogMediaRefs, mergeModelLogResponse } from '../../utils/model
 import { archiveModelLogsIfNeeded } from '../../utils/model-log-archive'
 
 interface LogPayload {
+  usageRecord?: unknown
   eventId?: string
   event_id?: string
   requestId?: string
@@ -72,6 +74,7 @@ export default defineEventHandler(async (event) => {
     for (const log of items) {
       const logId = randomUUID()
       const eventId = optionalString(log.eventId || log.event_id, 128) || null
+      saveModelUsage(db, auth.user.id, eventId, log.usageRecord)
       const requestId = optionalString(log.requestId || log.request_id, 128)
       const provider = optionalString(log.provider, 128)
       const modelId = optionalString(log.modelId || log.model_id, 256)

@@ -4,13 +4,15 @@ import { requireAdmin } from '../../../utils/auth'
 import { requiredParam } from '../../../utils/http'
 import { writeAudit } from '../../../utils/audit'
 import { redactLogPayload } from '../../../utils/log-redaction'
+import { modelLogUsageSql } from '../../../utils/model-usage'
 
 export default defineEventHandler((event) => {
   const auth = requireAdmin(event)
   const logId = requiredParam(event, 'id')
   const log = getDb()
     .prepare(`
-      SELECT l.*, u.account, u.display_name
+      SELECT l.*, u.account, u.display_name,
+             ${modelLogUsageSql} AS usage_json
       FROM model_call_logs l
       LEFT JOIN users u ON u.id = l.user_id
       WHERE l.id = ?
@@ -21,6 +23,7 @@ export default defineEventHandler((event) => {
       response_json?: string
       media_refs_json?: string
       error_json?: string
+      usage_json?: string
     } | undefined
   if (!log) {
     throw createError({ statusCode: 404, statusMessage: 'Log not found' })
@@ -32,6 +35,7 @@ export default defineEventHandler((event) => {
   const error = redactLogPayload(parseJsonText(log.error_json, {}))
   const safeLog = redactLogPayload({
     ...log,
+    usage: parseJsonText(log.usage_json, null),
     request_json: JSON.stringify(request),
     response_json: JSON.stringify(response),
     media_refs_json: JSON.stringify(mediaRefs),

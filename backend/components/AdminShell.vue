@@ -211,6 +211,7 @@ const menuOptions = [
   { label: '云端素材', key: '/tos-files', icon: () => renderMenuIcon('assets') },
   { label: '资源库管理', key: '/library-assets', icon: () => renderMenuIcon('assets') },
   { label: '调用日志', key: '/logs', icon: () => renderMenuIcon('logs') },
+  { label: '用量与费用', key: '/model-usage', icon: () => renderMenuIcon('overview') },
   { label: '供应商 Key', key: '/providers', icon: () => renderMenuIcon('providers') },
   { label: '默认提示词', key: '/prompt-templates', icon: () => renderMenuIcon('settings') },
   { label: '客户端版本', key: '/client-versions', icon: () => renderMenuIcon('versions') },

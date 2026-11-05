@@ -622,6 +622,7 @@ export function useSettingsModelTest() {
   }
 
   async function testModel(modelType: ModelTestTab) {
+    const requestId = crypto.randomUUID()
     const runId = ++testRunIds[modelType]
     const startedAt = Date.now()
     testResults.value[modelType] = { status: 'testing' }
@@ -733,6 +734,7 @@ export function useSettingsModelTest() {
         error?: string
       }>('/api/models/test', {
         method: 'POST',
+        headers: { 'x-request-id': requestId },
         body
       })
 
@@ -762,6 +764,7 @@ export function useSettingsModelTest() {
         if (modelType === 'image' && !imageTestResultUrls(result).length) throw new Error('图片测试未返回可展示的图片')
         testResults.value[modelType] = {
           status: 'success',
+          requestId,
           message: `测试成功 (${latencyMs}ms)`,
           latencyMs,
           result
@@ -772,12 +775,14 @@ export function useSettingsModelTest() {
       if (testRunIds[modelType] !== runId) return
       testResults.value[modelType] = {
         status: 'error',
+        requestId,
         message: response.error || '测试失败'
       }
     } catch (error) {
       if (testRunIds[modelType] !== runId) return
       testResults.value[modelType] = {
         status: 'error',
+        requestId,
         message: resolveApiErrorMessage(error, '测试失败')
       }
     }

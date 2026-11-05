@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { imageTestResultUrls } from '@/lib/model-test-image-options'
+import ModelUsagePanel from '@/components/model-logs/ModelUsagePanel.vue'
 import {
   CheckCircle2,
   Loader2,
@@ -82,6 +83,7 @@ const videoResultMeta = computed(() => {
 
 <template>
   <div class="p-4">
+    <ModelUsagePanel v-if="activeResult.requestId" :request-id="activeResult.requestId" compact class="mb-4" />
     <!-- Idle state -->
     <div
       v-if="activeResult.status === 'idle'"

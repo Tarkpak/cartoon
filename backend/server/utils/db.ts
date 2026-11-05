@@ -1,4 +1,5 @@
 import { ensureSkillRunSchema } from './skill-logs'
+import { ensureModelUsageSchema } from './model-usage'
 import { ensureProjectEditLeaseSchema } from './project-edit-leases'
 import { ensureProjectCollaborationSchema } from './project-collaboration'
 import { existsSync, mkdirSync } from 'node:fs'
@@ -486,6 +487,7 @@ function initSchema(conn: Database) {
   addColumnIfMissing(conn, 'model_call_logs', 'media_refs_json TEXT')
   addColumnIfMissing(conn, 'model_call_logs', 'skill_context_json TEXT')
   ensureSkillRunSchema(conn)
+  ensureModelUsageSchema(conn)
   conn.exec("CREATE INDEX IF NOT EXISTS idx_model_logs_skill_run ON model_call_logs(user_id, json_extract(skill_context_json, '$.runId'))")
   conn.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_model_call_logs_user_event

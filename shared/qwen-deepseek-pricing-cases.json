@@ -1,0 +1,281 @@
+[
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "expected": 2800000
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 256000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "expected": 512800000
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 256001,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "expected": 1538406000
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 500,
+    "expected": 2000000
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 1001,
+    "expected": null
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "cacheWriteTokens": 1,
+    "expected": null
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "unknown",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "expected": null
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.8-max",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "expected": 15600000
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.8-max",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 100,
+    "expected": null
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.8-flash",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "expected": 1070000
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000001,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "expected": null
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus-future",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "expected": null
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "serviceTier": "batch",
+    "expected": null
+  },
+  {
+    "provider": "deepseek",
+    "model": "deepseek-v4-pro",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 500,
+    "expected": 1078000
+  },
+  {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 500,
+    "expected": 273000
+  },
+  {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "expected": 420000
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen-image-2.1-pro",
+    "operation": "generateImage",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "outputImages": 2,
+    "expected": 500000000
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen-image-3.0",
+    "operation": "generateImage",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "inputImages": 2,
+    "outputImages": 1,
+    "expected": 220000000
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen-image-3.0",
+    "operation": "generateImage",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "outputImages": 1,
+    "expected": null
+  },
+  {
+    "provider": "qwen",
+    "model": "wan3.0-video",
+    "operation": "generateVideo",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "videoStatus": "SUCCEEDED",
+    "resolution": "720P",
+    "inputVideoSeconds": 3,
+    "durationSeconds": 10,
+    "expected": 7800000000
+  },
+  {
+    "provider": "qwen",
+    "model": "wan3.0-video",
+    "operation": "generateVideo",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "videoStatus": "SUCCEEDED",
+    "resolution": "720P",
+    "durationSeconds": 10,
+    "expected": null
+  },
+  {
+    "provider": "qwen",
+    "model": "wan2.7-t2v",
+    "operation": "generateVideo",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "videoStatus": "SUCCEEDED",
+    "resolution": "720P",
+    "durationSeconds": 10,
+    "expected": 6000000000
+  },
+  {
+    "provider": "qwen",
+    "model": "wan2.7-t2v",
+    "operation": "generateVideo",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "videoStatus": "RUNNING",
+    "resolution": "720P",
+    "durationSeconds": 10,
+    "expected": null
+  },
+  {
+    "provider": "custom_openai",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "expected": null
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": null,
+    "outputTokens": 100,
+    "cachedTokens": 0,
+    "expected": null
+  },
+  {
+    "provider": "qwen",
+    "model": "qwen3.7-plus",
+    "operation": "generateText",
+    "pricingRegion": "cn-beijing",
+    "inputTokens": 1000,
+    "outputTokens": 9007199254740991,
+    "cachedTokens": 0,
+    "expected": null
+  }
+]

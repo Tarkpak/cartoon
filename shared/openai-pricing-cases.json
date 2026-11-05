@@ -1,0 +1,18 @@
+[
+  { "model": "gpt-5", "inputTokens": 1000, "cachedTokens": 200, "outputTokens": 100, "expected": 2025000 },
+  { "model": "models/gpt-5-2025-08-07", "inputTokens": 1000, "cachedTokens": 200, "outputTokens": 100, "expected": 2025000 },
+  { "model": "gpt-5-mini", "serviceTier": "priority", "inputTokens": 1000000, "outputTokens": 1000000, "expected": 4050000000 },
+  { "model": "gpt-4o", "serviceTier": "fast", "inputTokens": 1000, "outputTokens": 100, "expected": 5950000 },
+  { "model": "gpt-5.4", "serviceTier": "flex", "inputTokens": 1000, "cachedTokens": 1000, "outputTokens": 0, "expected": 130000 },
+  { "model": "gpt-5.2-pro", "inputTokens": 1000, "outputTokens": 100, "expected": 37800000 },
+  { "model": "gpt-5.2-pro", "inputTokens": 1000, "cachedTokens": 100, "outputTokens": 100, "expected": null },
+  { "model": "gpt-6.1-sol", "inputTokens": 272001, "outputTokens": 100, "expected": 1089504000 },
+  { "model": "gpt-5.4", "serviceTier": "fast", "inputTokens": 272001, "outputTokens": 100, "expected": null },
+  { "model": "gpt-5-mini", "serviceTier": "flex", "inputTokens": 1, "cachedTokens": 1, "outputTokens": 0, "expected": 13 },
+  { "model": "gpt-image-2", "operation": "generateImage", "inputTokens": 30, "textInputTokens": 10, "imageInputTokens": 20, "outputTokens": 100, "expected": 3210000 },
+  { "model": "gpt-image-2", "operation": "generateImage", "inputTokens": 30, "outputTokens": 100, "expected": null },
+  { "model": "gpt-5", "inputTokens": 0, "outputTokens": 0, "expected": 0 },
+  { "model": "gpt-5", "inputTokens": 100, "outputTokens": null, "expected": null },
+  { "model": "gpt-5", "inputTokens": 100, "outputTokens": 10, "cacheWriteTokens": 50, "expected": null },
+  { "model": "unknown-model", "inputTokens": 100, "outputTokens": 10, "expected": null }
+]

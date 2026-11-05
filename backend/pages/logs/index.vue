@@ -173,8 +173,8 @@
                 <span>{{ modelOperationLabel(selectedLog.operation) }}</span>
               </div>
               <div class="log-summary-item">
-                <span class="log-summary-label">费用</span>
-                <span>{{ formatCost(selectedLog.estimated_cost) }}</span>
+                <span class="log-summary-label">消耗量 / 原币种估价</span>
+                <span>{{ logUsageCost(selectedLog.usage) }} · {{ logUsageTokens(selectedLog.usage) }}</span>
               </div>
               <div class="log-summary-item">
                 <span class="log-summary-label">扣除积分</span>
@@ -385,8 +385,10 @@ import {
   providerLabel
 } from '@playlet-shared/utils/display-labels'
 import DurationIndicator from '~/components/logs/DurationIndicator.vue'
+import { logUsageCost, logUsageTokens, type LogUsage } from '@playlet-shared/utils/model-usage-display'
 
 interface ModelCallLog {
+  usage?: LogUsage | null
   id: string
   user_id?: string
   account?: string
@@ -586,7 +588,8 @@ const sortOptions = [
   { label: '时间：最早优先', value: 'createdAt:asc' },
   { label: '耗时：从高到低', value: 'duration:desc' },
   { label: '耗时：从低到高', value: 'duration:asc' },
-  { label: '费用：从高到低', value: 'cost:desc' },
+  { label: '美元费用：从高到低', value: 'cost:desc' },
+  { label: '人民币费用：从高到低', value: 'costCny:desc' },
   { label: '积分：从高到低', value: 'credits:desc' }
 ]
 
@@ -633,7 +636,10 @@ const columns = [
     }
   },
   { title: '耗时', key: 'duration_ms', width: 88, render: (row: ModelCallLog) => h(DurationIndicator, { value: row.duration_ms }) },
-  { title: '费用', key: 'estimated_cost', width: 72, render: (row: ModelCallLog) => formatCost(row.estimated_cost) },
+  { title: '消耗量 / 费用', key: 'usage', width: 220, render: (row: ModelCallLog) => h('div', { style: 'font-variant-numeric: tabular-nums' }, [
+    h('strong', logUsageCost(row.usage)),
+    h('div', { class: 'muted', style: 'font-size: 12px' }, logUsageTokens(row.usage))
+  ]) },
   {
     title: '积分',
     key: 'credits_charged',
@@ -734,13 +740,6 @@ function displayValue(value: unknown) {
 
 function displayUser(log: ModelCallLog) {
   return log.display_name || log.account || log.user_id || '-'
-}
-
-function formatCost(value: unknown) {
-  const cost = Number(value)
-  if (value === null || value === undefined || !Number.isFinite(cost) || cost < 0) return '-'
-  if (cost === 0) return '0'
-  return cost < 0.0001 ? String(cost) : cost.toFixed(6).replace(/0+$/g, '').replace(/\.$/, '')
 }
 
 function statusTagType(status?: string) {
@@ -1278,8 +1277,8 @@ async function exportActiveResults() {
         all.push(...response.data.logs)
       }
       downloadCsv(`model-call-logs-${new Date().toISOString().slice(0, 10)}.csv`,
-        ['时间', '用户', 'Request ID', '供应商', '模型', '操作', '状态', '耗时 ms', '费用', '积分', '项目', '场景', '错误'],
-        all.map(row => [row.created_at, displayUser(row), row.request_id, row.provider, row.model_id, row.operation, row.status, row.duration_ms, row.estimated_cost, row.credits_charged, row.project_id, row.scene_id, row.error_message]))
+        ['时间', '用户', 'Request ID', '供应商', '模型', '操作', '状态', '耗时 ms', '输入 token', '输出 token', '估价 USD', '估价 CNY', '币种', '积分', '项目', '场景', '错误', '消耗量'],
+        all.map(row => [row.created_at, displayUser(row), row.request_id, row.provider, row.model_id, row.operation, row.status, row.duration_ms, row.usage?.inputTokens ?? '', row.usage?.outputTokens ?? '', row.usage?.costNanoUsd == null ? '' : row.usage.costNanoUsd / 1e9, row.usage?.costNanoCny == null ? '' : row.usage.costNanoCny / 1e9, row.usage?.currency || '', row.credits_charged, row.project_id, row.scene_id, row.error_message, logUsageTokens(row.usage)]))
     } else {
       const all: AuditLog[] = []
       const pages = Math.max(1, Math.ceil(auditTotal.value / 100))

@@ -2,6 +2,7 @@
 import type { ModelDebugLogEntry } from '@/composables/useModelDebugLogs'
 import type { BadgeVariants } from '@/components/ui/badge'
 import DurationIndicator from '@/components/logs/DurationIndicator.vue'
+import { logUsageTokens, logUsageCost } from '#shared/utils/model-usage-display'
 import { cn } from '@/lib/utils'
 import { modelOperationLabel, modelStatusLabel, providerLabel } from '#shared/utils/display-labels'
 import {
@@ -60,6 +61,7 @@ function statusVariant(status: ModelDebugLogEntry['status']): BadgeVariants['var
             <TableHead class="whitespace-nowrap">
               耗时
             </TableHead>
+            <TableHead class="whitespace-nowrap">消耗量 / 费用</TableHead>
           </TableRow>
         </TableHeader>
 
@@ -138,13 +140,17 @@ function statusVariant(status: ModelDebugLogEntry['status']): BadgeVariants['var
                 profile="model"
               />
             </TableCell>
+            <TableCell class="whitespace-nowrap text-xs tabular-nums">
+              <p class="font-medium">{{ logUsageCost(item.usage) }}</p>
+              <p class="mt-1 text-muted-foreground">{{ logUsageTokens(item.usage) }}</p>
+            </TableCell>
           </TableRow>
         </TableBody>
 
         <TableBody v-else>
           <TableRow>
             <TableCell
-              :colspan="8"
+              :colspan="9"
               class="h-24 text-center text-muted-foreground"
             >
               暂无日志

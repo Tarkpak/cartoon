@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { Activity, ScrollText } from 'lucide-vue-next'
+import { Activity, ScrollText, ChartNoAxesColumn } from 'lucide-vue-next'
 import type { SegmentedTabItem } from '@/components/ui/segmented-tabs/SegmentedTabs.vue'
 
-type LogsTab = 'system' | 'model'
+type LogsTab = 'system' | 'model' | 'usage'
 
 const props = defineProps<{
   activeTab: LogsTab
@@ -13,6 +13,7 @@ const emit = defineEmits<{
 }>()
 
 const tabs: Array<SegmentedTabItem<LogsTab>> = [
+  { value: 'usage', label: '用量与费用', icon: ChartNoAxesColumn },
   { value: 'model', label: '大模型日志', icon: ScrollText },
   { value: 'system', label: '系统日志', icon: Activity }
 ]

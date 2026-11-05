@@ -1,4 +1,5 @@
 import type { SkillCallContext } from '#shared/types/skill'
+import type { LogUsage } from '#shared/utils/model-usage-display'
 
 export interface ModelDebugErrorInfo {
   name?: string
@@ -19,6 +20,7 @@ export interface ModelDebugMediaRef {
 }
 
 export interface ModelDebugLogEntry {
+  usage?: LogUsage | null
   id: string
   timestamp: string
   provider: string
