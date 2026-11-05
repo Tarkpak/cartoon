@@ -29,6 +29,10 @@ const elapsed = computed(() => formatParseElapsed(props.state?.startedAt, props.
 const batchSummary = computed(() => parseBatchSummary(props.state || {}))
 const logs = computed(() => (props.state?.logs || []).slice(-20).reverse())
 const failed = computed(() => props.state?.step === 'error')
+const duplicateReceivingMessage = computed(() => props.running
+  && props.state?.streamState === 'receiving'
+  && !!props.state.outputChars
+  && /已接收\s*[\d,，]+\s*字/.test(props.state.message || ''))
 const streamLabel = computed(() => ({
   connecting: '连接模型中',
   waiting: '等待模型输出',
@@ -76,6 +80,7 @@ const sinceLastOutput = computed(() => Math.max(0, Math.floor(
     </ol>
 
     <p
+      v-if="!duplicateReceivingMessage"
       role="status"
       aria-live="polite"
       aria-atomic="true"

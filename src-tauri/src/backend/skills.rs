@@ -341,6 +341,7 @@ fn store_skill(state: &BackendState, skill: &Skill) -> Result<(), ApiError> {
         return Err(bad("最多安装 100 个技能"));
     }
     entries.push(json!(skill));
+    validate_context_budget(&catalog(&value)?.into_iter().filter(|s| s.enabled).collect::<Vec<_>>())?;
     set_config_json(&tx, KEY, &value)?;
     tx.commit().map_err(|e| bad(e.to_string()))?;
     Ok(())
@@ -365,9 +366,25 @@ pub(super) async fn api_change(
         return Err(bad("内置技能可停用，不能卸载"));
     }
     if !remove {
-        skill.enabled = body["enabled"]
-            .as_bool()
-            .ok_or_else(|| bad("缺少 enabled"))?;
+        if let Some(enabled) = body["enabled"].as_bool() {
+            skill.enabled = enabled;
+        } else if body.get("stages").is_none() {
+            return Err(bad("缺少 enabled 或 stages"));
+        }
+        if let Some(stages) = body.get("stages") {
+            if skill.builtin {
+                return Err(bad("内置技能的适用流程不可修改"));
+            }
+            let stages = stages.as_array().ok_or_else(|| bad("stages 必须是流程数组"))?;
+            if stages.is_empty() || stages.iter().any(|stage| stage.as_str().is_none_or(|stage| !STAGES.contains(&stage))) {
+                return Err(bad("请选择至少一个支持的适用流程"));
+            }
+            let stages: Vec<String> = stages.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+            if stages.len() != stages.iter().collect::<std::collections::HashSet<_>>().len() {
+                return Err(bad("适用流程不能重复"));
+            }
+            skill.stages = stages;
+        }
         if skill.enabled && !skill.unsupported.is_empty() {
             return Err(bad("此技能包含不支持的能力，不能启用"));
         }
@@ -390,6 +407,7 @@ pub(super) async fn api_change(
             }
         }
     }
+    validate_context_budget(&catalog(&value)?.into_iter().filter(|s| s.enabled).collect::<Vec<_>>())?;
     set_config_json(&tx, KEY, &value)?;
     tx.commit().map_err(|e| bad(e.to_string()))?;
     Ok(Json(json!({"success":true})))
@@ -541,12 +559,10 @@ pub(super) fn begin(
     let project_id = body["projectId"]
         .as_str()
         .ok_or_else(|| bad("缺少 projectId"))?;
-    let ids = selected(&value, project_id);
     let skills: Vec<_> = catalog(&value)?
         .into_iter()
         .filter(|s| {
             s.enabled
-                && ids.contains(&s.id)
                 && s.stages.iter().any(|v| v == stage)
                 && s.unsupported.is_empty()
         })
@@ -778,8 +794,23 @@ pub(crate) mod tests {
         assert!(detail.instructions().contains("对白及时间轴优先"));
         detail.finish("succeeded", json!({})).unwrap();
         let mut review = begin(state, &json!({"projectId":"p"}), "video_review").unwrap();
-        assert!(review.skills.is_empty());
+        assert!(review.skills.iter().any(|skill| skill.id == "builtin-video-review"));
         review.finish("skipped", json!({})).unwrap();
+    }
+
+    #[tokio::test]
+    async fn enabled_skill_runs_for_every_project_without_binding() {
+        let fixture = Fixture::new();
+        let state = &fixture.0;
+        let mut skill = package(files("stages: [script_polish]")).unwrap();
+        skill.id = "writer-global".into();
+        store_skill(state, &skill).unwrap();
+        for project_id in ["p", "other"] {
+            let execution = begin(state, &json!({"projectId":project_id}), "script_polish").unwrap();
+            assert!(execution.skills.iter().any(|skill| skill.id == "writer-global"));
+        }
+        let _ = api_change(Path(skill.id.clone()), State(state.clone()), Json(json!({"enabled":false}))).await.unwrap();
+        assert!(begin(state, &json!({"projectId":"p"}), "script_polish").unwrap().skills.is_empty());
     }
 
     #[tokio::test]
@@ -810,11 +841,11 @@ pub(crate) mod tests {
             .await
             .is_err());
         let mut execution = begin(state, &json!({"projectId":"p"}), "scene_detail").unwrap();
-        assert_eq!(execution.skills.len(), 1);
+        assert!(execution.skills.iter().any(|skill| skill.id == id));
         assert!(execution.instructions().contains("明确机位与动作"));
         assert!(execution.instructions().contains("参考"));
         let video = begin(state, &json!({"projectId":"p"}), "video_review").unwrap();
-        assert!(video.skills.is_empty());
+        assert!(video.skills.iter().any(|skill| skill.id == "builtin-video-review"));
         drop(video);
         let _ = api_change(
             Path(id.into()),
@@ -823,9 +854,9 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(execution.skills[0].version, "2.0"); // immutable execution snapshot
+        assert!(execution.skills.iter().any(|skill| skill.id == id && skill.version == "2.0")); // immutable execution snapshot
         let disabled = begin(state, &json!({"projectId":"p"}), "scene_detail").unwrap();
-        assert!(disabled.skills.is_empty());
+        assert!(!disabled.skills.iter().any(|skill| skill.id == id));
         drop(disabled);
         execution
             .finish("succeeded", json!({"sceneCount":3}))
@@ -848,7 +879,7 @@ pub(crate) mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .any(|r| r["status"] == "succeeded" && r["skills"][0]["version"] == "2.0"));
+            .any(|r| r["status"] == "succeeded" && r["skills"].as_array().is_some_and(|skills| skills.iter().any(|skill| skill["version"] == "2.0"))));
         let conn = db_connection(state).unwrap();
         set_config_json(
             &conn,

@@ -94,7 +94,7 @@ async function install() {
       method: 'POST', body: { token: preview.value.token, stages: [...stages.value] }
     })
     preview.value = null
-    notice.value = `已安装「${data.skill.name}」。在“已安装”中为项目启用后生效。`
+    notice.value = `已安装「${data.skill.name}」，已对所有项目启用。`
     emit('installed', data.skill)
   } catch (cause) { installError.value = getDisplayErrorMessage(cause, '安装失败，请重试；预览过期时需重新预览') }
   finally { installing.value = false }
@@ -187,7 +187,7 @@ onBeforeUnmount(() => { requestId++; abort?.abort(); emit('busy', false) })
           </div>
           <div class="shrink-0 space-y-3 border-t bg-popover px-6 py-4">
             <p v-if="installError" role="alert" class="text-sm text-destructive">{{ installError }}</p>
-            <div class="flex items-center justify-between gap-3"><span class="text-xs text-muted-foreground">{{ stages.length ? '安装后，在项目中启用' : '选择流程后即可安装' }}</span><div class="flex gap-2"><Button variant="ghost" :disabled="installing" @click="preview = null">取消</Button><Button :disabled="installing || disabled || alreadyInstalled || !!bindingError" @click="install"><Loader2 v-if="installing" class="mr-2 h-4 w-4 animate-spin" /><Download v-else class="mr-2 h-4 w-4" />{{ installing ? '正在安装…' : '安装到本机' }}</Button></div></div>
+            <div class="flex items-center justify-between gap-3"><span class="text-xs text-muted-foreground">{{ stages.length ? '安装后对所有项目生效' : '选择流程后即可安装' }}</span><div class="flex gap-2"><Button variant="ghost" :disabled="installing" @click="preview = null">取消</Button><Button :disabled="installing || disabled || alreadyInstalled || !!bindingError" @click="install"><Loader2 v-if="installing" class="mr-2 h-4 w-4 animate-spin" /><Download v-else class="mr-2 h-4 w-4" />{{ installing ? '正在安装…' : '安装到本机' }}</Button></div></div>
           </div>
         </template>
       </SheetContent>

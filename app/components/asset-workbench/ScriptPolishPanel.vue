@@ -1,19 +1,17 @@
 <script setup lang="ts">
-import { Loader2, WandSparkles } from 'lucide-vue-next'
+import { CircleHelp, Loader2, WandSparkles } from 'lucide-vue-next'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getDisplayErrorMessage } from '~/lib/asset-workbench-values'
 
 const text = defineModel<string>({ required: true })
+const draft = defineModel<string | null>('draft', { required: true })
 const props = defineProps<{ projectId?: string | null, disabled?: boolean, hasEpisodePlan: boolean }>()
 const emit = defineEmits<{ (event: 'busy', value: boolean): void }>()
 const busy = ref(false)
-const draft = ref<string | null>(null)
 const original = ref('')
 const error = ref('')
 let controller: AbortController | undefined
 let requestId = 0
-const hint = computed(() => props.hasEpisodePlan
-  ? '已有分集目录，请在新项目生成目录前润色，避免影响现有分集边界。'
-  : '先在项目技能中启用“剧本／对白润色”技能；每次最多 6000 字，采用后再生成目录。')
 const unavailable = computed(() => props.disabled || props.hasEpisodePlan || !props.projectId)
 
 function invalidate() {
@@ -67,29 +65,32 @@ function adopt() {
 </script>
 
 <template>
-  <section class="shrink-0 space-y-3 rounded-xl border p-4" aria-label="剧本与对白润色">
-    <div class="flex flex-wrap items-center gap-3">
-      <Button variant="outline" class="gap-2" :disabled="unavailable || busy || !text.trim()" @click="polish">
-        <Loader2 v-if="busy" class="h-4 w-4 animate-spin" />
-        <WandSparkles v-else class="h-4 w-4" />
-        {{ busy ? '正在润色剧本…' : '用技能润色剧本' }}
-      </Button>
-      <p class="flex-1 text-xs leading-relaxed text-muted-foreground">{{ hint }}</p>
+  <section class="absolute bottom-12 right-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-col items-end gap-2" aria-label="剧本与对白润色">
+    <p v-if="error" role="alert" class="max-w-sm rounded-lg border border-destructive/25 bg-background px-3 py-2 text-sm text-destructive shadow-sm">{{ error }}</p>
+    <div v-if="draft === null">
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button size="icon" class="h-11 w-11 rounded-full shadow-[0_4px_12px_rgba(0,0,0,0.16),0_1px_2px_rgba(0,0,0,0.08)] transition-transform active:scale-[0.96] aria-disabled:cursor-not-allowed aria-disabled:opacity-50" :aria-label="busy ? '正在润色剧本' : '用技能润色剧本'" :aria-disabled="unavailable || busy || !text.trim()" @click="polish">
+            <Loader2 v-if="busy" class="h-5 w-5 animate-spin" />
+            <WandSparkles v-else class="h-5 w-5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="top" align="end" class="w-64 max-w-[calc(100vw-2rem)] rounded-lg p-3 text-left leading-5">
+          <p class="text-sm font-semibold">{{ busy ? '正在润色剧本…' : '用技能润色剧本' }}</p>
+          <p v-if="hasEpisodePlan" class="mt-1.5 text-background/80">已有分集目录，请在新项目生成目录前润色。</p>
+          <template v-else>
+            <p class="mt-1.5 text-background/80">先在技能中心启用「剧本／对白润色」。</p>
+            <p class="mt-2 border-t border-background/20 pt-2 text-background/70">最多 6000 字 · 采用后再生成目录</p>
+          </template>
+        </TooltipContent>
+      </Tooltip>
     </div>
-    <p v-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>
-    <div v-if="draft !== null" class="space-y-3">
-      <p class="text-sm text-muted-foreground">请核对人物、剧情事实和关键线索。可直接修改润色稿，采用后用于后续分集与分镜。</p>
-      <div class="grid gap-4 md:grid-cols-2">
-        <div class="space-y-2">
-          <p class="text-sm font-medium">原始剧本</p>
-          <Textarea :model-value="original" readonly aria-label="原始剧本" class="min-h-[280px] resize-y" />
-        </div>
-        <div class="space-y-2">
-          <p class="text-sm font-medium">润色草稿</p>
-          <Textarea v-model="draft" aria-label="润色草稿" class="min-h-[280px] resize-y" />
-        </div>
-      </div>
-      <div class="flex gap-2">
+    <div v-else class="flex items-center gap-2 rounded-lg bg-background/95 p-1 shadow-[0_6px_20px_rgba(0,0,0,0.22),0_1px_4px_rgba(0,0,0,0.12)] ring-1 ring-border/70 backdrop-blur-sm">
+      <Tooltip>
+        <TooltipTrigger as-child><button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="润色稿核对说明"><CircleHelp class="h-4 w-4" /></button></TooltipTrigger>
+        <TooltipContent side="top" align="end" class="w-56 rounded-lg p-3 text-left leading-5"><p class="font-semibold">核对润色稿</p><p class="mt-1 text-background/80">检查人物、剧情与线索；右侧草稿可直接修改。</p></TooltipContent>
+      </Tooltip>
+      <div class="flex gap-1">
         <Button :disabled="unavailable || !draft.trim()" @click="adopt">采用润色稿</Button>
         <Button variant="ghost" @click="draft = null">保留原稿</Button>
       </div>

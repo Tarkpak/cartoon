@@ -91,13 +91,13 @@ const navigation = computed(() => {
 
   return [
     { name: '项目', path: '/projects', icon: Folder },
+    { name: '日志', path: '/logs', icon: ScrollText },
     {
       name: '素材',
       path: assetChildren[0].path,
       icon: Images,
       children: assetChildren
     },
-    { name: '日志', path: '/logs', icon: ScrollText },
     {
       name: '工具',
       path: toolChildren[0].path,
