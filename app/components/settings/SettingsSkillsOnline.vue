@@ -175,7 +175,7 @@ onBeforeUnmount(() => { requestId++; abort?.abort(); emit('busy', false) })
               <div class="grid gap-3 sm:grid-cols-2">
                 <label v-for="(label, stage) in SKILL_STAGE_LABELS" :key="stage" class="flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50" :class="stages.includes(stage) ? 'border-primary/50 bg-primary/5' : 'border-border hover:border-primary/30'">
                   <input type="checkbox" class="mt-0.5 h-4 w-4 shrink-0 accent-primary" :aria-label="label" :checked="stages.includes(stage)" @change="chooseStage(stage, ($event.target as HTMLInputElement).checked)">
-                  <span><span class="block text-sm font-medium">{{ stage === 'scene_detail' ? '分镜细化' : '视频审片' }}</span><span class="mt-1.5 block text-xs leading-relaxed text-muted-foreground">{{ stage === 'scene_detail' ? '完善解析后的镜头描述' : '审查视频抽帧与分镜的一致性' }}</span></span>
+                  <span><span class="block text-sm font-medium">{{ label }}</span><span class="mt-1.5 block text-xs leading-relaxed text-muted-foreground">{{ stage === 'script_polish' ? '生成目录前润色对白与表达，适合去 AI 味写作技能' : stage === 'scene_detail' ? '完善解析后的镜头描述，保留对白' : '审查视频抽帧与分镜的一致性' }}</span></span>
                 </label>
               </div>
             </fieldset>

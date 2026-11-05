@@ -130,7 +130,7 @@ export async function prepareWorkbenchRequest(path: string, body: unknown, onSet
   const value = typeof body === 'string' ? (() => { try { return JSON.parse(body) } catch { return undefined } })() : body
   const input = record(value)
   const id = input.projectId
-  if (typeof id !== 'string' || !preparations.has(id) || !/^\/api\/(script\/(write|parse|parse-stream|episode-plan)|character\/(generate|voice\/upload)|asset-workflow\/)/.test(path)) return body
+  if (typeof id !== 'string' || !preparations.has(id) || !/^\/api\/(script\/(write|polish|parse|parse-stream|episode-plan)|character\/(generate|voice\/upload)|asset-workflow\/)/.test(path)) return body
   const prepared = await preparations.get(id)!(path, input, onSettled)
   return typeof body === 'string' ? JSON.stringify(prepared) : prepared
 }

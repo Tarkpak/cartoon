@@ -1650,6 +1650,7 @@ provideVideosStageContext({
 
     <AssetWorkbenchParseStage
       v-if="activeAutoStage === 'parse'"
+      :project-id="projectId"
       :read-only="!canEditProject"
       v-model:novel-text="novelText"
       :script-parse-mode="scriptParseMode"

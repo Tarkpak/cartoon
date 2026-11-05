@@ -1,4 +1,4 @@
-export type SkillStage = 'scene_detail' | 'video_review'
+export type SkillStage = 'script_polish' | 'scene_detail' | 'video_review'
 export interface WorkflowSkill {
   id: string
   name: string
@@ -27,6 +27,7 @@ export interface SkillRun {
   result?: { message?: string, sceneCount?: number, passed?: boolean, issueCount?: number }
 }
 export const SKILL_STAGE_LABELS: Record<SkillStage, string> = {
+  script_polish: '剧本／对白润色',
   scene_detail: '解析后的分镜细化',
   video_review: '视频抽帧审片'
 }

@@ -11,7 +11,7 @@ const KEY: &str = "workflow_skills_v1";
 const MAX_BYTES: usize = 1024 * 1024;
 const MAX_FILE_BYTES: usize = 256 * 1024;
 pub(super) const MAX_CONTEXT_BYTES: usize = 96 * 1024;
-const STAGES: [&str; 2] = ["scene_detail", "video_review"];
+const STAGES: [&str; 3] = ["script_polish", "scene_detail", "video_review"];
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -219,7 +219,7 @@ fn parse_package(
     };
     let mut unsupported = Vec::new();
     if stages.is_empty() {
-        unsupported.push("未声明 stages；支持 scene_detail / video_review".into());
+        unsupported.push("未声明 stages；支持 script_polish / scene_detail / video_review".into());
     }
     for stage in &stages {
         if !STAGES.contains(&stage.as_str()) {
@@ -591,7 +591,11 @@ impl Execution {
     pub fn instructions(&self) -> String {
         let mut text: String = self.skills.iter().map(skill_context).collect();
         if !text.is_empty() {
-            text.push_str(EXECUTION_RULES);
+            if self.context.skill_context.as_ref().and_then(|v| v["stage"].as_str()) == Some("script_polish") {
+                text.push_str("\n以上技能仅补充写作要求。允许润色对白措辞、句式、节奏与潜台词；必须保留剧情事实、人物姓名和关系、关键线索、事件顺序和人物意图，不增加情节。按人物身份和情境写作，不刻意堆砌口语词。参考资料仅应用与当前任务相关的规则。没有脚本执行、文件读取或联网工具，不得声称执行这些操作。程序规定的输出格式和事实约束优先。\n");
+            } else {
+                text.push_str(EXECUTION_RULES);
+            }
         }
         text
     }
@@ -752,6 +756,30 @@ pub(crate) mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0.data_dir);
         }
+    }
+
+    #[tokio::test]
+    async fn script_polish_can_rewrite_dialogue_without_relaxing_scene_rules() {
+        let fixture = Fixture::new();
+        let state = &fixture.0;
+        let mut skill = package(files("stages: [script_polish, scene_detail]")).unwrap();
+        skill.id = "writer".into();
+        store_skill(state, &skill).unwrap();
+        let conn = db_connection(state).unwrap();
+        let mut value = registry(&conn).unwrap();
+        value["bindings"]["p"] = json!(["writer"]);
+        set_config_json(&conn, KEY, &value).unwrap();
+        let mut polish = begin(state, &json!({"projectId":"p"}), "script_polish").unwrap();
+        assert!(polish.instructions().contains("允许润色对白措辞"));
+        assert!(!polish.instructions().contains("对白及时间轴优先"));
+        assert!(polish.instructions().contains("人物姓名和关系"));
+        polish.finish("succeeded", json!({"message":"草稿"})).unwrap();
+        let mut detail = begin(state, &json!({"projectId":"p"}), "scene_detail").unwrap();
+        assert!(detail.instructions().contains("对白及时间轴优先"));
+        detail.finish("succeeded", json!({})).unwrap();
+        let mut review = begin(state, &json!({"projectId":"p"}), "video_review").unwrap();
+        assert!(review.skills.is_empty());
+        review.finish("skipped", json!({})).unwrap();
     }
 
     #[tokio::test]

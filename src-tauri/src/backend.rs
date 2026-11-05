@@ -5381,6 +5381,7 @@ pub async fn start_server(state: BackendState, host: &str, port: u16) -> Result<
         .route("/api/script/write", post(api_script_write))
         .route("/api/script/episode-plan", post(api_script_episode_plan))
         .route("/api/script/episode-plan-stream", post(api_script_episode_plan_stream))
+        .route("/api/script/polish", post(api_script_polish))
         .route("/api/script/parse", post(api_script_parse))
         .route("/api/script/parse-stream", post(api_script_parse_stream))
         .route("/api/script/export-docx", post(api_script_export_docx))

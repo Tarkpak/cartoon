@@ -92,6 +92,8 @@ describe('original workbench resource adapter', () => {
   })
   it('enriches original streaming requests while leaving collaboration writes untouched', async () => {
     unregister = registerWorkbenchCollaboration('p', async (_path, body) => ({ ...body, collaborationInput: { type: 'episode', id: 'a', revision: 1 } }))
+    const polished = await prepareWorkbenchRequest('/api/script/polish', { projectId: 'p' }) as { collaborationInput: { id: string } }
+    expect(polished.collaborationInput.id).toBe('a')
     const enriched = JSON.parse(await prepareWorkbenchRequest('/api/script/parse-stream', JSON.stringify({ projectId: 'p' })) as string)
     expect(enriched.collaborationInput.id).toBe('a')
     expect(await prepareWorkbenchRequest('/api/project/p/collaboration', { projectId: 'p' })).toEqual({ projectId: 'p' })

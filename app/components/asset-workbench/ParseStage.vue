@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AssetWorkbenchParseProgress from './ParseProgress.vue'
+import ScriptPolishPanel from './ScriptPolishPanel.vue'
 import type { ParseProgressDisplayState } from '~/lib/asset-workbench-parse-progress'
 import type { ScriptParseMode } from '#shared/types/script'
 import { resolveVideoWorkflowPreset } from '#shared/types/video-workflow'
@@ -9,6 +10,7 @@ import { generatedEpisodePlans } from '~/lib/asset-workbench-progress'
 const novelText = defineModel<string>('novelText', { required: true })
 
 const props = defineProps<{
+  projectId?: string | null
   readOnly?: boolean
   scriptParseMode: ScriptParseMode
   parsing: boolean
@@ -43,6 +45,7 @@ const lineCount = computed(() => {
   return novelText.value.split(/\r?\n/).length
 })
 const isDraggingTextFile = ref(false)
+const polishing = ref(false)
 const dragCounter = ref(0)
 const plannedEpisodes = computed(() => generatedEpisodePlans(props.episodePlan))
 const hasEpisodePlan = computed(() => plannedEpisodes.value.length > 0)
@@ -58,7 +61,7 @@ const inputPlaceholder = computed(() => {
 const textDropHint = computed(() => {
   return isOriginExplainer.value
     ? '支持粘贴文本 / 拖拽 .txt .md 生成镜头规划'
-    : '支持粘贴文本 / 拖拽 .txt .md 生成分集目录'
+    : '支持粘贴文本 / 拖拽 .txt .md，可先润色再生成目录'
 })
 const planActionLabel = computed(() => {
   if (isOriginExplainer.value) return hasEpisodePlan.value ? '重新生成镜头规划入口' : '生成镜头规划入口'
@@ -102,7 +105,7 @@ function resetDragState() {
 
 function handleDragEnter(event: DragEvent) {
   event.preventDefault()
-  if (props.parsing || props.readOnly) return
+  if (props.parsing || props.readOnly || polishing.value) return
 
   dragCounter.value += 1
   isDraggingTextFile.value = true
@@ -110,7 +113,7 @@ function handleDragEnter(event: DragEvent) {
 
 function handleDragOver(event: DragEvent) {
   event.preventDefault()
-  if (props.parsing || props.readOnly) return
+  if (props.parsing || props.readOnly || polishing.value) return
 
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = 'copy'
@@ -119,7 +122,7 @@ function handleDragOver(event: DragEvent) {
 
 function handleDragLeave(event: DragEvent) {
   event.preventDefault()
-  if (props.parsing || props.readOnly) return
+  if (props.parsing || props.readOnly || polishing.value) return
 
   dragCounter.value = Math.max(0, dragCounter.value - 1)
   if (dragCounter.value === 0) {
@@ -129,7 +132,7 @@ function handleDragLeave(event: DragEvent) {
 
 async function handleDrop(event: DragEvent) {
   event.preventDefault()
-  if (props.parsing || props.readOnly) return
+  if (props.parsing || props.readOnly || polishing.value) return
 
   resetDragState()
 
@@ -151,7 +154,7 @@ async function handleDrop(event: DragEvent) {
     }
 
     novelText.value = fileText
-    emit('prepare-episodes')
+    if (isOriginExplainer.value) emit('prepare-episodes')
   } catch (error) {
     console.error('[ParseStage] 读取文本文件失败:', error)
     toast.error('文本文件读取失败，请重试')
@@ -173,7 +176,7 @@ async function handleDrop(event: DragEvent) {
     >
       <Textarea
         v-model="novelText"
-        :readonly="readOnly"
+        :readonly="readOnly || polishing"
         class="h-full min-h-[280px] w-full resize-none overflow-y-auto rounded-lg border-0 bg-transparent placeholder:text-muted-foreground/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         :placeholder="inputPlaceholder"
       />
@@ -181,7 +184,7 @@ async function handleDrop(event: DragEvent) {
         v-if="isDraggingTextFile"
         class="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-primary/10 text-sm font-medium text-primary"
       >
-        松开导入文本并{{ isOriginExplainer ? '生成镜头规划入口' : '生成分集目录' }}
+        {{ isOriginExplainer ? '松开导入文本并生成镜头规划入口' : '松开导入剧本，可先润色再生成目录' }}
       </div>
       <div
         class="pointer-events-none absolute right-3 top-2 rounded bg-background/85 px-2 py-1 text-xs text-muted-foreground/90 backdrop-blur-sm"
@@ -195,9 +198,18 @@ async function handleDrop(event: DragEvent) {
       </div>
     </div>
 
+    <ScriptPolishPanel
+      v-if="!isOriginExplainer"
+      v-model="novelText"
+      :project-id="projectId"
+      :disabled="readOnly || parsing"
+      :has-episode-plan="hasEpisodePlan"
+      @busy="polishing = $event"
+    />
+
     <div class="shrink-0 flex flex-wrap items-center gap-3">
       <Button
-        :disabled="readOnly || parsing || !novelText.trim()"
+        :disabled="readOnly || parsing || polishing || !novelText.trim()"
         :variant="hasEpisodePlan ? 'outline' : 'default'"
         class="gap-2"
         :title="planActionDisabledReason || undefined"

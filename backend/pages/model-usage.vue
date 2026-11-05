@@ -69,7 +69,7 @@ const groupColumns: DataTableColumns<UsageGroup> = [
   { title: '单次均价', key: 'average', width: 120, render: r => money(r.pricedCalls ? amount(r) / r.pricedCalls : null) }
 ]
 const statuses: Record<string, string> = { success: '成功', error: '失败', failed: '失败', cancelled: '已取消', unknown: '未知' }
-const stages: Record<string, string> = { generateText: '文本生成 / 剧本解析', generateImage: '图片生成 / 编辑', generateVideo: '视频生成', scene_detail: '分镜细化', video_review: '视频审查' }
+const stages: Record<string, string> = { generateText: '文本生成 / 剧本解析', generateImage: '图片生成 / 编辑', generateVideo: '视频生成', script_polish: '剧本／对白润色', scene_detail: '分镜细化', video_review: '视频审查' }
 const detailColumns: DataTableColumns<UsageDetail> = [
   { title: '时间（北京时间）', key: 'createdAt', width: 180, render: r => new Date(r.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) },
   { title: '用户', key: 'userName', width: 140, ellipsis: { tooltip: true } },

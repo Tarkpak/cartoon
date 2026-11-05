@@ -67,7 +67,7 @@ export interface UsageData {
 }
 
 export function usageStage(value: string) {
-  return ({ generateText: '文本生成 / 剧本解析', generateImage: '图片生成 / 编辑', generateVideo: '视频生成', scene_detail: '分镜细化', video_review: '视频审查' } as Record<string, string>)[value] || value
+  return ({ generateText: '文本生成 / 剧本解析', generateImage: '图片生成 / 编辑', generateVideo: '视频生成', script_polish: '剧本／对白润色', scene_detail: '分镜细化', video_review: '视频审查' } as Record<string, string>)[value] || value
 }
 
 export function usageProvider(id: string, options: Array<{ key: string, label: string }> = []) {

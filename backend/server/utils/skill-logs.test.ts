@@ -5,6 +5,10 @@ import { ensureSkillRunSchema, normalizeSkillContext, saveSkillRun } from './ski
 const base = { id: 'run-1', projectId: 'p', projectName: '1105', stage: 'scene_detail', skills: [{ id: 'writer', name: 'human-writing', version: 'v1' }], createdAt: '2026-11-05T00:00:00Z', status: 'running' }
 
 describe('skill telemetry', () => {
+  it('accepts script polishing logs and rejects unknown stages', () => {
+    expect(normalizeSkillContext({ ...base, runId: base.id, stage: 'script_polish' })?.stage).toBe('script_polish')
+    expect(() => normalizeSkillContext({ ...base, runId: base.id, stage: 'unknown' })).toThrow()
+  })
   it('preserves execution identity and batch metadata, accepts old callers without skills', () => {
     expect(normalizeSkillContext(undefined)).toBeNull()
     const context = normalizeSkillContext({ ...base, runId: base.id, batchStart: 1, batchEnd: 3, attempt: 2, secret: 'must not persist' })!

@@ -49,7 +49,7 @@ const actionLocked = computed(() => interactionBusy.value || changed.value)
 const selectedCount = computed(() => selectedIds.value.filter(id => skills.value.some(skill => skill.id === id && skill.enabled)).length)
 
 function shortStageLabel(stage: string) {
-  return stage === 'scene_detail' ? '分镜细化' : stage === 'video_review' ? '视频审片' : stage
+  return stage === 'script_polish' ? '剧本／对白润色' : stage === 'scene_detail' ? '分镜细化' : stage === 'video_review' ? '视频审片' : stage
 }
 
 function openProjectPicker() {
@@ -347,7 +347,7 @@ description: 细化站位与动作
 version: "1.0.0"
 stages: [scene_detail]
 ---
-保留原剧情和时长，明确动作过程。</pre><p class="mt-3">流程可填写 scene_detail 或 video_review。在线安装时可直接选择，无需改写作者文件。</p></details>
+保留原剧情和时长，明确动作过程。</pre><p class="mt-3">流程可填写 script_polish（剧本／对白润色）、scene_detail 或 video_review。去 AI 味写作技能建议绑定剧本／对白润色，在线安装时可直接选择。</p></details>
       </DialogContent>
     </Dialog>
     <SettingsConfirmDialog :open="!!removing" title="卸载技能" :description="`卸载「${removing?.name || ''}」并移除本机所有项目对它的选择。已生成内容和执行记录会保留。`" confirm-text="卸载" :busy="busy" :error="error" @update:open="value => { if (!value && !busy) removing = null }" @confirm="uninstall" />

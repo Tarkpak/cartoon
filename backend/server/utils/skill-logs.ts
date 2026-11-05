@@ -19,7 +19,7 @@ function record(value: unknown): Record<string, unknown> {
 export function normalizeSkillContext(value: unknown): SkillLogContext | null {
   if (value == null) return null
   const data = record(value)
-  if (!['scene_detail', 'video_review'].includes(String(data.stage))) throw createError({ statusCode: 400, message: '技能流程无效' })
+  if (!['script_polish', 'scene_detail', 'video_review'].includes(String(data.stage))) throw createError({ statusCode: 400, message: '技能流程无效' })
   if (!Array.isArray(data.skills) || data.skills.length > 16) throw createError({ statusCode: 400, message: '技能列表无效' })
   const result: SkillLogContext = {
     runId: requiredString(data.runId, 'runId', 128),

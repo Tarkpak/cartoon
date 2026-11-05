@@ -9,7 +9,7 @@ const PREVIEW_TTL: Duration = Duration::from_secs(15 * 60);
 const MAX_PREVIEWS: usize = 32;
 const MAX_PREVIEW_BYTES: usize = MAX_BYTES;
 const MAX_PREVIEW_FILE_BYTES: usize = MAX_FILE_BYTES;
-const MISSING_STAGE: &str = "未声明 stages；支持 scene_detail / video_review";
+const MISSING_STAGE: &str = "未声明 stages；支持 script_polish / scene_detail / video_review";
 
 #[derive(Clone, Debug, PartialEq)]
 struct Source {
