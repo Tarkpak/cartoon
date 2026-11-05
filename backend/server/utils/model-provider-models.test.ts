@@ -33,8 +33,10 @@ describe('OpenAI offline catalog', () => {
   it('expands old default lists without enabling extra models', () => {
     const state = resolveProviderModelState({ providerKey: 'openai',
       modelsJson: '["gpt-4.1"]', availableModelsJson: '["gpt-4.1","gpt-image-1"]' })
-    expect(state.availableModels.length).toBeGreaterThan(100)
+    expect(state.availableModels).toContain('gpt-image-1')
     expect(state.availableModels).toContain('gpt-image-2')
+    expect(state.availableModels).toContain('gpt-image-2.6-flare')
+    expect(state.availableModels).toContain('gpt-image-2.6-sunburst')
     expect(state.availableModels).toContain('gpt-6.1-sol')
     expect(state.models).toEqual(['gpt-4.1'])
     expect(new Set(state.availableModels).size).toBe(state.availableModels.length)
