@@ -360,15 +360,17 @@ describe('useAssetWorkbenchGeneration', () => {
     })
   })
 
-  it('keeps generation feedback visible when a heartbeat arrives', async () => {
+  it('keeps generation feedback visible without logging redundant heartbeat messages', async () => {
     const { generation, episodePlan, parseProgress } = createGeneration('当前分集剧本内容')
     episodePlan.value = [createEpisode(1)]
     parseScriptMock.mockImplementationOnce(async (options) => {
       options.onProgress?.({ source: 'progress', step: 'generating', message: '模型正在生成解析结果，已接收 120 字' })
+      const logCount = parseProgress.value.logs.length
       options.onProgress?.({ source: 'heartbeat', step: 'heartbeat', message: '解析仍在进行，已等待 10 秒' })
       expect(parseProgress.value.step).toBe('generating')
       expect(parseProgress.value.message).toContain('120 字')
-      expect(parseProgress.value.logs.at(-1)?.message).toContain('10 秒')
+      expect(parseProgress.value.logs).toHaveLength(logCount)
+      expect(parseProgress.value.logs.at(-1)?.message).toContain('120 字')
       return { success: true, data: { scenes: [], characters: [] } }
     })
     await generation.parseScript({ targetEpisodeId: 'episode_001', scriptParseMode: DEFAULT_SCRIPT_PARSE_MODE })
@@ -383,6 +385,7 @@ describe('useAssetWorkbenchGeneration', () => {
       options?.onProgress?.({ source: 'progress', step: 'generating', message: '已接收 240 字', streamState: 'receiving', outputChars: 240 })
       expect(parseProgress.value.logs).toHaveLength(logCount)
       options?.onProgress?.({ source: 'heartbeat', step: 'heartbeat', message: '连接保持中' })
+      expect(parseProgress.value.logs).toHaveLength(logCount)
       expect(parseProgress.value).toMatchObject({ streamState: 'receiving', outputChars: 240, message: '已接收 240 字' })
       expect(parseProgress.value.lastModelActivityAt).toEqual(expect.any(Number))
       return [createEpisode(1)]

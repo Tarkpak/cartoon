@@ -430,7 +430,7 @@ export function useAssetWorkbenchGeneration(
 
   function applyProgressEvent(event: ParseScriptProgressEvent) {
     if (event.source === 'heartbeat') {
-      appendProgressLog(event.message, event.source)
+      // Keep-alive events are not progress; elapsed time is already shown by the timer.
       return
     }
     const previousStreamState = options.parseProgress.value.streamState
