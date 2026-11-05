@@ -1087,6 +1087,26 @@ describe('useAssetWorkbenchSceneGeneration', () => {
       }
     }
 
+    it('does not generate the next scene environment when a single video references it', async () => {
+      const current = createReadyScene('scene_current')
+      const next = createReadyScene('scene_next', {
+        firstFrame: undefined,
+        referenceStatus: 'pending'
+      })
+      const harness = createHarness([current, next], {
+        mustReferenceAssetIds: {
+          [current.id]: [`scene:${next.id}`]
+        }
+      })
+
+      await harness.sceneGeneration.retryScene(current.id)
+
+      expect(requestSceneBaselineGenerationMock).not.toHaveBeenCalled()
+      expect(requestSceneVideoTaskMock).not.toHaveBeenCalled()
+      expect(next.referenceStatus).toBe('pending')
+      expect(current.videoError).toContain('缺少环境图')
+    })
+
     it('regenerates a finished next scene when the batch invalidates it through continuity', async () => {
       const first = createReadyScene('scene_a')
       const second = createReadyScene('scene_b', {

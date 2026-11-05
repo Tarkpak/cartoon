@@ -280,23 +280,23 @@ export function useAssetWorkbenchSceneGeneration(
       })
       if (readyScene) continue
 
-      const fallbackScene = relatedScenes.find((item) => {
-        return item.referenceStatus !== 'generating' && item.videoStatus !== 'generating'
-      }) || relatedScenes[0]
-      if (!fallbackScene) continue
+      // A single-scene video request must not start image generation on another shot.
+      if (resolveSceneEnvironmentReferenceAssetId(scene) !== environmentId) {
+        throw new Error(`引用环境资产未就绪：${options.resolveAssetName(environmentId)}`)
+      }
 
-      await ensureSceneEnvironmentReady(fallbackScene)
+      await ensureSceneEnvironmentReady(scene)
 
-      if (fallbackScene.referenceStatus === 'error') {
+      if (scene.referenceStatus === 'error') {
         throw new Error(
           options.normalizeWorkflowText(
-            fallbackScene.referenceError || `引用环境「${resolveSceneEnvironmentLabel(fallbackScene)}」生成失败`
+            scene.referenceError || `引用环境「${resolveSceneEnvironmentLabel(scene)}」生成失败`
           )
         )
       }
 
-      if (!resolveSceneAvailableReferenceImage(fallbackScene)) {
-        throw new Error(`引用环境资产未就绪：${resolveSceneEnvironmentLabel(fallbackScene)}`)
+      if (!resolveSceneAvailableReferenceImage(scene)) {
+        throw new Error(`引用环境资产未就绪：${resolveSceneEnvironmentLabel(scene)}`)
       }
     }
 
@@ -315,19 +315,7 @@ export function useAssetWorkbenchSceneGeneration(
       const referenceImage = resolveSceneAvailableReferenceImage(referencedScene)
       if (referenceImage) continue
 
-      await ensureSceneEnvironmentReady(referencedScene)
-
-      if (referencedScene.referenceStatus === 'error') {
-        throw new Error(
-          options.normalizeWorkflowText(
-            referencedScene.referenceError || `引用场景「${referencedScene.title}」环境图生成失败`
-          )
-        )
-      }
-
-      if (!resolveSceneAvailableReferenceImage(referencedScene)) {
-        throw new Error(`引用环境资产未就绪：${referencedScene.title}`)
-      }
+      throw new Error(`引用场景「${referencedScene.title}」缺少环境图，请先生成或上传`)
     }
   }
 
