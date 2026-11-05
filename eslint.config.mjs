@@ -5,6 +5,7 @@ export default [
   {
     ignores: [
       '**/.nuxt/**',
+      '**/.nuxt-build/**',
       '**/.output/**',
       'node_modules/**',
       'src-tauri/target/**',

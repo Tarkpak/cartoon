@@ -1,6 +1,9 @@
 import { fileURLToPath } from 'node:url'
 
 export default defineNuxtConfig({
+  // Production builds must not remove the running dev server's generated files.
+  buildDir: process.env.PLAYLET_ADMIN_BUILD_DIR || '.nuxt',
+  ignore: ['.nuxt-build/**'],
   ssr: false,
   compatibilityDate: '2025-01-01',
   devtools: { enabled: false },

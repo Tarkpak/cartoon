@@ -59,6 +59,8 @@
 
 运行命令：
 
+开发缓存使用 `.nuxt`；`bun run build` 自动设置 `PLAYLET_ADMIN_BUILD_DIR=.nuxt-build`，生产构建使用独立缓存，最终产物仍在 `.output`。开发服务运行时请通过此脚本构建，避免直接调用 Nuxt build 清理开发缓存。若旧版本已出现 `Cannot restart nuxt: Unable to delete property`，停止并重新运行 `bun run dev` 即可恢复，无需删除数据库或修改依赖源码。
+
 ```bash
 bun install
 bun run dev
