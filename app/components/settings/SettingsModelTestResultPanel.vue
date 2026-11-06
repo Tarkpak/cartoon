@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { imageTestResultUrls } from '@/lib/model-test-image-options'
+import { downloadModelTestMedia } from '@/lib/model-test-download'
 import ModelUsagePanel from '@/components/model-logs/ModelUsagePanel.vue'
 import {
   CheckCircle2,
+  Download,
   Loader2,
   XCircle
 } from 'lucide-vue-next'
@@ -24,6 +26,23 @@ const activeTabIcon = computed(() => {
 })
 const copyingErrorMessage = ref(false)
 const copiedErrorMessage = ref(false)
+const downloadingUrl = ref('')
+const { toast } = useToast()
+
+async function downloadResult(url: string, kind: 'image' | 'video' | 'audio', index = 0) {
+  if (downloadingUrl.value) return
+  downloadingUrl.value = url
+  try {
+    await downloadModelTestMedia(url, `model-test-${kind}-${Date.now()}-${index + 1}`, {
+      image: 'png', video: 'mp4', audio: 'mp3'
+    }[kind])
+    toast.success('已交给浏览器下载，请查看下载列表')
+  } catch (error) {
+    toast.error('下载失败', { description: error instanceof Error ? error.message : '请稍后重试' })
+  } finally {
+    downloadingUrl.value = ''
+  }
+}
 
 async function copyErrorMessage() {
   if (!import.meta.client) return
@@ -136,9 +155,18 @@ const videoResultMeta = computed(() => {
         v-if="props.activeTab === 'image' && imageResultUrls.length"
         class="grid gap-3 sm:grid-cols-2"
       >
-        <a v-for="(url, index) in imageResultUrls" :key="url" :href="url" target="_blank" rel="noopener noreferrer" class="overflow-hidden rounded-lg border bg-muted/20">
-          <img :src="url" :alt="`生成图片 ${index + 1}`" class="max-h-[500px] w-full object-contain">
-        </a>
+        <div v-for="(url, index) in imageResultUrls" :key="url" class="overflow-hidden rounded-lg border bg-muted/20">
+          <a :href="url" target="_blank" rel="noopener noreferrer" class="block">
+            <img :src="url" :alt="`生成图片 ${index + 1}`" class="max-h-[500px] w-full object-contain">
+          </a>
+          <div class="flex justify-end border-t p-2">
+            <Button type="button" size="sm" variant="outline" :disabled="!!downloadingUrl" @click="downloadResult(url, 'image', index)">
+              <Loader2 v-if="downloadingUrl === url" class="mr-2 h-4 w-4 animate-spin" />
+              <Download v-else class="mr-2 h-4 w-4" />
+              {{ downloadingUrl === url ? '下载中…' : '下载图片' }}
+            </Button>
+          </div>
+        </div>
       </div>
       <p v-if="props.activeTab === 'image' && imageOutputSize" class="text-xs text-muted-foreground">
         输出 {{ imageOutputSize.output }} · 模型生成 {{ imageOutputSize.generation }}，已适配至目标尺寸
@@ -149,6 +177,13 @@ const videoResultMeta = computed(() => {
       </details>
 
       <!-- Video result -->
+      <div v-if="props.activeTab === 'video' && videoResultUrl" class="flex justify-end">
+        <Button type="button" size="sm" variant="outline" :disabled="!!downloadingUrl" @click="downloadResult(videoResultUrl, 'video')">
+          <Loader2 v-if="downloadingUrl === videoResultUrl" class="mr-2 h-4 w-4 animate-spin" />
+          <Download v-else class="mr-2 h-4 w-4" />
+          {{ downloadingUrl === videoResultUrl ? '下载中…' : '下载视频' }}
+        </Button>
+      </div>
       <div
         v-if="props.activeTab === 'video' && videoResultUrl"
         class="mx-auto aspect-video w-full max-w-5xl overflow-hidden rounded-xl bg-black/90"
@@ -168,7 +203,12 @@ const videoResultMeta = computed(() => {
       </div>
 
       <!-- TTS result -->
-      <div v-if="props.activeTab === 'tts'">
+      <div v-if="props.activeTab === 'tts'" class="space-y-3">
+        <Button v-if="props.currentTtsAudioUrl" type="button" size="sm" variant="outline" :disabled="!!downloadingUrl" @click="downloadResult(props.currentTtsAudioUrl, 'audio')">
+          <Loader2 v-if="downloadingUrl === props.currentTtsAudioUrl" class="mr-2 h-4 w-4 animate-spin" />
+          <Download v-else class="mr-2 h-4 w-4" />
+          {{ downloadingUrl === props.currentTtsAudioUrl ? '下载中…' : '下载音频' }}
+        </Button>
         <audio
           v-if="props.currentTtsAudioUrl"
           :src="props.currentTtsAudioUrl"

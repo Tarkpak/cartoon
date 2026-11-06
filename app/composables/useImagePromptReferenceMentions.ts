@@ -218,7 +218,9 @@ export function useImagePromptReferenceMentions(
     syncImagePromptFromEditor()
 
     const state = getImagePromptEditorState()
-    renderImagePromptEditor(state.text, state.caret)
+    // Normalise mention nodes without restoring the caret: doing so focuses
+    // the editor again and interrupts clicks on results and download controls.
+    renderImagePromptEditor(state.text)
 
     setTimeout(() => {
       closeImageMention()
@@ -296,7 +298,7 @@ export function useImagePromptReferenceMentions(
     nextTick(() => {
       const state = getImagePromptEditorState()
       const prompt = options.imagePrompt.value || ''
-      renderImagePromptEditor(prompt, Math.min(state.caret, prompt.length))
+      renderImagePromptEditor(prompt, imagePromptEditorFocused.value ? Math.min(state.caret, prompt.length) : undefined)
 
       if (options.referenceImages.value.length === 0) {
         closeImageMention()
@@ -312,10 +314,8 @@ export function useImagePromptReferenceMentions(
     if (imagePromptEditorFocused.value || imagePromptComposing.value) return
 
     nextTick(() => {
-      const state = getImagePromptEditorState()
       const safePrompt = prompt || ''
-      renderImagePromptEditor(safePrompt, Math.min(state.caret, safePrompt.length))
-      updateImageMentionState()
+      renderImagePromptEditor(safePrompt)
     })
   })
 
