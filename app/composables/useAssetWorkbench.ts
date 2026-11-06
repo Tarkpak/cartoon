@@ -117,10 +117,13 @@ export function useAssetWorkbench() {
     deleteScene,
     updateScene,
     mergeWithNextScene,
-    splitScene
+    splitScene,
+    splitDraft, splitError, splitSaving, closeSplit, acceptSplit
   } = useAssetWorkbenchSceneEditing({
     scenes,
-    saveProject
+    saveProject,
+    projectId,
+    editable: projectEditable
   })
 
   const {
@@ -185,6 +188,7 @@ export function useAssetWorkbench() {
     prepareEpisodePlan,
     parseScript,
     splitScene,
+    splitDraft, splitError, splitSaving, closeSplit, acceptSplit,
     updateScene,
     generateCharacter,
     batchGenerateCharacters,

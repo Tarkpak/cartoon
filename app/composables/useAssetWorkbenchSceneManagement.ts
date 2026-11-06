@@ -433,6 +433,7 @@ export function useAssetWorkbenchSceneManagement(options: {
   async function handleSplitScene(sceneId: string) {
     const targetIndex = options.scenes.value.findIndex(scene => scene.id === sceneId)
     if (targetIndex < 0) return
+    if (options.isSceneBusy(options.scenes.value[targetIndex]!)) return
 
     const beforeIds = options.scenes.value.map(scene => scene.id)
     const previousConfig = options.sceneConfigs.value[sceneId]
@@ -447,8 +448,9 @@ export function useAssetWorkbenchSceneManagement(options: {
     const afterIds = options.scenes.value.map(scene => scene.id)
     if (afterIds.length !== beforeIds.length + 1) return
 
-    const firstSplitScene = options.scenes.value[targetIndex]
-    const secondSplitScene = options.scenes.value[targetIndex + 1]
+    const splitIndex = options.scenes.value.findIndex(scene => scene.id === sceneId)
+    const firstSplitScene = options.scenes.value[splitIndex]
+    const secondSplitScene = options.scenes.value[splitIndex + 1]
     if (!firstSplitScene || !secondSplitScene || firstSplitScene.id !== sceneId) return
 
     if (previousConfig) {

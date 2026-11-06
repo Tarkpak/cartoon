@@ -1,4 +1,6 @@
 import type { SceneData } from '~/lib/asset-workbench-models'
+import { ref, watch, type Ref } from 'vue'
+import { createSceneSplitDraft, type SceneSplitDraft } from '~/lib/scene-split'
 import {
   deleteSceneFromList,
   mergeScenesInList,
@@ -9,6 +11,8 @@ import {
 interface UseAssetWorkbenchSceneEditingOptions {
   scenes: Ref<SceneData[]>
   saveProject: () => Promise<unknown>
+  projectId: Ref<string | undefined>
+  editable: Ref<boolean>
 }
 
 export function useAssetWorkbenchSceneEditing(
@@ -16,6 +20,26 @@ export function useAssetWorkbenchSceneEditing(
 ) {
   const { toast } = useToast()
   const { confirm } = useConfirm()
+  const splitDraft = ref<SceneSplitDraft | null>(null)
+  const splitError = ref('')
+  const splitSaving = ref(false)
+  let settleSplit: ((accepted: boolean) => void) | undefined
+  function closeSplit() {
+    if (splitSaving.value) return
+    splitDraft.value = null
+    settleSplit?.(false)
+    settleSplit = undefined
+  }
+  function acceptSplit() {
+    if (!splitDraft.value || splitDraft.value.some(part => !part.description.trim() || !Number.isFinite(part.duration) || part.duration < 4)) return
+    settleSplit?.(true)
+    settleSplit = undefined
+  }
+  watch(options.projectId, () => {
+    splitDraft.value = null
+    settleSplit?.(false)
+    settleSplit = undefined
+  })
 
   async function deleteScene(scene: SceneData) {
     const ok = await confirm({
@@ -59,37 +83,60 @@ export function useAssetWorkbenchSceneEditing(
 
   async function splitScene(sceneIndex: number) {
     const scene = options.scenes.value[sceneIndex]
-    if (!scene) return
+    if (!scene || !options.editable.value || splitDraft.value || splitSaving.value) return
+    if (scene.videoStatus === 'generating' || scene.referenceStatus === 'generating') return
+    const projectId = options.projectId.value
+    const snapshot = JSON.stringify(scene)
 
     if (scene.duration < 8) {
       toast.warning('当前场景时长不足，无法拆分', { description: '拆分后的每个分镜至少需要 4 秒。' })
       return
     }
 
-    const sentences = scene.description.split(/(?<=[。！？.!?])/g).filter(item => item.trim())
-    if (sentences.length < 2) {
+    const draft = createSceneSplitDraft(scene)
+    if (!draft) {
       toast.warning('场景描述太短，无法拆分', { description: '请先在编辑对话框中添加更多内容。' })
       return
     }
 
-    const ok = await confirm({
-      title: '拆分场景',
-      description: `确定要将"${scene.title}"拆分为两个场景吗？`,
-      confirmText: '拆分'
-    })
+    splitDraft.value = draft
+    splitError.value = ''
+    const ok = await new Promise<boolean>((resolve) => { settleSplit = resolve })
     if (!ok) return
-
-    const nextScenes = splitSceneInList(options.scenes.value, sceneIndex)
-    if (!nextScenes) return
-
+    const currentIndex = options.scenes.value.findIndex(item => item.id === scene.id)
+    const currentScene = options.scenes.value[currentIndex]
+    if (options.projectId.value !== projectId || !options.editable.value || !currentScene || JSON.stringify(currentScene) !== snapshot) {
+      splitDraft.value = null
+      toast.warning('项目或场景已变化，请重新打开拆分预览')
+      return
+    }
+    const nextScenes = splitSceneInList(options.scenes.value, currentIndex, splitDraft.value || draft)
+    if (!nextScenes) {
+      splitError.value = '两段描述不能为空，每段至少 4 秒，时长之和必须等于原场景。请重新调整。'
+      splitDraft.value = null
+      toast.warning(splitError.value)
+      return
+    }
+    const previousScenes = options.scenes.value
     options.scenes.value = nextScenes
-    void options.saveProject()
+    const appliedScenes = options.scenes.value
+    splitSaving.value = true
+    try {
+      if (await options.saveProject() === false) throw new Error('保存失败')
+    } catch {
+      if (options.projectId.value === projectId && options.scenes.value === appliedScenes) options.scenes.value = previousScenes
+      toast.warning('拆分保存失败，已恢复原场景，请重试')
+    } finally {
+      splitSaving.value = false
+      splitDraft.value = null
+    }
   }
 
   return {
     deleteScene,
     updateScene,
     mergeWithNextScene,
-    splitScene
+    splitScene,
+    splitDraft, splitError, splitSaving, closeSplit, acceptSplit
   }
 }

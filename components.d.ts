@@ -115,6 +115,7 @@ declare module 'vue' {
     PromptEditorToolbar: typeof import('./app/components/prompt-editor/PromptEditorToolbar.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SceneSplitDialog: typeof import('./app/components/SceneSplitDialog.vue')['default']
     ScriptEditor: typeof import('./app/components/script/ScriptEditor.vue')['default']
     ScriptEditorStatusBar: typeof import('./app/components/script/ScriptEditorStatusBar.vue')['default']
     ScriptEditorToolbar: typeof import('./app/components/script/ScriptEditorToolbar.vue')['default']

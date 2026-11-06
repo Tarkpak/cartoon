@@ -1,4 +1,5 @@
 import type { SceneData } from '~/composables/useAssetWorkbench'
+import { createSceneSplitDraft, normalizeSplitTimeline, type SceneSplitDraft } from './scene-split'
 import {
   ensureVideoHistoryEntry,
   normalizeVideoHistoryEntries
@@ -216,40 +217,41 @@ export function mergeScenesInList(
 
 export function splitSceneInList(
   scenes: SceneData[],
-  sceneIndex: number
+  sceneIndex: number,
+  input?: SceneSplitDraft
 ): SceneData[] | null {
   const scene = scenes[sceneIndex]
   if (!scene) return null
   if (scene.duration < 8) return null
 
-  const sentences = scene.description.split(/(?<=[。！？.!?])/g).filter(item => item.trim())
-  if (sentences.length < 2) {
-    return null
-  }
-
-  const midPoint = Math.ceil(sentences.length / 2)
-  const firstHalf = sentences.slice(0, midPoint).join('')
-  const secondHalf = sentences.slice(midPoint).join('')
-  const [firstNarration, secondNarration] = splitNarrationText(scene.narration)
+  const draft = input || createSceneSplitDraft(scene)
+  if (!draft || draft.some(part => !part.description.trim() || !Number.isFinite(part.duration) || part.duration < 4)
+    || Math.abs(draft[0].duration + draft[1].duration - scene.duration) > 0.01) return null
+  const [first, second] = draft
 
   const firstScene = resetSceneGenerationState({
     ...scene,
     id: scene.id,
     title: `${scene.title} (上)`,
-    description: firstHalf,
-    narration: firstNarration,
-    duration: Math.ceil(scene.duration / 2),
+    description: normalizeSplitTimeline(first.description, first.duration),
+    narration: first.narration.trim() || undefined,
+    duration: first.duration,
+    descriptionHistory: undefined,
+    transitionOut: 'cut',
     active: scene.active,
     videoHistory: scene.videoHistory ? [...scene.videoHistory] : undefined
   })
 
   const secondScene = resetSceneGenerationState({
     ...scene,
-    id: `scene_${Date.now()}`,
+    id: `scene_${crypto.randomUUID()}`,
     title: `${scene.title} (下)`,
-    description: secondHalf,
-    narration: secondNarration,
-    duration: Math.max(4, Math.floor(scene.duration / 2)),
+    description: normalizeSplitTimeline(second.description, second.duration),
+    narration: second.narration.trim() || undefined,
+    duration: second.duration,
+    descriptionHistory: undefined,
+    transitionIn: 'cut',
+    usePreviousLastFrameAsFirstFrame: true,
     active: false,
     videoHistory: scene.videoHistory ? [...scene.videoHistory] : undefined
   })

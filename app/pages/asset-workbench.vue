@@ -128,6 +128,7 @@ const {
   prepareEpisodePlan,
   parseScript,
   splitScene,
+  splitDraft, splitError, splitSaving, closeSplit, acceptSplit,
   updateScene,
   generateCharacter: generateCharacterCore,
   mergeAllVideos,
@@ -1583,6 +1584,7 @@ provideVideosStageContext({
       </template>
     </AssetWorkbenchHeaderBar>
 
+    <SceneSplitDialog :draft="splitDraft" :error="splitError" :saving="splitSaving" @close="closeSplit" @confirm="acceptSplit" />
     <Dialog v-model:open="directorOpen">
       <SheetContent class="w-[min(92vw,460px)] max-w-none gap-0 p-0">
       <div class="flex items-start justify-between gap-3 border-b px-5 py-4">
