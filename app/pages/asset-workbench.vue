@@ -185,8 +185,13 @@ const directorError = ref('')
 const directorDrafts = ref<Array<{ id: string, title: string, before: string, after: string }>>([])
 const shotReviews = ref<Record<string, ShotReview>>({})
 const reviewRunning = ref(false)
-const autoRepairReviews = ref(true)
+// Regeneration submits paid model tasks; require explicit opt-in for each project.
+const autoRepairReviews = ref(false)
 const automaticRepairAttempts = ref<Record<string, number>>({})
+watch(projectId, () => {
+  autoRepairReviews.value = false
+  automaticRepairAttempts.value = {}
+})
 const repairingShotIds = ref<Record<string, boolean>>({})
 const directorTargets = computed(() => {
   const selected = scenes.value.find(scene => scene.id === selectedSceneId.value) || scenes.value[0]
@@ -1126,7 +1131,7 @@ async function reviewShot(scene: SceneData) {
     if (scene.videoUrl === videoUrl) shotReviews.value[scene.id] = { videoUrl, status: 'error', summary: getDisplayErrorMessage(error, '审片失败，请检查可看图模型配置'), issues: [], unverified: [] }
   } finally {
     reviewRunning.value = false
-    if (shouldAutoRepair) void repairShotFromReview(scene.id, true)
+    if (shouldAutoRepair && autoRepairReviews.value) void repairShotFromReview(scene.id, true)
     void reviewPendingShots()
   }
 }

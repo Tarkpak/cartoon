@@ -39,8 +39,8 @@ export function useAssetWorkbenchSceneManagement(options: {
   resolveSceneDescriptionWithoutAssetMentions: (raw?: string) => string
   updateScene: (scene: Partial<SceneData> & { id: string }) => void
   deleteScene: (scene: SceneData) => void
-  splitScene: (sceneIndex: number) => void
-  mergeWithNextScene: (sceneIndex: number) => void
+  splitScene: (sceneIndex: number) => void | Promise<void>
+  mergeWithNextScene: (sceneIndex: number) => void | Promise<void>
   saveProject: () => Promise<unknown>
   saveWorkflowMeta: () => Promise<unknown>
   synchronizeQueueItems: () => void
@@ -442,7 +442,7 @@ export function useAssetWorkbenchSceneManagement(options: {
         }
       : null
 
-    options.splitScene(targetIndex)
+    await options.splitScene(targetIndex)
 
     const afterIds = options.scenes.value.map(scene => scene.id)
     if (afterIds.length !== beforeIds.length + 1) return
@@ -497,7 +497,7 @@ export function useAssetWorkbenchSceneManagement(options: {
     const currentConfig = resolveSceneConfigSnapshot(currentScene.id)
     const nextConfig = resolveSceneConfigSnapshot(nextScene.id)
 
-    options.mergeWithNextScene(targetIndex)
+    await options.mergeWithNextScene(targetIndex)
 
     const afterIds = options.scenes.value.map(scene => scene.id)
     if (afterIds.length !== beforeIds.length - 1 || afterIds.includes(nextScene.id)) return

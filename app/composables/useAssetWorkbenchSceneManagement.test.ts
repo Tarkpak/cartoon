@@ -61,8 +61,8 @@ function toPlainSceneConfig(
 function createManagementHarness(input: {
   scenes: SceneData[]
   sceneConfigs: Record<string, SceneConsistencyConfig>
-  splitScene?: (sceneIndex: number) => void
-  mergeWithNextScene: (sceneIndex: number) => void
+  splitScene?: (sceneIndex: number) => void | Promise<void>
+  mergeWithNextScene: (sceneIndex: number) => void | Promise<void>
 }) {
   const scenes = ref(input.scenes)
   const sceneConfigs = ref(input.sceneConfigs)
@@ -172,7 +172,8 @@ describe('useAssetWorkbenchSceneManagement', () => {
           continuityLinkReason: 'reason-b'
         })
       },
-      mergeWithNextScene: (sceneIndex) => {
+      mergeWithNextScene: async (sceneIndex) => {
+        await Promise.resolve()
         const nextScenes = mergeScenesInList(harness.scenes.value, sceneIndex)
         if (nextScenes) {
           harness.scenes.value = nextScenes
@@ -213,7 +214,8 @@ describe('useAssetWorkbenchSceneManagement', () => {
           continuityLinkReason: 'split-reason'
         })
       },
-      splitScene: (sceneIndex) => {
+      splitScene: async (sceneIndex) => {
+        await Promise.resolve()
         const nextScenes = splitSceneInList(harness.scenes.value, sceneIndex)
         if (nextScenes) {
           harness.scenes.value = nextScenes
