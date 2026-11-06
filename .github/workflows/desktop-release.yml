@@ -55,7 +55,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             bundle_label: macOS arm64
             bundle_target: app,dmg
           - os: windows-latest
