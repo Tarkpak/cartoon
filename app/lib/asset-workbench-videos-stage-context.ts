@@ -58,7 +58,7 @@ export interface VideosStageState {
   readOnly?: boolean
   selectedScene: SceneData | null
   shotReviews: Record<string, ShotReview>
-  autoRepairReviews: boolean
+  reviewRepairDrafts: Record<string, { before: string, description: string, videoUrl: string }>
   queueSummary: QueueSummary
   autoRunning: boolean
   parsing: boolean
@@ -128,7 +128,7 @@ export interface VideosStageActions {
   openDirector: (sceneId: string) => void
   retryShotReview: (sceneId: string) => void
   repairShotFromReview: (sceneId: string) => void | Promise<void>
-  setAutoRepairReviews: (enabled: boolean) => void
+  confirmReviewRepairVideo: (sceneId: string) => void | Promise<void>
   applySubtitleErasure: (scene: Partial<SceneData> & { id: string }) => Promise<void>
   openSceneVideoHistory: (sceneId: string) => void
   setScenePreviousLastFrameReference: (sceneId: string, enabled: boolean) => void

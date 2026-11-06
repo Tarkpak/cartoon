@@ -1154,7 +1154,7 @@ watch(episodeDirectoryCollapsed, (value) => {
               <span class="ml-auto" :class="selectedReview?.status === 'passed' ? 'text-success' : selectedReview?.status === 'issues' || selectedReview?.status === 'error' ? 'text-warning' : 'text-muted-foreground'">{{ selectedReviewLabel }}</span>
             </summary>
             <div class="mt-3 space-y-2 text-muted-foreground">
-              <p>{{ selectedReview?.summary || '视频完成后自动审片' }}</p>
+              <p>{{ selectedReview?.summary || '点击开始审片，查看视频问题与修改建议。' }}</p>
               <ul v-if="selectedReview?.issues.length" class="space-y-1.5">
                 <li v-for="(issue, index) in selectedReview.issues" :key="index" class="rounded-md bg-warning/10 px-2 py-1.5 text-foreground">
                   {{ issue.reason }}<span class="block text-muted-foreground">建议：{{ issue.suggestion }}</span>
@@ -1162,11 +1162,14 @@ watch(episodeDirectoryCollapsed, (value) => {
               </ul>
               <p v-if="selectedReview?.unverified.length">需人工复核：{{ selectedReview.unverified.join('、') }}</p>
               <div v-if="!state.readOnly" class="flex flex-wrap items-center gap-2 pt-1">
-                <Button v-if="selectedReview && selectedReview.status !== 'running' && selectedReview.status !== 'repairing'" size="sm" variant="ghost" class="h-7 px-2 text-xs" @click="actions.retryShotReview(selectedScene.id)">重新审片</Button>
-                <Button v-if="selectedReview && ['issues', 'error'].includes(selectedReview.status) && selectedReview.issues.some(issue => ['high', 'medium'].includes(issue.severity))" size="sm" variant="secondary" class="h-7 px-2 text-xs" @click="actions.repairShotFromReview(selectedScene.id)">采纳建议并重生成</Button>
-                <label class="ml-auto flex items-center gap-1.5 text-2xs">
-                  <input type="checkbox" :checked="state.autoRepairReviews" class="accent-primary" @change="actions.setAutoRepairReviews(($event.target as HTMLInputElement).checked)" />自动修复一次
-                </label>
+                <Button v-if="!selectedReview || !['running', 'repairing'].includes(selectedReview.status)" size="sm" variant="ghost" class="h-7 px-2 text-xs" @click="actions.retryShotReview(selectedScene.id)">{{ selectedReview ? '重新审片' : '开始审片' }}</Button>
+                <Button v-if="selectedReview && selectedReview.videoUrl === selectedScene.videoUrl && ['issues', 'error'].includes(selectedReview.status) && selectedReview.issues.some(issue => ['high', 'medium'].includes(issue.severity))" size="sm" variant="secondary" class="h-7 px-2 text-xs" @click="actions.repairShotFromReview(selectedScene.id)">采纳建议，改写描述</Button>
+              </div>
+              <div v-if="state.reviewRepairDrafts[selectedScene.id]" class="space-y-2 rounded-md border border-border p-3">
+                <p class="font-medium text-foreground">待确认的描述草稿</p>
+                <p class="whitespace-pre-wrap">{{ state.reviewRepairDrafts[selectedScene.id]?.description }}</p>
+                <p>确认后将应用此描述并生成视频，产生视频生成费用。</p>
+                <Button v-if="!state.readOnly" size="sm" :disabled="state.isSceneBusy(selectedScene)" @click="actions.confirmReviewRepairVideo(selectedScene.id)">确认描述并生成视频</Button>
               </div>
             </div>
           </details>

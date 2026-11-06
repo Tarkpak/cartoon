@@ -63,7 +63,7 @@ import { Dialog, DialogTitle } from '@/components/ui/dialog'
 import { SheetContent } from '@/components/ui/sheet'
 import type { ShotReview } from '~/lib/asset-workbench-videos-stage-context'
 import { evaluateVideoReviewMetadata } from '~/lib/video-review-frames'
-import { actionableReviewIssues, buildVideoReviewRepairInstruction } from '~/lib/video-review-repair'
+import { buildVideoReviewRepairInstruction } from '~/lib/video-review-repair'
 
 // 创作工作台页面
 definePageMeta({
@@ -185,12 +185,10 @@ const directorError = ref('')
 const directorDrafts = ref<Array<{ id: string, title: string, before: string, after: string }>>([])
 const shotReviews = ref<Record<string, ShotReview>>({})
 const reviewRunning = ref(false)
-// Regeneration submits paid model tasks; require explicit opt-in for each project.
-const autoRepairReviews = ref(false)
-const automaticRepairAttempts = ref<Record<string, number>>({})
+const reviewRepairDrafts = ref<Record<string, { before: string, description: string, videoUrl: string }>>({})
 watch(projectId, () => {
-  autoRepairReviews.value = false
-  automaticRepairAttempts.value = {}
+  shotReviews.value = {}
+  reviewRepairDrafts.value = {}
 })
 const repairingShotIds = ref<Record<string, boolean>>({})
 const directorTargets = computed(() => {
@@ -1104,10 +1102,11 @@ async function applyAssistantAssetInstruction() {
 }
 
 async function reviewShot(scene: SceneData) {
-  if (!projectId.value || !scene.videoUrl || reviewRunning.value) return
+  if (!canEditProject.value || !projectId.value || !scene.videoUrl || reviewRunning.value) return
   reviewRunning.value = true
   const videoUrl = scene.videoUrl
-  let shouldAutoRepair = false
+  const reviewingProjectId = projectId.value
+  delete reviewRepairDrafts.value[scene.id]
   shotReviews.value[scene.id] = { videoUrl, status: 'running', summary: '正在抽帧并审片', issues: [], unverified: [] }
   try {
     const index = scenes.value.findIndex(item => item.id === scene.id)
@@ -1120,31 +1119,28 @@ async function reviewShot(scene: SceneData) {
         neighbors: { previous: scenes.value[index - 1]?.description, next: scenes.value[index + 1]?.description }
       }
     })
-    if (scene.videoUrl !== videoUrl) return
+    if (projectId.value !== reviewingProjectId || scene.videoUrl !== videoUrl) return
     const issues = Array.isArray(response.data.issues) ? response.data.issues : []
-    shouldAutoRepair = autoRepairReviews.value
-      && (automaticRepairAttempts.value[scene.id] || 0) < 1
-      && actionableReviewIssues(issues).length > 0
     issues.push(...evaluateVideoReviewMetadata(response, scene.duration, projectAspectRatio.value))
     shotReviews.value[scene.id] = { videoUrl, status: issues.length || !response.data.passed ? 'issues' : 'passed', summary: response.data.summary || '审片完成', issues, unverified: Array.isArray(response.data.unverified) ? response.data.unverified : [] }
   } catch (error) {
-    if (scene.videoUrl === videoUrl) shotReviews.value[scene.id] = { videoUrl, status: 'error', summary: getDisplayErrorMessage(error, '审片失败，请检查可看图模型配置'), issues: [], unverified: [] }
+    if (projectId.value === reviewingProjectId && scene.videoUrl === videoUrl) shotReviews.value[scene.id] = { videoUrl, status: 'error', summary: getDisplayErrorMessage(error, '审片失败，请检查可看图模型配置'), issues: [], unverified: [] }
   } finally {
     reviewRunning.value = false
-    if (shouldAutoRepair && autoRepairReviews.value) void repairShotFromReview(scene.id, true)
-    void reviewPendingShots()
   }
 }
 
-async function repairShotFromReview(sceneId: string, automatic = false) {
+async function repairShotFromReview(sceneId: string) {
   const scene = scenes.value.find(item => item.id === sceneId)
   const review = shotReviews.value[sceneId]
   if (!canEditProject.value || !projectId.value || !scene || !review || !['issues', 'error'].includes(review.status) || repairingShotIds.value[sceneId]) return
   const instruction = buildVideoReviewRepairInstruction(review.issues, scene.duration)
   if (!instruction) return
-  if (automatic) automaticRepairAttempts.value[sceneId] = (automaticRepairAttempts.value[sceneId] || 0) + 1
+  const repairProjectId = projectId.value
+  if (!await confirm({ title: '按审片建议改写描述', description: '将调用模型生成描述草稿，供你确认后再生成视频。', confirmText: '生成描述草稿' })) return
+  if (projectId.value !== repairProjectId || scene.videoUrl !== review.videoUrl || !canEditProject.value) return
   repairingShotIds.value[sceneId] = true
-  shotReviews.value[sceneId] = { ...review, status: 'repairing', summary: automatic ? '正在自动修正提示词并重生成' : '正在按审片建议修正提示词并重生成' }
+  shotReviews.value[sceneId] = { ...review, status: 'repairing', summary: '正在生成描述草稿' }
   try {
     const before = scene.description
     const rewritten = await requestSceneChatDescriptionRewrite({
@@ -1156,36 +1152,41 @@ async function repairShotFromReview(sceneId: string, automatic = false) {
       workflowStylePrompt: workflowStylePrompt.value,
       buildAssetWorkflowScenePayload
     })
+    if (projectId.value !== repairProjectId) return
     if (scene.description !== before || scene.videoUrl !== review.videoUrl) throw new Error('分镜已被其他操作修改，请重新审片')
     if (rewritten === before) throw new Error('AI 未产生有效的分镜修改，请人工复核审片建议')
-    scene.descriptionHistory = [
-      ...(scene.descriptionHistory || []),
-      { id: `review_repair_${Date.now()}_${scene.id}`, description: before, createdAt: Date.now(), label: '审片修复前' }
-    ].slice(-20)
-    scene.description = rewritten
-    invalidateSceneVideoState(scene)
-    if (!await saveProject()) throw new Error('保存修复后的分镜描述失败，未启动重生成')
-    await retryScene(scene.id)
-    if (scene.videoStatus !== 'done' || !scene.videoUrl || scene.videoUrl === review.videoUrl) {
-      throw new Error(scene.videoError || '重生成未得到新的视频，请在分镜任务中查看原因')
-    }
-    // 新视频地址变化后，现有 watcher 会自动触发复审。
+    reviewRepairDrafts.value[sceneId] = { before, description: rewritten, videoUrl: review.videoUrl }
+    shotReviews.value[sceneId] = { ...review, summary: '描述草稿已生成，请确认后再生成视频' }
   } catch (error) {
-    shotReviews.value[sceneId] = { ...review, status: 'error', summary: getDisplayErrorMessage(error, '审片修复失败'), issues: review.issues }
+    if (projectId.value === repairProjectId) shotReviews.value[sceneId] = { ...review, status: 'error', summary: getDisplayErrorMessage(error, '审片修复失败'), issues: review.issues }
   } finally {
     delete repairingShotIds.value[sceneId]
   }
 }
 
-async function reviewPendingShots() {
-  if (!canEditProject.value || reviewRunning.value) return
-  const next = scenes.value.find(scene => scene.videoStatus === 'done' && scene.videoUrl && shotReviews.value[scene.id]?.videoUrl !== scene.videoUrl)
-  if (next) await reviewShot(next)
+async function confirmReviewRepairVideo(sceneId: string) {
+  const draft = reviewRepairDrafts.value[sceneId]
+  const scene = scenes.value.find(item => item.id === sceneId)
+  const repairProjectId = projectId.value
+  if (!draft || !scene || !canEditProject.value || isSceneBusy(scene)) return
+  if (!await confirm({ title: '确认生成视频', description: '将应用描述草稿并调用视频模型，产生视频生成费用。', confirmText: '确认并生成视频' })) return
+  if (projectId.value !== repairProjectId || !canEditProject.value || isSceneBusy(scene)
+    || scenes.value.find(item => item.id === sceneId) !== scene
+    || scene.description !== draft.before || scene.videoUrl !== draft.videoUrl) return
+  scene.descriptionHistory = [
+    ...(scene.descriptionHistory || []),
+    { id: `review_repair_${Date.now()}_${scene.id}`, description: draft.before, createdAt: Date.now(), label: '审片修复前' }
+  ].slice(-20)
+  scene.description = draft.description
+  invalidateSceneVideoState(scene)
+  if (!await saveProject()) return
+  delete reviewRepairDrafts.value[sceneId]
+  if (projectId.value === repairProjectId && canEditProject.value) await retryScene(sceneId)
 }
 
 function retryShotReview(sceneId: string) {
-  delete shotReviews.value[sceneId]
-  void reviewPendingShots()
+  const scene = scenes.value.find(item => item.id === sceneId)
+  if (scene) void reviewShot(scene)
 }
 
 function openDirector(sceneId: string) {
@@ -1197,8 +1198,6 @@ function openDirector(sceneId: string) {
   directorOpen.value = true
 }
 
-watch(() => scenes.value.map(scene => `${scene.id}:${scene.videoStatus}:${scene.videoUrl || ''}`).join('|'), () => { void reviewPendingShots() }, { immediate: true })
-watch(canEditProject, () => { void reviewPendingShots() })
 
 async function selectSceneDescriptionVersion(sceneId: string, versionId: string) {
   const scene = scenes.value.find(item => item.id === sceneId)
@@ -1464,7 +1463,7 @@ provideVideosStageContext({
     selectedSceneId,
     selectedScene,
     shotReviews,
-    autoRepairReviews,
+    reviewRepairDrafts,
     queueSummary,
     autoRunning,
     parsing,
@@ -1520,7 +1519,7 @@ provideVideosStageContext({
     openDirector,
     retryShotReview,
     repairShotFromReview,
-    setAutoRepairReviews: (enabled: boolean) => { autoRepairReviews.value = enabled },
+    confirmReviewRepairVideo,
     applySubtitleErasure: async (scene) => {
       updateScene(scene)
       await saveProject()
